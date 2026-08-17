@@ -197,12 +197,16 @@ test('theater lineup cannot exceed 12 members on one day', () => {
   assert.equal(count, 12);
 });
 
-test('Meet & Greet is group-wide and limited to one event per week', () => {
+test('Meet & Greet is group-wide and limited to one event per four-week month', () => {
   const draft = createGame('meet-greet-limit-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const scheduled = assignActivity(game, game.members[0].id, 'Sat', 'mg1');
   assert.equal(Object.values(scheduled.schedule).filter((activity) => activity === 'mg1').length, 12);
   assert.equal(assignActivity(scheduled, game.members[1].id, 'Sun', 'mg1'), scheduled);
+  let next = resolveWeek(scheduled);
+  assert.equal(Object.keys(assignActivity(next, next.members[0].id, 'Sun', 'mg1').schedule).length, 0);
+  for (let index = 0; index < 3; index += 1) next = resolveWeek(next);
+  assert.equal(Object.values(assignActivity(next, next.members[0].id, 'Sun', 'mg1').schedule).filter((activity) => activity === 'mg1').length, 12);
 });
 
 test('concert is group-wide and limited to one event per four-week month', () => {
@@ -223,18 +227,19 @@ test('Video Call is limited to one event per member per four-week month', () => 
   assert.equal(assignActivity(nextWeek, nextWeek.members[1].id, 'Sat', 'vc1').schedule[`${nextWeek.members[1].id}:Sat`], 'vc1');
 });
 
-test('Live Stream is weekly per member and scales revenue and fans with popularity', () => {
+test('Live Stream is available daily and scales revenue and fans with popularity', () => {
   const draft = createGame('live-stream-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const memberId = game.members[0].id;
   game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 20, popularity: 80 } : member) };
   const scheduled = assignActivity(game, memberId, 'Mon', 'liveStream');
-  assert.equal(assignActivity(scheduled, memberId, 'Tue', 'liveStream'), scheduled);
-  const next = resolveWeek(scheduled);
+  const scheduledTwice = assignActivity(scheduled, memberId, 'Tue', 'liveStream');
+  assert.equal(scheduledTwice.schedule[`${memberId}:Tue`], 'liveStream');
+  const next = resolveWeek(scheduledTwice);
   const updated = next.members.find((member) => member.id === memberId);
-  assert.equal(next.lastResult.finances.liveStream, 3_200_000);
-  assert.ok(next.lastResult.fanGain >= 400);
-  assert.equal(updated.energy, 66);
+  assert.equal(next.lastResult.finances.liveStream, 6_400_000);
+  assert.ok(next.lastResult.fanGain >= 800);
+  assert.equal(updated.energy, 72);
   assert.equal(next.lastResult.moneyDelta, next.lastResult.finances.totalIncome - next.lastResult.finances.totalExpenses);
 });
 

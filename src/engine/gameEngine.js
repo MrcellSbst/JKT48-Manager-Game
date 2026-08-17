@@ -158,7 +158,7 @@ export function assignActivity(state, memberId, day, activityId) {
   }
   if (activityId === 'concert' || activityId.startsWith('mg')) {
     const type = activityId === 'concert' ? 'concert' : 'meetGreet';
-    const alreadyResolved = events.some((event) => event.type === type && event.year === state.year && (type === 'meetGreet' ? event.week === state.week : event.month === month));
+    const alreadyResolved = events.some((event) => event.type === type && event.year === state.year && event.month === month);
     const alreadyScheduled = Object.values(schedule).some((value) => type === 'concert' ? value === 'concert' : value.startsWith?.('mg'));
     const mvLocked = eligibleMembers.some((item) => schedule[`${item.id}:${day}`] === 'mvProduction');
     if (alreadyResolved || alreadyScheduled || mvLocked) return state;
@@ -169,10 +169,6 @@ export function assignActivity(state, memberId, day, activityId) {
     const resolvedThisMonth = events.some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === month);
     const scheduledVideoCall = Object.entries(schedule).some(([scheduleKey, value]) => scheduleKey.startsWith(`${memberId}:`) && value.startsWith?.('vc'));
     if (resolvedThisMonth || scheduledVideoCall) return state;
-  }
-  if (activityId === 'liveStream') {
-    const scheduledLiveStream = Object.entries(schedule).some(([scheduleKey, value]) => scheduleKey.startsWith(`${memberId}:`) && value === 'liveStream' && scheduleKey !== key);
-    if (scheduledLiveStream) return state;
   }
   if (activityId === 'theater' && schedule[key] !== 'theater') {
     const lineupSize = state.members.reduce((count, item) => count + (schedule[`${item.id}:${day}`] === 'theater' ? 1 : 0), 0);
