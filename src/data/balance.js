@@ -1,0 +1,38 @@
+export const BALANCE = {
+  startingMoney: 850_000_000,
+  weeklyRecovery: 40,
+  dramaChance: 0.02,
+  dramaDuration: 4,
+  dramaCooldown: [8, 16],
+  maxYears: 5,
+  weeksPerYear: 48,
+  weeksPerMonth: 4,
+  auditionStartWeek: 37,
+  theaterMinimumMembers: 12,
+  bonusSlots: 3,
+  graduation: { year1Max: 3, normalMin: 2, normalMax: 5, extremeMax: 7, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, generatedMinimumTenureYears: 2 },
+  theaterTiers: [
+    { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [60_000, 80_000] },
+    { id: 'city', name: 'City Theater', tier: 'Middle', priceRange: [210_000_000, 330_000_000], capacityRange: [300, 470], ticketRange: [80_000, 105_000] },
+    { id: 'flagship', name: 'Flagship Theater', tier: 'High', priceRange: [390_000_000, 570_000_000], capacityRange: [580, 880], ticketRange: [100_000, 130_000] },
+  ],
+  activities: {
+    rest: { label: 'Rest', energy: 0, cost: 0, tone: 'rest', type: 'light' },
+    vocal: { label: 'Vocal training', energy: 15, cost: 1_500_000, skill: 'vocal', type: 'medium' },
+    dance: { label: 'Dance training', energy: 15, cost: 1_500_000, skill: 'dance', type: 'medium' },
+    performance: { label: 'Performance training', energy: 15, cost: 1_500_000, skill: 'performance', type: 'medium' },
+    mc: { label: 'MC training', energy: 15, cost: 1_200_000, skill: 'mc', type: 'medium' },
+    stamina: { label: 'Stamina training', energy: 15, cost: 1_200_000, skill: 'stamina', type: 'medium' },
+    theater: { label: 'Theater show', energy: 18, cost: 750_000, type: 'medium' },
+    media: { label: 'Media appearance', energy: 10, cost: 500_000, type: 'light' },
+    photoshoot: { label: 'Photoshoot', energy: 10, cost: 800_000, type: 'light' },
+    vc1: { label: 'Video Call', energy: 13, cost: 450_000, capacity: 75, ticket: 120_000, type: 'medium' },
+    mg1: { label: 'Meet & Greet', energy: 20, cost: 750_000, capacity: 300, ticket: 50_000, type: 'heavy' },
+    mvSupport: { label: 'MV · Supporting', energy: 18, cost: 2_000_000, type: 'heavy' },
+    mvSenbatsu: { label: 'MV · Senbatsu', energy: 25, cost: 3_000_000, type: 'heavy' },
+    mvCenter: { label: 'MV · Center', energy: 32, cost: 5_000_000, type: 'heavy' },
+    concert: { label: 'Concert', energy: 34, cost: 4_000_000, revenue: 5_000_000, type: 'heavy' },
+  },
+};
+
+export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];

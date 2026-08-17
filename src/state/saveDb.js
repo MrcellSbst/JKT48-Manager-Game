@@ -1,0 +1,73 @@
+const DB_NAME = 'jkt48-manager';
+const STORE_NAME = 'saves';
+const META_STORE = 'meta';
+const DB_VERSION = 2;
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'slot' });
+      }
+      if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: 'id' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function transactStore(storeName, mode, action) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, mode);
+    const request = action(transaction.objectStore(storeName));
+    let result;
+    request.onsuccess = () => { result = request.result; };
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => { db.close(); resolve(result); };
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('IndexedDB transaction aborted')); };
+  });
+}
+
+async function transact(mode, action) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, mode);
+    const request = action(transaction.objectStore(STORE_NAME));
+    let result;
+    request.onsuccess = () => { result = request.result; };
+    request.onerror = () => reject(request.error);
+    transaction.oncomplete = () => { db.close(); resolve(result); };
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(transaction.error ?? new Error('IndexedDB transaction aborted')); };
+  });
+}
+
+export const listSaves = () => transact('readonly', (store) => store.getAll());
+export const loadSave = (slot) => transact('readonly', (store) => store.get(slot));
+export const writeSave = (slot, state) => transact('readwrite', (store) => store.put({ slot, state, updatedAt: Date.now() }));
+export const deleteSave = (slot) => transact('readwrite', (store) => store.delete(slot));
+
+export async function getActiveRun() {
+  const saves = await listSaves();
+  if (saves.length === 0) return null;
+  const newest = saves.reduce((latest, save) => save.updatedAt > latest.updatedAt ? save : latest);
+  const active = newest.slot === 1 ? newest : { ...newest, slot: 1 };
+  if (newest.slot !== 1) await writeSave(1, newest.state);
+  await Promise.all(saves.filter((save) => save.slot !== 1).map((save) => deleteSave(save.slot)));
+  return active;
+}
+
+export const loadActiveRun = () => loadSave(1);
+export const saveActiveRun = (state) => writeSave(1, state);
+export const deleteActiveRun = () => deleteSave(1);
+
+const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'], completedRuns: 0 };
+export async function getMetaProfile() {
+  const profile = await transactStore(META_STORE, 'readonly', (store) => store.get('profile'));
+  return profile ?? DEFAULT_META;
+}
+export const saveMetaProfile = (profile) => transactStore(META_STORE, 'readwrite', (store) => store.put({ ...profile, id: 'profile' }));

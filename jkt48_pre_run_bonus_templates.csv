@@ -1,0 +1,31 @@
+﻿Bonus ID,Bonus Name,Category,Bonus Effect,Value,Duration,Design Notes
+B001,Theater Partnership,Finance / Theater,Reduce theater purchase/lease cost,-15%,Permanent for run,Helps early infrastructure without affecting concert venues.
+B002,Theater Operations,Finance / Theater,Reduce theater running cost,-12%,Permanent for run,Applies to recurring theater upkeep only.
+B003,Facility Contractor,Finance / Infrastructure,Reduce theater renovation and facility upgrade cost,-12%,Permanent for run,Does not reduce normal weekly operating costs.
+B004,Lean Operations,Finance,Reduce general recurring management operating costs,-6%,Permanent for run,Broad but intentionally smaller than specialized discounts.
+B005,Production Partnership,Finance / Production,Reduce MV production cost,-10%,Permanent for run,Does not directly increase MV quality.
+B006,Live Production Network,Finance / Concert,Reduce concert production cost,-8%,Permanent for run,"Applies to production package, not venue rental."
+B007,Venue Network,Concert,Add one extra venue option whenever concert venues are generated,+1 venue choice,Permanent for run,Improves choice without directly increasing venue quality.
+B008,Venue Partnership,Finance / Concert,Reduce concert venue rental cost,-10%,Permanent for run,Useful for larger venue strategies.
+B009,Sponsor Relations,Revenue,Increase sponsorship revenue,+8%,Permanent for run,Applies only to sponsorship income.
+B010,Media Partnership,Revenue / Media,Increase revenue from paid media and appearance opportunities,+8%,Permanent for run,Does not directly increase popularity gained.
+B011,Recovery Program,Member / Energy,Increase passive energy regeneration at the start of each week,+5 Energy,Permanent for run,Changes baseline weekly recovery from 40 to 45.
+B012,Performance Conditioning,Member / Energy,Reduce theater and concert energy costs,-7%,Permanent for run,Applied after Stamina fatigue modifier.
+B013,Event Conditioning,Member / Energy,Reduce M&G and Video Call energy costs,-10%,Permanent for run,Useful for fan-event-heavy schedules.
+B014,Rehearsal Efficiency,Member / Energy,Reduce concert rehearsal energy costs,-15%,Permanent for run,Does not reduce the concert performance cost itself.
+B015,Professional Coaching,Member / Development,Increase all normal training EXP gained,+10%,Permanent for run,General development bonus.
+B016,Youth Development Program,Member / Development,Increase training EXP gained by trainees,+15%,Permanent for run,Does not affect established members.
+B017,Setlist Academy,Theater / Development,Increase setlist familiarity gain,+20%,Permanent for run,Helps build understudies and flexible lineups.
+B018,Cross-Training Program,Member / Development,Increase EXP when training a member's currently lowest core skill,+12%,Permanent for run,Encourages balanced development rather than pure specialization.
+B019,Talent Network,Audition,Generate additional audition finalists,+2 finalists,Permanent for run,Does not increase the allowed intake cap.
+B020,Advanced Scouting,Audition,Improve accuracy of candidate stat and potential estimates,+12% scouting accuracy,Permanent for run,Narrows uncertainty without revealing exact hidden values.
+B021,Recruitment Office,Finance / Audition,Reduce audition operating cost,-15%,Permanent for run,Does not affect candidate quality.
+B022,Youth Outreach,Audition,Increase audition applicant pool size,+15%,Permanent for run,Slightly improves odds of stronger finalist pools indirectly.
+B023,Fan Relations Department,Fan Trust,Reduce Fan Trust losses from normal management decisions,-8% trust loss,Permanent for run,Does not prevent Drama or remove suspensions.
+B024,Crisis Communications,Drama / Fan Trust,Reduce Fan Trust and Reputation damage caused by Drama events,-15% drama impact,Permanent for run,Drama still lasts 4 weeks and all refunds/schedule disruption still occur.
+B025,Community Outreach,Fans,Increase fan conversion from theater performances,+10%,Permanent for run,Primarily strengthens core/group fan growth.
+B026,Digital Strategy,Fans / MV / VC,Increase digital fan acquisition from MV and Video Call activity,+8%,Permanent for run,Does not directly increase underlying M&G demand.
+B027,Fan Event Marketing,M&G / VC,Increase ticket sale speed while M&G and VC sales are open,+10%,Permanent for run,Does not increase true demand; helps convert existing demand sooner.
+B028,Concert Promoter Network,Concert / Sales,Increase concert ticket sale speed,+10%,Permanent for run,Useful when choosing shorter selling periods.
+B029,Creative Network,MV,Raise the minimum random MV quality roll,+5 minimum quality,Permanent for run,Reduces disastrous MV outcomes without raising the maximum.
+B030,Understudy Program,Theater / Risk,Reduce setlist unfamiliarity penalty for emergency replacements,-50% unfamiliarity penalty,Permanent for run,"Helps when injuries, fatigue, graduation, or Drama creates sudden lineup gaps."
