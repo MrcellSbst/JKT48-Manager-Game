@@ -145,18 +145,23 @@ export function assignActivity(state, memberId, day, activityId) {
   const key = `${memberId}:${day}`;
   const schedule = { ...state.schedule };
   const currentActivity = schedule[key];
+  if (currentActivity === 'mvProduction') return state;
   const month = Math.ceil(state.week / BALANCE.weeksPerMonth);
   const events = state.activityEvents ?? [];
   const eligibleMembers = state.members.filter((item) => ['active', 'trainee'].includes(item.status) && (item.suspensionWeeks ?? 0) === 0);
-  if (activityId === 'rest' && (currentActivity === 'concert' || currentActivity?.startsWith('mg'))) {
+  if (activityId === 'clear' && (currentActivity === 'concert' || currentActivity?.startsWith('mg'))) {
     eligibleMembers.forEach((item) => { if (schedule[`${item.id}:${day}`] === currentActivity) delete schedule[`${item.id}:${day}`]; });
     return { ...state, schedule };
+  }
+  if (currentActivity && (currentActivity === 'concert' || currentActivity.startsWith('mg')) && activityId !== currentActivity) {
+    eligibleMembers.forEach((item) => { if (schedule[`${item.id}:${day}`] === currentActivity) delete schedule[`${item.id}:${day}`]; });
   }
   if (activityId === 'concert' || activityId.startsWith('mg')) {
     const type = activityId === 'concert' ? 'concert' : 'meetGreet';
     const alreadyResolved = events.some((event) => event.type === type && event.year === state.year && (type === 'meetGreet' ? event.week === state.week : event.month === month));
     const alreadyScheduled = Object.values(schedule).some((value) => type === 'concert' ? value === 'concert' : value.startsWith?.('mg'));
-    if (alreadyResolved || alreadyScheduled) return state;
+    const mvLocked = eligibleMembers.some((item) => schedule[`${item.id}:${day}`] === 'mvProduction');
+    if (alreadyResolved || alreadyScheduled || mvLocked) return state;
     eligibleMembers.forEach((item) => { schedule[`${item.id}:${day}`] = activityId; });
     return { ...state, schedule };
   }
@@ -165,11 +170,15 @@ export function assignActivity(state, memberId, day, activityId) {
     const scheduledVideoCall = Object.entries(schedule).some(([scheduleKey, value]) => scheduleKey.startsWith(`${memberId}:`) && value.startsWith?.('vc'));
     if (resolvedThisMonth || scheduledVideoCall) return state;
   }
+  if (activityId === 'liveStream') {
+    const scheduledLiveStream = Object.entries(schedule).some(([scheduleKey, value]) => scheduleKey.startsWith(`${memberId}:`) && value === 'liveStream' && scheduleKey !== key);
+    if (scheduledLiveStream) return state;
+  }
   if (activityId === 'theater' && schedule[key] !== 'theater') {
     const lineupSize = state.members.reduce((count, item) => count + (schedule[`${item.id}:${day}`] === 'theater' ? 1 : 0), 0);
     if (lineupSize >= 12) return state;
   }
-  if (activityId === 'rest') delete schedule[key];
+  if (activityId === 'clear') delete schedule[key];
   else schedule[key] = activityId;
   return { ...state, schedule };
 }
@@ -189,6 +198,21 @@ export function getTheaterRenovationOffer(state) {
     weeklyUpkeep: roundTo(state.theater.weeklyUpkeep * (1 + upkeepRate), 500_000),
     level: level + 1,
   };
+}
+
+export function startSingleProduction(state, centerId, productionDay) {
+  if (state.runStatus === 'ended' || state.money < 85_000_000 || state.singles.some((single) => single.status === 'production')) return state;
+  if (!DAYS.includes(productionDay)) return state;
+  const eligible = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0);
+  const center = eligible.find((member) => member.id === centerId);
+  if (!center || eligible.length < 12) return state;
+  const score = (member) => member.vocal + member.dance + member.performance + member.mc + member.variety;
+  const memberIds = [center, ...eligible.filter((member) => member.id !== centerId).sort((a, b) => score(b) - score(a))].slice(0, 12).map((member) => member.id);
+  if (memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return state;
+  const schedule = { ...state.schedule };
+  memberIds.forEach((memberId) => { schedule[`${memberId}:${productionDay}`] = 'mvProduction'; });
+  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, week: state.week, year: state.year, status: 'production', progressWeeks: 0, durationWeeks: 4 };
+  return { ...state, money: state.money - 85_000_000, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: `${single.title} enters production`, detail: `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
 export function renovateTheater(state) {
@@ -213,18 +237,18 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
   let fanGain = 0;
   let popularity = member.popularity;
   let momentum = member.momentum * 0.7;
-  const finances = { theater: 0, videoCall: 0, meetGreet: 0, concert: 0, otherIncome: 0, activityCosts: 0 };
+  const finances = { theater: 0, videoCall: 0, meetGreet: 0, liveStream: 0, concert: 0, otherIncome: 0, activityCosts: 0 };
   const stats = { ...member };
   const appearances = { ...member.appearances };
 
   for (const activityId of assignments) {
     const activity = BALANCE.activities[activityId];
-    if (!activity || energy <= 0) continue;
+    if (!activity || (energy <= 0 && !activity.energyRecovery)) continue;
     const energyRate = (['theater', 'concert'].includes(activityId) ? bonusValue(state, 'B012') : 0) + (/^(mg|vc)/.test(activityId) ? bonusValue(state, 'B013') : 0);
     const fatigue = Math.round(activity.energy * (1.15 - member.stamina * 0.003) * (1 + energyRate));
     const performanceBand = energy >= 60 ? 1 : energy >= 40 ? 0.95 : energy >= 20 ? 0.85 : 0.7;
     const score = ((member.performance + member.dance + member.vocal) / 3) * performanceBand + randomInt(rng, -8, 8);
-    energy = clamp(energy - fatigue);
+    energy = clamp(energy - fatigue + (activity.energyRecovery ?? 0));
     const activityCost = activity.cost ?? 0;
     const activityRevenue = activity.revenue ?? 0;
     money -= activityCost;
@@ -251,6 +275,14 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       appearances.media += 1;
       fanGain += Math.round(member.variety * 2.2);
       popularity += 1;
+    }
+    if (activityId === 'liveStream') {
+      const streamRevenue = Math.round(member.popularity * activity.revenuePerPopularity);
+      const streamFans = Math.round(member.popularity * activity.fansPerPopularity);
+      money += streamRevenue;
+      finances.liveStream += streamRevenue;
+      fanGain += streamFans;
+      momentum += 1;
     }
     if (activity.capacity) {
       const demand = Math.round(member.fanbase * (0.006 + member.popularity / 12000) * (0.9 + rng() * 0.3));
@@ -326,7 +358,7 @@ export function resolveWeek(state) {
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
   let moneyDelta = -applyRate(18_000_000, bonusValue(state, 'B004')) - (state.theater?.weeklyUpkeep ?? 0);
   let fanGain = 0;
-  const finances = { theater: 0, videoCall: 0, meetGreet: 0, concert: 0, otherIncome: 0, activityCosts: 0, generalOperations: applyRate(18_000_000, bonusValue(state, 'B004')), theaterUpkeep: state.theater?.weeklyUpkeep ?? 0 };
+  const finances = { theater: 0, videoCall: 0, meetGreet: 0, liveStream: 0, concert: 0, otherIncome: 0, activityCosts: 0, generalOperations: applyRate(18_000_000, bonusValue(state, 'B004')), theaterUpkeep: state.theater?.weeklyUpkeep ?? 0 };
   const theaterLineups = Object.fromEntries(DAYS.map((day) => [day, state.members.reduce((count, member) => count + (state.schedule[`${member.id}:${day}`] === 'theater' ? 1 : 0), 0)]));
   const month = Math.ceil(state.week / BALANCE.weeksPerMonth);
   const scheduledEntries = Object.entries(state.schedule);
@@ -405,22 +437,36 @@ export function resolveWeek(state) {
     history.unshift({ id: `year-${year}`, type: 'year', title: `Year ${year} begins`, detail: 'New season. Roster recovery and annual review complete.', year, week: 1 });
   }
   members = members.map((member) => ['active', 'trainee'].includes(member.status) ? { ...member, energy: clamp(member.energy + BALANCE.weeklyRecovery + bonusValue(state, 'B011')) } : member);
+  let completedSingles = 0;
+  const singles = state.singles.map((single) => {
+    if (single.status !== 'production') return single;
+    const progressWeeks = Math.min(single.durationWeeks, single.progressWeeks + 1);
+    if (progressWeeks < single.durationWeeks) return { ...single, progressWeeks };
+    completedSingles += 1;
+    notifications.push({ type: 'success', text: `${single.title} MV production completed.` });
+    history.unshift({ id: `${single.id}-release`, type: 'single', title: `${single.title} released`, detail: 'Four-week MV production completed. Group popularity and public awareness increased.', year, week });
+    return { ...single, progressWeeks, status: 'released', releasedYear: year, releasedWeek: week };
+  });
+  const nextSchedule = {};
+  singles.filter((single) => single.status === 'production').forEach((single) => {
+    single.memberIds.forEach((memberId) => { nextSchedule[`${memberId}:${single.productionDay}`] = 'mvProduction'; });
+  });
   const group = {
     ...state.group,
     fanbase: state.group.fanbase + fanGain,
-    popularity: clamp(state.group.popularity + (fanGain > 5000 ? 1 : 0)),
+    popularity: clamp(state.group.popularity + (fanGain > 5000 ? 1 : 0) + completedSingles * 3),
     fanTrust: clamp(state.group.fanTrust + (moneyDelta > 0 ? 1 : moneyDelta < -60_000_000 ? -1 : 0)),
-    publicAwareness: clamp(state.group.publicAwareness + (fanGain > 8000 ? 1 : 0)),
+    publicAwareness: clamp(state.group.publicAwareness + (fanGain > 8000 ? 1 : 0) + completedSingles * 4),
   };
   const eligibleCount = getTheaterEligibleMembers({ members }).length;
   const previousRecords = state.records ?? {};
   const theaterShows = [...validTheaterDays].length;
   const records = { ...previousRecords, peakFanbase: Math.max(previousRecords.peakFanbase ?? 0, group.fanbase), peakFanTrust: Math.max(previousRecords.peakFanTrust ?? 0, group.fanTrust), peakReputation: Math.max(previousRecords.peakReputation ?? 0, group.reputation), largestRoster: Math.max(previousRecords.largestRoster ?? 0, members.filter((member) => ['active', 'trainee'].includes(member.status)).length), lowestEligibleRoster: Math.min(previousRecords.lowestEligibleRoster ?? eligibleCount, eligibleCount), theaterShows: (previousRecords.theaterShows ?? 0) + theaterShows, dramaSuspensions: (previousRecords.dramaSuspensions ?? 0) + (activeDrama && !state.activeDrama ? 1 : 0), moneyEarned: (previousRecords.moneyEarned ?? 0) + Math.max(0, moneyDelta), moneySpent: (previousRecords.moneySpent ?? 0) + Math.max(0, -moneyDelta) };
   const ended = eligibleCount < BALANCE.theaterMinimumMembers;
-  const lastResult = { year: state.year, week: state.week, moneyDelta, fanGain, activities: Object.keys(state.schedule).length, finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.concert + finances.otherIncome, totalExpenses: finances.activityCosts + finances.generalOperations + finances.theaterUpkeep } };
+  const lastResult = { year: state.year, week: state.week, moneyDelta, fanGain, activities: Object.keys(state.schedule).length, schedule: { ...state.schedule }, finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.liveStream + finances.concert + finances.otherIncome, totalExpenses: finances.activityCosts + finances.generalOperations + finances.theaterUpkeep } };
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult].slice(-(BALANCE.weeksPerYear * 2));
   const next = {
-    ...state, year, week, members, group, money: state.money + moneyDelta, schedule: {}, activityEvents: activityEvents.slice(-500), history: history.slice(0, 250),
+    ...state, year, week, members, singles, group, money: state.money + moneyDelta, schedule: nextSchedule, activityEvents: activityEvents.slice(-500), history: history.slice(0, 250),
     notifications, activeDrama, dramaCooldown, graduations, records, weeklyReports, runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };

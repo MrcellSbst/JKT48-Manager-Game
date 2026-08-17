@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition } from '../src/engine/gameEngine.js';
+import { assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition, startSingleProduction } from '../src/engine/gameEngine.js';
 import { translateIndonesian } from '../src/localization.js';
 
 test('active roster excludes graduated members and JKT48V', () => {
@@ -146,6 +146,18 @@ test('scheduled activity resolves, clears calendar, and advances week', () => {
   assert.deepEqual(next.schedule, {});
   assert.equal(updated.appearances.theater, 1);
   assert.ok(updated.fanbase > member.fanbase);
+  assert.equal(next.lastResult.schedule[`${member.id}:Mon`], 'theater');
+});
+
+test('Rest is scheduled explicitly and restores energy without another activity', () => {
+  const draft = createGame('rest-recovery-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 0 } : member) };
+  const scheduled = assignActivity(game, memberId, 'Mon', 'rest');
+  assert.equal(scheduled.schedule[`${memberId}:Mon`], 'rest');
+  assert.equal(resolveWeek(scheduled).members.find((member) => member.id === memberId).energy, 60);
+  assert.equal(assignActivity(scheduled, memberId, 'Mon', 'clear').schedule[`${memberId}:Mon`], undefined);
 });
 
 test('weekly result exposes an income and expense breakdown matching net cash', () => {
@@ -209,6 +221,49 @@ test('Video Call is limited to one event per member per four-week month', () => 
   const nextWeek = resolveWeek(assignActivity(game, firstMemberId, 'Sat', 'vc1'));
   assert.equal(Object.keys(assignActivity(nextWeek, firstMemberId, 'Sat', 'vc1').schedule).length, 0);
   assert.equal(assignActivity(nextWeek, nextWeek.members[1].id, 'Sat', 'vc1').schedule[`${nextWeek.members[1].id}:Sat`], 'vc1');
+});
+
+test('Live Stream is weekly per member and scales revenue and fans with popularity', () => {
+  const draft = createGame('live-stream-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 20, popularity: 80 } : member) };
+  const scheduled = assignActivity(game, memberId, 'Mon', 'liveStream');
+  assert.equal(assignActivity(scheduled, memberId, 'Tue', 'liveStream'), scheduled);
+  const next = resolveWeek(scheduled);
+  const updated = next.members.find((member) => member.id === memberId);
+  assert.equal(next.lastResult.finances.liveStream, 3_200_000);
+  assert.ok(next.lastResult.fanGain >= 400);
+  assert.equal(updated.energy, 66);
+  assert.equal(next.lastResult.moneyDelta, next.lastResult.finances.totalIncome - next.lastResult.finances.totalExpenses);
+});
+
+test('single production requires 12 members and completes after four weeks', () => {
+  const draft = createGame('single-production-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const centerId = game.members[0].id;
+  const occupied = assignActivity(game, centerId, 'Wed', 'vocal');
+  assert.equal(startSingleProduction(occupied, centerId, 'Wed'), occupied);
+  const started = startSingleProduction(game, centerId, 'Wed');
+  assert.equal(started.singles[0].memberIds.length, 12);
+  assert.equal(new Set(started.singles[0].memberIds).size, 12);
+  assert.equal(started.singles[0].productionDay, 'Wed');
+  assert.equal(Object.values(started.schedule).filter((activity) => activity === 'mvProduction').length, 12);
+  assert.equal(assignActivity(started, centerId, 'Wed', 'rest'), started);
+  assert.equal(assignActivity(started, game.members.at(-1).id, 'Wed', 'concert'), started);
+  assert.equal(startSingleProduction(started, centerId, 'Thu'), started);
+  let progressed = started;
+  for (let index = 0; index < 3; index += 1) {
+    progressed = resolveWeek(progressed);
+    assert.equal(Object.values(progressed.schedule).filter((activity) => activity === 'mvProduction').length, 12);
+  }
+  progressed = resolveWeek(progressed);
+  assert.equal(progressed.singles[0].status, 'released');
+  assert.equal(progressed.singles[0].progressWeeks, 4);
+  assert.equal(Object.values(progressed.schedule).filter((activity) => activity === 'mvProduction').length, 0);
+  assert.ok(progressed.group.popularity >= game.group.popularity + 3);
+  const shortRoster = { ...game, members: game.members.slice(0, 11) };
+  assert.equal(startSingleProduction(shortRoster, shortRoster.members[0].id, 'Wed'), shortRoster);
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
