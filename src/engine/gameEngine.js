@@ -322,15 +322,17 @@ export function getActiveRoster() {
 
 export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 12).toUpperCase()}`, rosterScope = 'active') {
   const scope = ROSTER_SCOPES.includes(rosterScope) ? rosterScope : 'active';
-  const rng = createRng(hashSeed(seed));
-  const members = getRosterPool(scope).map((identity, index) => {
+  const members = getRosterPool(scope).map((identity) => {
+    const identityKey = `${identity.generation}:${identity.name}`;
+    const memberId = slug(identityKey);
+    // Every card owns its seeded stream. Reordering cards or changing roster scope must not move
+    // fictional stats from one member to another.
+    const rng = createRng(hashSeed(`${seed}:member:${identityKey}`));
     const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
     const stats = makeStats(rng, archetype);
-    // Draw order below is load-bearing: it defines every seeded stat for a run. Append new rng draws,
-    // never insert. Birthdays use their own identity-keyed rng and are attached afterwards.
     const member = {
-      id: `${slug(identity.name)}-${index}`,
-      identityId: `${slug(identity.name)}-${index}`,
+      id: memberId,
+      identityId: memberId,
       ...identity,
       originalTeam: identity.team,
       // Provenance lives in rosterScope. An ex-member picked into this timeline is an active roster

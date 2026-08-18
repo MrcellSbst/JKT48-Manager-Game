@@ -134,6 +134,19 @@ test('same seed creates same fictional roster stats', () => {
   assert.deepEqual(first.members, second.members);
 });
 
+test('initial fictional stats follow member identity instead of roster card position', () => {
+  const allMembers = createGame('identity-stat-seed', 'all').members;
+  const exMembers = createGame('identity-stat-seed', 'ex').members;
+  const allByIdentity = new Map(allMembers.map((member) => [`${member.generation}:${member.name}`, member]));
+  const statKeys = ['archetype', 'traits', 'vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'consistency', 'adaptability', 'developmentCurve', 'popularity', 'ego', 'potential', 'development', 'fanbase', 'fanComposition', 'careerStage'];
+  const pickStats = (member) => Object.fromEntries(statKeys.map((key) => [key, member[key]]));
+
+  exMembers.forEach((member) => {
+    const identityKey = `${member.generation}:${member.name}`;
+    assert.deepEqual(pickStats(member), pickStats(allByIdentity.get(identityKey)), identityKey);
+  });
+});
+
 test('completed run history entries persist summary statistics without duplicates', () => {
   const draft = createGame('run-history-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id), 'History Office');
