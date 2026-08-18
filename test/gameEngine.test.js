@@ -508,7 +508,7 @@ test('Live Stream is available daily and scales revenue and fans with popularity
   assert.equal(scheduledTwice.schedule[`${memberId}:Tue`], 'liveStream');
   const next = resolveWeek(scheduledTwice);
   const updated = next.members.find((member) => member.id === memberId);
-  assert.equal(next.lastResult.finances.liveStream, 6_400_000);
+  assert.equal(next.lastResult.finances.liveStream, 4_480_000);
   assert.equal(next.lastResult.fanGain, 480);
   const stamina = updated.stamina;
   assert.equal(updated.energy, Math.min(100, 20 + 2 * Math.round(BALANCE.activities.liveStream.energyRecovery * staminaRecoveryMultiplier(stamina)) + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina))));

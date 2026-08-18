@@ -804,7 +804,7 @@ export function respondToOpportunity(state, accept) {
   let opportunityHistory = [...(state.opportunityHistory ?? []), { ...offer, accepted: Boolean(accept), resolvedYear: state.year, resolvedWeek: state.week }];
   if (!accept) return { ...state, pendingOpportunity: null, opportunityHistory, notifications: [{ type: 'critical', text: `${offer.title} declined.` }, ...(state.notifications ?? [])].slice(0, 20) };
   const revenueRate = offer.category === 'sponsor' ? bonusValue(state, 'B009') : offer.category === 'media' ? bonusValue(state, 'B010') : 0;
-  const revenue = applyRate(offer.revenue, revenueRate);
+  const revenue = Math.round(applyRate(offer.revenue, revenueRate));
   const capMultiplier = getFanGrowthMultiplier(state.group.fanbase, state.fanTarget?.targetFanbase ?? Infinity);
   const resistance = offer.category === 'live' ? FAN_BALANCE.activityResistance.concert : FAN_BALANCE.activityResistance.media;
   const fansGained = applyFanSoftCap(offer.fans, capMultiplier, resistance);
@@ -936,7 +936,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     const score = ((member.performance + member.dance + member.vocal) / 3) * performanceBand * familiarityMultiplier * theaterTraitMultiplier + chemistryBonus + randomInt(rng, -performanceVariance, performanceVariance);
     energy = clamp(energy - fatigue + recovery);
     const activityCost = activity.cost ?? 0;
-    const activityRevenue = activity.revenue ?? 0;
+    const activityRevenue = Math.round((activity.revenue ?? 0));
     money -= activityCost;
     money += activityRevenue;
     finances.activityCosts += activityCost;
@@ -994,7 +994,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       momentum += score >= 75 ? 1 : 0;
     }
     if (activityId === 'liveStream') {
-      const streamRevenue = Math.round(member.popularity * activity.revenuePerPopularity);
+      const streamRevenue = Math.round(member.popularity * activity.revenuePerPopularity * 0.7);
       const streamFans = Math.round(member.popularity * activity.fansPerPopularity);
       money += streamRevenue;
       finances.liveStream += streamRevenue;
@@ -1004,7 +1004,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     if (activity.capacity && activityId !== 'yearEndMeetGreet') {
       const demand = Math.round(getFanEventDemand(member, activityId, rng) * (1 + bonusValue(state, 'B027')));
       const sold = Math.min(activity.capacity, demand);
-      const ticketRevenue = sold * activity.ticket;
+      const ticketRevenue = Math.round(sold * activity.ticket);
       money += ticketRevenue;
       if (activityId.startsWith('vc')) finances.videoCall += ticketRevenue;
       else if (activityId.startsWith('mg')) finances.meetGreet += ticketRevenue;
@@ -1050,7 +1050,7 @@ function rollInjury(member, assignments, rng, state) {
   const excess = load - config.loadThreshold;
   if (excess <= 0) return null;
   const exhausted = member.energy <= config.lowEnergyThreshold;
-  const chance = Math.min(config.maxWeeklyChance, excess * config.chancePerLoadOverThreshold * (exhausted ? config.lowEnergyMultiplier : 1) * staminaCostMultiplier(member.stamina));
+  const chance = Math.min(config.maxWeeklyChance, excess * config.chancePerLoadOverThreshold * (exhausted ? config.lowEnergyMultiplier : 1) * staminaCostMultiplier(member.stamina)) * 0.5;
   if (rng() >= chance) return null;
   const severity = weightedPick(rng, config.severities, (option) => option.weight);
   return { severity: severity.id, label: severity.label, weeksRemaining: severity.weeks, weeks: severity.weeks, blocks: [...severity.blocks], causedBy: { year: state.year, week: state.week, load } };
@@ -1229,7 +1229,7 @@ export function resolveWeek(state) {
     if (concert.status !== 'selling' || currentAbsolute > concert.saleCloseAbsolute) return concert;
     const remaining = concert.projectedSold - concert.sold;
     const weeklyTarget = currentAbsolute === concert.saleCloseAbsolute ? remaining : Math.min(remaining, Math.ceil(concert.projectedSold / concert.salesWeeks));
-    const salesRevenue = weeklyTarget * concert.ticketPrice;
+    const salesRevenue = Math.round(weeklyTarget * concert.ticketPrice);
     moneyDelta += salesRevenue;
     finances.concert += salesRevenue;
     return { ...concert, sold: concert.sold + weeklyTarget, revenue: (concert.revenue ?? 0) + salesRevenue, status: currentAbsolute === concert.saleCloseAbsolute ? 'salesClosed' : 'selling' };
@@ -1244,7 +1244,7 @@ export function resolveWeek(state) {
       const remaining = session.capacity - session.sold;
       const demand = Math.round(getFanEventDemand(member, 'mg1', salesRng) * (1 + bonusValue(state, 'B027')));
       const sold = Math.min(remaining, Math.max(0, demand));
-      weeklyRevenue += sold * event.ticketPrice;
+      weeklyRevenue += Math.round(sold * event.ticketPrice);
       return { ...session, sold: session.sold + sold };
     });
     moneyDelta += weeklyRevenue;
@@ -1271,7 +1271,7 @@ export function resolveWeek(state) {
     const capacity = lineup.length * BALANCE.twoShot.roulette.slotsPerMember;
     const demand = lineup.reduce((sum, member) => sum + Math.max(0, Math.round(getFanEventDemand(member, 'mg1', createRng(hashSeed(`${state.seed}:2shot:roulette:${state.year}:${state.week}:${day}:${member.id}`))) / 50)), 0);
     const sold = Math.min(capacity, demand);
-    const revenue = sold * BALANCE.twoShot.roulette.ticket;
+    const revenue = Math.round(sold * BALANCE.twoShot.roulette.ticket);
     moneyDelta += revenue;
     finances.twoShot += revenue;
     twoShotRecords.push({ id: `2shot-roulette-${state.year}-${state.week}-${day}`, type: 'twoShotRoulette', year: state.year, week: state.week, day, capacity, demand, sold, unmetDemand: Math.max(0, demand - sold), revenue });
@@ -1282,7 +1282,7 @@ export function resolveWeek(state) {
     const capacity = BALANCE.twoShot.meetGreet.slotsPerEvent;
     const demand = lineup.reduce((sum, member) => sum + Math.max(0, Math.round(getFanEventDemand(member, 'mg1', createRng(hashSeed(`${state.seed}:2shot:mg:${state.year}:${state.week}:${day}:${member.id}`))) / 18)), 0);
     const sold = Math.min(capacity, demand);
-    const revenue = sold * BALANCE.twoShot.meetGreet.ticket;
+    const revenue = Math.round(sold * BALANCE.twoShot.meetGreet.ticket);
     moneyDelta += revenue;
     finances.twoShot += revenue;
     twoShotRecords.push({ id: `2shot-mg-${state.year}-${state.week}-${day}`, type: 'twoShotMeetGreet', year: state.year, week: state.week, day, capacity, demand, sold, unmetDemand: Math.max(0, demand - sold), revenue });
@@ -1410,7 +1410,7 @@ export function resolveWeek(state) {
     if (!graduation.completed && graduation.departureYear === year && graduation.departureWeek === state.week) {
       const preparation = graduation.preparation ?? {};
       const graduationFans = (preparation.finalShow ? 4_000 : 0) + (preparation.specialSegment ? 1_500 : 0);
-      const merchandiseRevenue = preparation.merchandise ? 18_000_000 : 0;
+      const merchandiseRevenue = preparation.merchandise ? Math.round(18_000_000) : 0;
       const appliedGraduationFans = addGroupFans(graduationFans, FAN_BALANCE.activityResistance.concert);
       moneyDelta += merchandiseRevenue;
       finances.otherIncome += merchandiseRevenue;
