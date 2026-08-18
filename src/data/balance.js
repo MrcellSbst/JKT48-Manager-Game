@@ -33,7 +33,7 @@ export const BALANCE = {
     mvSenbatsu: { label: 'MV · Senbatsu', energy: 25, cost: 3_000_000, type: 'heavy', schedulable: false },
     mvCenter: { label: 'MV · Center', energy: 32, cost: 5_000_000, type: 'heavy', schedulable: false },
     mvProduction: { label: 'MV Production', energy: 25, cost: 0, type: 'heavy', schedulable: false },
-    concert: { label: 'Concert', energy: 34, cost: 4_000_000, revenue: 5_000_000, type: 'heavy' },
+    concert: { label: 'Concert', energy: 34, cost: 4_000_000, revenue: 5_000_000, type: 'heavy', schedulable: false },
   },
 };
 

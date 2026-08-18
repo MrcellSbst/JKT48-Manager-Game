@@ -1,5 +1,6 @@
 import { memberData } from '../data/newmemberdata.js';
 import { BALANCE, DAYS } from '../data/balance.js';
+import dreamSetlistSongs from '../data/DreamSetlist_Songs.js';
 import { BONUS_BY_ID } from '../data/bonusTemplates.js';
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 
@@ -100,7 +101,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     schedule: {},
     history: [{ id: 'start', type: 'system', title: 'Alternate timeline begins', detail: `${members.length} active members enter Year 1.`, year: 1, week: 1 }],
     notifications: [],
-    singles: [], concerts: [], auditions: [], graduations: [], renovations: [], fanNarratives: [],
+    singles: [], concerts: [], auditions: [], graduations: [], renovations: [], scheduleTemplates: [], fanNarratives: [],
     activeDrama: null,
     dramaCooldown: 0,
     lastResult: null,
@@ -145,7 +146,7 @@ export function assignActivity(state, memberId, day, activityId) {
   const key = `${memberId}:${day}`;
   const schedule = { ...state.schedule };
   const currentActivity = schedule[key];
-  if (currentActivity === 'mvProduction') return state;
+  if (currentActivity === 'mvProduction' || currentActivity === 'concert') return state;
   const month = Math.ceil(state.week / BALANCE.weeksPerMonth);
   const events = state.activityEvents ?? [];
   const eligibleMembers = state.members.filter((item) => ['active', 'trainee'].includes(item.status) && (item.suspensionWeeks ?? 0) === 0);
@@ -196,19 +197,55 @@ export function getTheaterRenovationOffer(state) {
   };
 }
 
-export function startSingleProduction(state, centerId, productionDay) {
+export function startSingleProduction(state, centerId, productionDay, selectedMemberIds = null) {
   if (state.runStatus === 'ended' || state.money < 85_000_000 || state.singles.some((single) => single.status === 'production')) return state;
   if (!DAYS.includes(productionDay)) return state;
   const eligible = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0);
   const center = eligible.find((member) => member.id === centerId);
   if (!center || eligible.length < 12) return state;
   const score = (member) => member.vocal + member.dance + member.performance + member.mc + member.variety;
-  const memberIds = [center, ...eligible.filter((member) => member.id !== centerId).sort((a, b) => score(b) - score(a))].slice(0, 12).map((member) => member.id);
+  const automaticIds = [center, ...eligible.filter((member) => member.id !== centerId).sort((a, b) => score(b) - score(a))].slice(0, 12).map((member) => member.id);
+  const requestedIds = eligible.length === 12 ? automaticIds : selectedMemberIds ? [centerId, ...selectedMemberIds.filter((memberId) => memberId !== centerId)] : automaticIds;
+  const memberIds = [...new Set(requestedIds)];
+  if (memberIds.length !== 12 || memberIds.some((memberId) => !eligible.some((member) => member.id === memberId))) return state;
   if (memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return state;
   const schedule = { ...state.schedule };
   memberIds.forEach((memberId) => { schedule[`${memberId}:${productionDay}`] = 'mvProduction'; });
   const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, week: state.week, year: state.year, status: 'production', progressWeeks: 0, durationWeeks: 4 };
   return { ...state, money: state.money - 85_000_000, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: `${single.title} enters production`, detail: `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
+}
+
+export function applyScheduleTemplate(state, template) {
+  if (!template?.entries?.length || state.runStatus === 'ended') return state;
+  let next = state;
+  let skipped = 0;
+  for (const entry of template.entries) {
+    const member = next.members.find((item) => item.id === entry.memberId);
+    if (!member || !['active', 'trainee'].includes(member.status) || (member.suspensionWeeks ?? 0) > 0) { skipped += 1; continue; }
+    const before = next;
+    next = assignActivity(next, entry.memberId, entry.day, entry.activityId);
+    if (next === before && next.schedule[`${entry.memberId}:${entry.day}`] !== entry.activityId) skipped += 1;
+  }
+  const notification = skipped ? { type: 'critical', text: `${skipped} template assignment(s) skipped because members or dates were unavailable.` } : { type: 'success', text: `${template.name} assigned successfully.` };
+  return { ...next, notifications: [notification, ...(next.notifications ?? [])].slice(0, 20) };
+}
+
+function createConcertSummary(rng, members, day) {
+  const pool = dreamSetlistSongs.filter(({ title }) => !/JKT48[_ ]?V|virtual/i.test(title));
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(rng, 0, index);
+    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+  }
+  const songCount = randomInt(rng, 35, 40);
+  const songs = pool.slice(0, songCount).map((song, index) => {
+    const memberFeature = index % 5 === 2 || index % 7 === 4;
+    if (!memberFeature) return { songId: song.id, title: song.title, performerType: 'team', performerNames: [] };
+    const performerCount = randomInt(rng, 1, Math.min(3, members.length));
+    const start = randomInt(rng, 0, Math.max(0, members.length - 1));
+    const performerNames = Array.from({ length: performerCount }, (_, offset) => members[(start + offset) % members.length].nickname || members[(start + offset) % members.length].name);
+    return { songId: song.id, title: song.title, performerType: 'members', performerNames };
+  });
+  return { day, songCount, songs };
 }
 
 export function renovateTheater(state) {
@@ -358,6 +395,9 @@ export function resolveWeek(state) {
   const theaterLineups = Object.fromEntries(DAYS.map((day) => [day, state.members.reduce((count, member) => count + (state.schedule[`${member.id}:${day}`] === 'theater' ? 1 : 0), 0)]));
   const month = Math.ceil(state.week / BALANCE.weeksPerMonth);
   const scheduledEntries = Object.entries(state.schedule);
+  const concertDay = DAYS.find((day) => scheduledEntries.some(([key, activity]) => key.endsWith(`:${day}`) && activity === 'concert'));
+  const concertMembers = concertDay ? state.members.filter((member) => state.schedule[`${member.id}:${concertDay}`] === 'concert') : [];
+  const concertSummary = concertDay && concertMembers.length ? createConcertSummary(rng, concertMembers, concertDay) : null;
   const activityEvents = [...(state.activityEvents ?? [])];
   if (scheduledEntries.some(([, activity]) => activity === 'concert')) activityEvents.push({ id: `concert-${state.year}-${state.week}`, type: 'concert', year: state.year, week: state.week, month });
   if (scheduledEntries.some(([, activity]) => activity.startsWith('mg'))) activityEvents.push({ id: `meet-greet-${state.year}-${state.week}`, type: 'meetGreet', year: state.year, week: state.week, month });
@@ -459,10 +499,14 @@ export function resolveWeek(state) {
   const theaterShows = [...validTheaterDays].length;
   const records = { ...previousRecords, peakFanbase: Math.max(previousRecords.peakFanbase ?? 0, group.fanbase), peakFanTrust: Math.max(previousRecords.peakFanTrust ?? 0, group.fanTrust), peakReputation: Math.max(previousRecords.peakReputation ?? 0, group.reputation), largestRoster: Math.max(previousRecords.largestRoster ?? 0, members.filter((member) => ['active', 'trainee'].includes(member.status)).length), lowestEligibleRoster: Math.min(previousRecords.lowestEligibleRoster ?? eligibleCount, eligibleCount), theaterShows: (previousRecords.theaterShows ?? 0) + theaterShows, dramaSuspensions: (previousRecords.dramaSuspensions ?? 0) + (activeDrama && !state.activeDrama ? 1 : 0), moneyEarned: (previousRecords.moneyEarned ?? 0) + Math.max(0, moneyDelta), moneySpent: (previousRecords.moneySpent ?? 0) + Math.max(0, -moneyDelta) };
   const ended = eligibleCount < BALANCE.theaterMinimumMembers;
-  const lastResult = { year: state.year, week: state.week, moneyDelta, fanGain, activities: Object.keys(state.schedule).length, schedule: { ...state.schedule }, finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.liveStream + finances.concert + finances.otherIncome, totalExpenses: finances.activityCosts + finances.generalOperations + finances.theaterUpkeep } };
+  const skillChanges = members.flatMap((member) => {
+    const previous = state.members.find((item) => item.id === member.id);
+    return previous ? SKILLS.filter((skill) => member[skill] !== previous[skill]).map((skill) => ({ memberId: member.id, memberName: member.nickname || member.name, skill, before: previous[skill], after: member[skill], delta: Math.round((member[skill] - previous[skill]) * 10) / 10 })) : [];
+  });
+  const lastResult = { year: state.year, week: state.week, moneyDelta, fanGain, activities: Object.keys(state.schedule).length, schedule: { ...state.schedule }, skillChanges, concertSummary, finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.liveStream + finances.concert + finances.otherIncome, totalExpenses: finances.activityCosts + finances.generalOperations + finances.theaterUpkeep } };
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult].slice(-(BALANCE.weeksPerYear * 2));
   const next = {
-    ...state, year, week, members, singles, group, money: state.money + moneyDelta, schedule: nextSchedule, activityEvents: activityEvents.slice(-500), history: history.slice(0, 250),
+    ...state, year, week, members, singles, concerts: state.concerts.map((concert) => concert.year === state.year && concert.week === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert), group, money: state.money + moneyDelta, schedule: nextSchedule, activityEvents: activityEvents.slice(-500), history: history.slice(0, 250),
     notifications, activeDrama, dramaCooldown, graduations, records, weeklyReports, runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition, startSingleProduction } from '../src/engine/gameEngine.js';
+import { applyScheduleTemplate, assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition, startSingleProduction } from '../src/engine/gameEngine.js';
 import { translateIndonesian } from '../src/localization.js';
 
 test('active roster excludes graduated members and JKT48V', () => {
@@ -215,7 +215,33 @@ test('concert is group-wide and limited to one event per four-week month', () =>
   const scheduled = assignActivity(game, game.members[0].id, 'Sat', 'concert');
   assert.equal(Object.values(scheduled.schedule).filter((activity) => activity === 'concert').length, 12);
   const nextWeek = resolveWeek(scheduled);
+  assert.ok(nextWeek.lastResult.concertSummary.songCount >= 35 && nextWeek.lastResult.concertSummary.songCount <= 40);
+  assert.equal(new Set(nextWeek.lastResult.concertSummary.songs.map((song) => song.songId)).size, nextWeek.lastResult.concertSummary.songCount);
+  assert.ok(nextWeek.lastResult.concertSummary.songs.some((song) => song.performerType === 'team'));
+  assert.ok(nextWeek.lastResult.concertSummary.songs.some((song) => song.performerType === 'members'));
+  assert.equal(nextWeek.lastResult.concertSummary.songs.some((song) => /JKT48[_ ]?V|virtual/i.test(song.title)), false);
   assert.equal(Object.keys(assignActivity(nextWeek, nextWeek.members[0].id, 'Sat', 'concert').schedule).length, 0);
+});
+
+test('weekly report lists skill improvements after training', () => {
+  const game = createGame('skill-report-test');
+  const member = game.members[0];
+  const next = resolveWeek(assignActivity(game, member.id, 'Mon', 'vocal'));
+  const change = next.lastResult.skillChanges.find((item) => item.memberId === member.id && item.skill === 'vocal');
+  assert.ok(change);
+  assert.ok(change.delta > 0);
+  assert.ok(change.after > change.before);
+});
+
+test('schedule template assigns available members and skips unavailable members', () => {
+  const game = createGame('schedule-template-test');
+  const [available, unavailable] = game.members;
+  const suspended = { ...game, members: game.members.map((member) => member.id === unavailable.id ? { ...member, status: 'suspended', suspensionWeeks: 2 } : member) };
+  const template = { name: 'Training week', entries: [{ memberId: available.id, day: 'Mon', activityId: 'vocal' }, { memberId: unavailable.id, day: 'Tue', activityId: 'dance' }] };
+  const next = applyScheduleTemplate(suspended, template);
+  assert.equal(next.schedule[`${available.id}:Mon`], 'vocal');
+  assert.equal(next.schedule[`${unavailable.id}:Tue`], undefined);
+  assert.match(next.notifications[0].text, /1 template assignment\(s\) skipped/);
 });
 
 test('Video Call is limited to one event per member per four-week month', () => {
@@ -269,6 +295,22 @@ test('single production requires 12 members and completes after four weeks', () 
   assert.ok(progressed.group.popularity >= game.group.popularity + 3);
   const shortRoster = { ...game, members: game.members.slice(0, 11) };
   assert.equal(startSingleProduction(shortRoster, shortRoster.members[0].id, 'Wed'), shortRoster);
+});
+
+test('single production respects a selected 12-member lineup from a larger roster', () => {
+  const game = createGame('selected-single-lineup-test');
+  const selectedIds = game.members.slice(4, 16).map((member) => member.id);
+  const started = startSingleProduction(game, selectedIds[0], 'Fri', selectedIds);
+  assert.deepEqual(new Set(started.singles[0].memberIds), new Set(selectedIds));
+  assert.equal(Object.values(started.schedule).filter((activity) => activity === 'mvProduction').length, 12);
+  assert.equal(startSingleProduction(game, selectedIds[0], 'Fri', selectedIds.slice(0, 11)), game);
+});
+
+test('single production auto-locks every member when exactly 12 are eligible', () => {
+  const draft = createGame('automatic-single-lineup-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const started = startSingleProduction(game, game.members[0].id, 'Thu', [game.members[0].id]);
+  assert.deepEqual(new Set(started.singles[0].memberIds), new Set(game.members.map((member) => member.id)));
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
