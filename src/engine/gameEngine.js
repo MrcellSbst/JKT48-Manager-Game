@@ -447,6 +447,20 @@ export function assignActivity(state, memberId, day, activityId) {
   return { ...state, schedule };
 }
 
+export function scheduleFanCampaign(state, type, day, memberIds = []) {
+  if (state.runStatus === 'ended' || !DAYS.includes(day) || !['videoCall', 'meetGreet'].includes(type)) return state;
+  const activityId = type === 'videoCall' ? 'vc1' : 'mg1';
+  const eligibleIds = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0).map((member) => member.id);
+  if (!eligibleIds.length) return state;
+  if (type === 'meetGreet') {
+    const hasLockedMember = eligibleIds.some((memberId) => ['mvProduction', 'concert', 'concertRehearsal', 'yearEndMeetGreet'].includes(state.schedule[`${memberId}:${day}`]));
+    return hasLockedMember ? state : assignActivity(state, eligibleIds[0], day, activityId);
+  }
+  const requestedIds = [...new Set(memberIds)].filter((memberId) => eligibleIds.includes(memberId));
+  if (!requestedIds.length) return state;
+  return requestedIds.reduce((next, memberId) => assignActivity(next, memberId, day, activityId), state);
+}
+
 export function configureTheaterShow(state, day, setlistId, centerId) {
   if (state.runStatus === 'ended' || !DAYS.includes(day) || !SETLIST_BY_ID[setlistId]) return state;
   const lineupIds = state.members.filter((member) => state.schedule[`${member.id}:${day}`] === 'theater').map((member) => member.id);
@@ -561,7 +575,7 @@ export function applyScheduleTemplate(state, template) {
   let skipped = 0;
   for (const entry of template.entries) {
     const member = next.members.find((item) => item.id === entry.memberId);
-    if (!member || !['active', 'trainee'].includes(member.status) || (member.suspensionWeeks ?? 0) > 0) { skipped += 1; continue; }
+    if (!member || !['active', 'trainee'].includes(member.status) || (member.suspensionWeeks ?? 0) > 0 || BALANCE.activities[entry.activityId]?.schedulable === false) { skipped += 1; continue; }
     const before = next;
     next = assignActivity(next, entry.memberId, entry.day, entry.activityId);
     if (next === before && next.schedule[`${entry.memberId}:${entry.day}`] !== entry.activityId) skipped += 1;

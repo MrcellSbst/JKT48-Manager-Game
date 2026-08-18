@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberChemistry, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberChemistry, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import { BALANCE } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
@@ -341,6 +341,30 @@ test('Video Call is limited to one event per member per four-week month', () => 
   const nextWeek = resolveWeek(assignActivity(game, firstMemberId, 'Sat', 'vc1'));
   assert.equal(Object.keys(assignActivity(nextWeek, firstMemberId, 'Sat', 'vc1').schedule).length, 0);
   assert.equal(assignActivity(nextWeek, nextWeek.members[1].id, 'Sat', 'vc1').schedule[`${nextWeek.members[1].id}:Sat`], 'vc1');
+});
+
+test('fan campaigns schedule selected Video Call members and the full Meet & Greet roster', () => {
+  const draft = createGame('fan-campaign-setup-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const selectedIds = game.members.slice(0, 3).map((member) => member.id);
+  const videoCall = scheduleFanCampaign(game, 'videoCall', 'Fri', selectedIds);
+  assert.equal(Object.values(videoCall.schedule).filter((activity) => activity === 'vc1').length, 3);
+  assert.deepEqual(videoCall, scheduleFanCampaign(videoCall, 'videoCall', 'Sat', selectedIds));
+
+  const meetGreet = scheduleFanCampaign(game, 'meetGreet', 'Sun');
+  assert.equal(Object.values(meetGreet.schedule).filter((activity) => activity === 'mg1').length, 12);
+  assert.deepEqual(meetGreet, scheduleFanCampaign(meetGreet, 'meetGreet', 'Sat'));
+  const campaignLocked = { ...game, schedule: { [`${game.members[5].id}:Thu`]: 'mvProduction' } };
+  assert.deepEqual(scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu'), campaignLocked);
+});
+
+test('legacy schedule templates cannot bypass fan campaign setup', () => {
+  const draft = createGame('fan-campaign-template-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  const next = applyScheduleTemplate(game, { name: 'Legacy fan event', entries: [{ memberId, day: 'Sat', activityId: 'vc1' }] });
+  assert.equal(next.schedule[`${memberId}:Sat`], undefined);
+  assert.match(next.notifications[0].text, /1 template assignment\(s\) skipped/);
 });
 
 test('Live Stream is available daily and scales revenue and fans with popularity', () => {
