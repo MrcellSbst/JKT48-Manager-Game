@@ -1,16 +1,101 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberChemistry, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
-import { BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
+import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory } from '../src/state/saveDb.js';
 
-test('active roster excludes graduated members and JKT48V', () => {
+test('active roster includes current members, including JKT48V', () => {
   const roster = getActiveRoster();
-  assert.equal(roster.length, 60);
+  assert.equal(roster.length, 62);
   assert.equal(roster.some((member) => member.graduated), false);
-  assert.equal(roster.some((member) => member.generation.startsWith('JKT48V')), false);
+  assert.ok(roster.some((member) => member.generation.startsWith('JKT48V')));
+});
+
+test('roster scopes select current members, ex-members, or both, including JKT48V', () => {
+  const active = getRosterPool('active');
+  const ex = getRosterPool('ex');
+  const all = getRosterPool('all');
+  assert.deepEqual(active, getActiveRoster());
+  assert.equal(active.length, 62);
+  assert.equal(ex.length, 194);
+  assert.equal(all.length, active.length + ex.length);
+  assert.ok(ex.every((member) => member.graduated && member.rosterScope === 'ex'));
+  assert.ok(active.every((member) => !member.graduated && member.rosterScope === 'active'));
+  assert.ok(all.some((member) => member.generation.toUpperCase().startsWith('JKT48V')));
+  // Current members lead the pool so the prebuilt chemistry subset stays a contiguous prefix.
+  assert.deepEqual(all.slice(0, active.length), active);
+  assert.equal(getRosterPool('nonsense').length, 62);
+});
+
+test('every identity carries a portrait path the asset glob can resolve', () => {
+  assert.ok(getRosterPool('ex').every((member) => /^(?:Gen\d+|JKT48V_GEN\d+)\/.+\.(jpg|jpeg|png|webp)$/i.test(member.photo)));
+  assert.ok(getRosterPool('active').every((member) => /^[^/]+\.(jpg|jpeg|png|webp)$/i.test(member.photo)));
+});
+
+test('roster scope drives the founding pool and the leftover audition pool', () => {
+  const activeRun = createGame('scope-test', 'active');
+  const allRun = createGame('scope-test', 'all');
+  assert.equal(activeRun.rosterScope, 'active');
+  assert.equal(activeRun.members.length, 62);
+  assert.equal(allRun.rosterScope, 'all');
+  assert.equal(allRun.members.length, 256);
+  const finalized = finalizeGameSetup(allRun, 'community', allRun.members.slice(0, 12).map((member) => member.id), 'Scope Office', [], { rosterScope: 'all' });
+  assert.equal(finalized.rosterScope, 'all');
+  assert.equal(finalized.members.length, 12);
+  assert.equal(finalized.unsignedMembers.length, 244);
+  assert.ok(finalized.unsignedMembers.some((member) => member.rosterScope === 'ex'));
+  assert.equal(createGame('scope-test', 'ex').members.length, 194);
+});
+
+test('an ex-member founding pick gets persisted chemistry despite the lazy prebuild', () => {
+  const draft = createGame('ex-chemistry-test', 'all');
+  const exMembers = draft.members.filter((member) => member.rosterScope === 'ex').slice(0, 12);
+  assert.equal(exMembers.length, 12);
+  const pairKey = [exMembers[0].id, exMembers[1].id].sort().join('::');
+  assert.equal(draft.chemistry[pairKey], undefined);
+  const game = finalizeGameSetup(draft, 'community', exMembers.map((member) => member.id), 'Ex Office', [], { rosterScope: 'all' });
+  assert.ok(game.chemistry[pairKey]);
+  assert.deepEqual(game.chemistry[pairKey], getMemberChemistry(draft, exMembers[0].id, exMembers[1].id));
+});
+
+test('hard mode is opt-in at setup and defaults to off', () => {
+  const draft = createGame('hard-mode-test');
+  const ids = draft.members.slice(0, 12).map((member) => member.id);
+  assert.equal(draft.hardMode, false);
+  assert.equal(finalizeGameSetup(draft, 'community', ids, 'Normal Office').hardMode, false);
+  assert.equal(finalizeGameSetup(draft, 'community', ids, 'Hard Office', [], { hardMode: true }).hardMode, true);
+});
+
+test('member birthdays are seeded, stable, and expose a derived age', () => {
+  const first = createGame('birthday-test');
+  const second = createGame('birthday-test');
+  first.members.forEach((member, index) => {
+    assert.ok(member.birthMonth >= 1 && member.birthMonth <= 12);
+    assert.ok(Number.isInteger(member.birthYear));
+    assert.equal(member.birthMonth, second.members[index].birthMonth);
+    assert.equal(member.birthYear, second.members[index].birthYear);
+    const age = getMemberAge(member, 1);
+    assert.ok(age >= 17 && age <= 27, `age ${age} out of band`);
+    assert.equal(getMemberAge(member, 3), age + 2);
+  });
+  assert.deepEqual(createBirthday('birthday-test', first.members[0].identityId, first.members[0].careerStage), { birthMonth: first.members[0].birthMonth, birthYear: first.members[0].birthYear });
+  assert.equal(getMemberAge({}, 1), null);
+});
+
+test('a recycled pool member keeps the same birthday as the graduate', () => {
+  const draft = createGame('recycled-birthday-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const graduate = game.members[0];
+  const rosterSupport = { ...game.unsignedMembers[0], status: 'active' };
+  const graduation = { id: 'graduation-birthday', memberId: graduate.id, memberName: graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: true };
+  const staged = { ...game, year: 3, week: 48, dramaCooldown: 999, members: [{ ...graduate, status: 'graduated', canPerformTheater: false }, ...game.members.slice(1), rosterSupport], unsignedMembers: game.unsignedMembers.slice(1), graduations: [graduation] };
+  const returned = resolveWeek(staged);
+  const recycled = returned.unsignedMembers.find((member) => member.identityId === graduate.identityId);
+  assert.ok(recycled);
+  assert.equal(recycled.birthMonth, graduate.birthMonth);
+  assert.equal(recycled.birthYear, graduate.birthYear);
 });
 
 test('Indonesian localization handles fixed and dynamic game text', () => {
@@ -81,7 +166,9 @@ test('setup purchases theater and creates exactly 12-member roster', () => {
   const offer = draft.theaterOffers.find((theater) => theater.id === 'city');
   assert.deepEqual(game.theater, { ...offer, renovationLevel: 0 });
   assert.equal(game.members.length, 12);
-  assert.equal(game.unsignedMembers.length, 48);
+  // Default scope is current members only: 62 identities minus the founding 12.
+  assert.equal(game.rosterScope, 'active');
+  assert.equal(game.unsignedMembers.length, 50);
   assert.equal(game.money, draft.money - offer.price);
   assert.equal(game.managementName, 'Senayan Stage Office');
 });
@@ -221,8 +308,28 @@ test('Rest is scheduled explicitly and restores energy without another activity'
   game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 0 } : member) };
   const scheduled = assignActivity(game, memberId, 'Mon', 'rest');
   assert.equal(scheduled.schedule[`${memberId}:Mon`], 'rest');
-  assert.equal(resolveWeek(scheduled).members.find((member) => member.id === memberId).energy, 60);
+  // Stamina scales both the Rest recovery and the weekly passive regen.
+  const stamina = game.members.find((member) => member.id === memberId).stamina;
+  const expected = Math.round(BALANCE.activities.rest.energyRecovery * staminaRecoveryMultiplier(stamina)) + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina));
+  assert.equal(resolveWeek(scheduled).members.find((member) => member.id === memberId).energy, Math.min(100, expected));
+  assert.ok(expected > BALANCE.activities.rest.energyRecovery + BALANCE.weeklyRecovery);
   assert.equal(assignActivity(scheduled, memberId, 'Mon', 'clear').schedule[`${memberId}:Mon`], undefined);
+});
+
+test('stamina lowers activity energy cost and raises every form of recovery', () => {
+  assert.ok(staminaCostMultiplier(90) < staminaCostMultiplier(40));
+  assert.ok(staminaRecoveryMultiplier(90) > staminaRecoveryMultiplier(40));
+  // A maxed stamina member still pays something for a heavy day.
+  assert.equal(staminaCostMultiplier(100), Math.max(BALANCE.stamina.costFloor, BALANCE.stamina.costBase - 100 * BALANCE.stamina.costPerPoint));
+  assert.ok(staminaCostMultiplier(1000) >= BALANCE.stamina.costFloor);
+  const draft = createGame('stamina-scaling-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = base.members[0].id;
+  const drain = (stamina) => {
+    const prepared = { ...base, members: base.members.map((member) => member.id === memberId ? { ...member, stamina, energy: 60 } : member) };
+    return resolveWeek(assignActivity(prepared, memberId, 'Mon', 'media')).members.find((member) => member.id === memberId).energy;
+  };
+  assert.ok(drain(90) > drain(30));
 });
 
 test('weekly result exposes an income and expense breakdown matching net cash', () => {
@@ -389,8 +496,9 @@ test('Live Stream is available daily and scales revenue and fans with popularity
   const next = resolveWeek(scheduledTwice);
   const updated = next.members.find((member) => member.id === memberId);
   assert.equal(next.lastResult.finances.liveStream, 6_400_000);
-  assert.ok(next.lastResult.fanGain >= 800);
-  assert.equal(updated.energy, 72);
+  assert.equal(next.lastResult.fanGain, 480);
+  const stamina = updated.stamina;
+  assert.equal(updated.energy, Math.min(100, 20 + 2 * Math.round(BALANCE.activities.liveStream.energyRecovery * staminaRecoveryMultiplier(stamina)) + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina))));
   assert.equal(next.lastResult.moneyDelta, next.lastResult.finances.totalIncome - next.lastResult.finances.totalExpenses);
 });
 
@@ -514,16 +622,37 @@ test('incomplete off-air performance cancels without activity cost or fan gain',
   assert.match(next.notifications[0].text, /off-air performance canceled/);
 });
 
-test('complete off-air performance requires 12 members and earns total-popularity income', () => {
+test('complete off-air performance pays a premium over a sold-out theater night', () => {
   const draft = createGame('off-air-lineup-income-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   game = game.members.reduce((current, member) => assignActivity(current, member.id, 'Tue', 'offAir'), game);
-  const expectedRevenue = game.members.reduce((sum, member) => sum + member.popularity * BALANCE.activities.offAir.revenuePerPopularity, 0);
+  const theaterCeiling = game.theater.capacity * game.theater.ticketPrice;
+  const [minPremium, maxPremium] = BALANCE.activities.offAir.theaterRevenuePremium;
   const next = resolveWeek(game);
-  assert.equal(next.lastResult.finances.offAir, expectedRevenue);
+  const revenue = next.lastResult.finances.offAir;
+  assert.ok(revenue > theaterCeiling, `${revenue} should beat the ${theaterCeiling} theater ceiling`);
+  assert.ok(revenue <= Math.round(theaterCeiling * (1 + maxPremium)));
+  assert.ok(revenue >= Math.floor(theaterCeiling * (1 + minPremium)) - 12, 'rounding per member stays within a rupiah of the gross');
   assert.equal(next.lastResult.finances.activityCosts, 12 * BALANCE.activities.offAir.cost);
   assert.ok(next.lastResult.fanGain > 0);
   assert.ok(next.members.every((member) => member.appearances.offAir === 1));
+  assert.deepEqual(resolveWeek(game).lastResult.finances.offAir, revenue, 'premium is seeded, not re-rolled');
+});
+
+test('only one off-air show can run in a week', () => {
+  const draft = createGame('off-air-weekly-cap-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = game.members.reduce((current, member) => assignActivity(current, member.id, 'Tue', 'offAir'), game);
+  // A second off-air day is rejected outright while the first one holds a lineup.
+  const blocked = assignActivity(game, game.members[0].id, 'Thu', 'offAir');
+  assert.equal(blocked.schedule[`${game.members[0].id}:Thu`], undefined);
+  assert.equal(BALANCE.activities.offAir.maxPerWeek, 1);
+  // Even a state that already carries two complete lineups only pays out once.
+  const forced = { ...game, schedule: { ...game.schedule, ...Object.fromEntries(game.members.map((member) => [`${member.id}:Thu`, 'offAir'])) } };
+  const next = resolveWeek(forced);
+  assert.equal(next.lastResult.finances.activityCosts, 12 * BALANCE.activities.offAir.cost);
+  assert.ok(next.members.every((member) => member.appearances.offAir === 1));
+  assert.ok(next.notifications.some((item) => /only 1 off-air show is allowed/.test(item.text)));
 });
 
 test('released single views decline and use the fanbase long-tail cap from week four', () => {
@@ -790,6 +919,38 @@ test('theater resolution records demand, satisfaction, unit songs, and understud
   assert.ok(next.members.every((member) => member.theaterExp > 0));
 });
 
+test('repeating a setlist reduces theater demand until it is rested', () => {
+  const draft = createGame('setlist-boredom-test');
+  const game = finalizeGameSetup(draft, 'city', draft.members.slice(0, 12).map((member) => member.id));
+  const setlistId = SETLISTS[0].id;
+  const fresh = getSetlistBoredom(game, setlistId);
+  assert.equal(fresh.plays, 0);
+  assert.equal(fresh.demandMultiplier, 1);
+  const played = (times) => ({ ...game, theaterHistory: Array.from({ length: times }, (_, index) => ({ setlistId, year: 1, week: index + 1 })), week: times + 1 });
+  assert.equal(getSetlistBoredom(played(1), setlistId).penalty, BALANCE.theater.boredomPerPlay);
+  assert.equal(getSetlistBoredom(played(3), setlistId).plays, 3);
+  // The penalty stops compounding at the configured ceiling.
+  assert.equal(getSetlistBoredom(played(20), setlistId).penalty, BALANCE.theater.boredomMax);
+  // A different setlist is unaffected, and plays older than the window stop counting.
+  assert.equal(getSetlistBoredom(played(3), SETLISTS[1].id).plays, 0);
+  const stale = { ...game, theaterHistory: [{ setlistId, year: 1, week: 1 }], week: 1 + BALANCE.theater.boredomWindowWeeks };
+  assert.equal(getSetlistBoredom(stale, setlistId).plays, 0);
+});
+
+test('a bored setlist draws a smaller theater audience than a rested one', () => {
+  const draft = createGame('setlist-boredom-demand-test');
+  let game = finalizeGameSetup(draft, 'city', draft.members.slice(0, 12).map((member) => member.id));
+  game = game.members.reduce((current, member) => assignActivity(current, member.id, 'Mon', 'theater'), game);
+  game = configureTheaterShow(game, 'Mon', SETLISTS[0].id, game.members[0].id);
+  const restedShow = resolveWeek(game).lastResult.theaterShows[0];
+  const boredHistory = Array.from({ length: 5 }, (_, index) => ({ setlistId: SETLISTS[0].id, year: 1, week: index + 1 }));
+  const boredShow = resolveWeek({ ...game, theaterHistory: boredHistory }).lastResult.theaterShows[0];
+  assert.equal(restedShow.setlistBoredomPenalty, 0);
+  assert.ok(boredShow.setlistBoredomPenalty > 0);
+  assert.equal(boredShow.setlistPlaysInWindow, 5);
+  assert.ok(boredShow.demand < restedShow.demand, `${boredShow.demand} should be under ${restedShow.demand}`);
+});
+
 test('video-call demand history records profile-specific sell-through and unmet demand', () => {
   const draft = createGame('demand-history-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
@@ -810,7 +971,7 @@ test('management opportunities can be accepted or declined with persistent outco
   assert.equal(accepted.pendingOpportunity, null);
   assert.equal(accepted.opportunityHistory.at(-1).accepted, true);
   assert.equal(accepted.money, game.money + 5_000_000);
-  assert.equal(accepted.group.fanbase, game.group.fanbase + 900);
+  assert.equal(accepted.group.fanbase, game.group.fanbase + 540);
   const declined = respondToOpportunity({ ...game, pendingOpportunity: offer }, false);
   assert.equal(declined.opportunityHistory.at(-1).accepted, false);
   assert.equal(declined.money, game.money);
@@ -831,7 +992,7 @@ test('graduation preparation charges once and applies final-event and successor 
   const completed = resolved.graduations[0];
   const promotedSuccessor = resolved.members.find((member) => member.id === successor.id);
   assert.equal(completed.completed, true);
-  assert.equal(completed.outcome.fanGain, 5_500);
+  assert.equal(completed.outcome.fanGain, 3_300);
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
@@ -889,13 +1050,21 @@ test('single selection raises selected oshi sentiment and lowers excluded sentim
   assert.equal(next.members.find((member) => member.id === excluded.id).oshiSentiment, -1);
 });
 
-test('annual fan target curve uses the previous target and caps acceleration at 45 percent', () => {
-  const expected = [162_500, 219_375, 307_125, 445_331, 645_730, 936_309, 1_357_648, 1_968_590, 2_854_456, 4_138_961];
+test('annual fan target curve adds the Year 2+ bonus and caps acceleration', () => {
+  // 30% in Year 1, then +10pp on top of the running curve from Year 2: 45%, 50%, 55%, 55%...
+  const expected = [162_500, 235_625, 353_438, 547_829, 849_135, 1_316_159];
   let previous = 125_000;
   expected.forEach((target, index) => {
     previous = calculateNextFanTarget(previous, index + 1);
     assert.equal(previous, target);
   });
+  // Year 1 is deliberately exempt from the bonus; every later year carries it.
+  assert.equal(calculateNextFanTarget(100_000, 1), 130_000);
+  assert.equal(calculateNextFanTarget(100_000, 2), 145_000);
+  assert.equal(calculateNextFanTarget(100_000, 3), 150_000);
+  assert.equal(calculateNextFanTarget(100_000, 4), 155_000);
+  assert.equal(calculateNextFanTarget(100_000, 9), 155_000);
+  assert.equal(FAN_BALANCE.target.year2PlusBonusPercent, 10);
 });
 
 test('missing the annual fan target applies review penalties without ending the run', () => {
@@ -921,7 +1090,7 @@ test('overperforming creates the next target from the previous target, not actua
   assert.equal(next.week, 1);
   assert.equal(next.fanTarget.year, 2);
   assert.equal(next.fanTarget.baseTarget, 162_500);
-  assert.equal(next.fanTarget.targetFanbase, 219_375);
+  assert.equal(next.fanTarget.targetFanbase, 235_625);
   assert.equal(next.fanTargetHistory.at(-1).id, 'exceptional');
   assert.equal(next.fanTargetMetaReward, 5);
 });
@@ -929,9 +1098,10 @@ test('overperforming creates the next target from the previous target, not actua
 test('fan soft-cap bands and resistance follow the configured boundaries', () => {
   const target = 100_000;
   assert.deepEqual([99_999, 100_000, 110_000, 120_000, 130_000].map((fans) => getFanGrowthMultiplier(fans, target)), [1, 0.75, 0.4, 0.15, 0.05]);
-  assert.equal(applyFanSoftCap(6_000, 0.4, 0), 2_400);
-  assert.equal(applyFanSoftCap(6_000, 0.4, 0.5), 4_200);
-  assert.equal(applyFanSoftCap(6_000, 0.4, 0.8), 5_280);
+  assert.equal(FAN_BALANCE.generationMultiplier, 0.6);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0), 1_440);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0.5), 2_520);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0.8), 3_168);
   assert.equal(applyFanSoftCap(-6_000, 0.05, 0), -6_000);
 });
 
@@ -946,8 +1116,8 @@ test('media opportunities use soft-cap resistance after the target is exceeded',
   const saturated = { ...game, group: { ...game.group, fanbase: 180_000 }, pendingOpportunity: offer };
   const next = respondToOpportunity(saturated, true);
   assert.equal(next.opportunityHistory.at(-1).baseFans, 1_000);
-  assert.equal(next.opportunityHistory.at(-1).fansGained, 520);
-  assert.equal(next.group.fanbase, 180_520);
+  assert.equal(next.opportunityHistory.at(-1).fansGained, 312);
+  assert.equal(next.group.fanbase, 180_312);
 });
 
 test('annual fan performance rewards contribute to final Management Token payout', () => {
