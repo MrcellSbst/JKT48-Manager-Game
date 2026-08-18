@@ -28,6 +28,8 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('+12,500 this period'), '+12,500 periode ini');
   assert.equal(translateIndonesian('3 completed'), '3 selesai');
   assert.equal(translateIndonesian('Off-air performance requires 12 members'), 'Penampilan off-air membutuhkan 12 anggota');
+  assert.equal(translateIndonesian('24 pool members available'), '24 anggota tersedia di kumpulan');
+  assert.equal(translateIndonesian('Fiony returns to the talent pool'), 'Fiony kembali ke kumpulan talenta');
 });
 
 test('same seed creates same fictional roster stats', () => {
@@ -592,15 +594,20 @@ test('concert announcement persists selected budget and venue size', () => {
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
-  const game = { ...createGame('audition-test'), week: 37 };
+  const draft = createGame('audition-test');
+  const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37 };
+  const poolIds = new Set(game.unsignedMembers.map((member) => member.id));
   const audition = runAudition(game);
   assert.equal(audition.members.length, game.members.length + 4);
+  assert.equal(audition.unsignedMembers.length, game.unsignedMembers.length - 4);
+  assert.ok(audition.members.filter((member) => member.status === 'trainee').every((member) => poolIds.has(member.id)));
   assert.equal(audition.auditions.length, 1);
   assert.equal(runAudition(audition), audition);
 });
 
 test('Q4 audition requires available funds', () => {
-  const game = { ...createGame('poor-audition-test'), week: 37, money: 64_999_999 };
+  const draft = createGame('poor-audition-test');
+  const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37, money: 64_999_999 };
   assert.equal(runAudition(game), game);
 });
 
@@ -610,6 +617,8 @@ test('audition campaign progresses for five weeks and finalizes selected trainee
   assert.equal(game.auditionCampaign.phase, 'applications');
   assert.equal(game.auditionCampaign.progressWeeks, 0);
   assert.ok(game.auditionCampaign.candidatePool.length >= game.auditionCampaign.maxIntake);
+  const originalPoolIds = new Set(game.unsignedMembers.map((member) => member.id));
+  assert.ok(game.auditionCampaign.candidatePool.every((candidate) => originalPoolIds.has(candidate.sourcePoolId)));
   const selected = game.auditionCampaign.candidatePool.slice(0, 2).map((candidate) => candidate.id);
   for (let index = 0; index < 4; index += 1) game = resolveWeek(game);
   assert.equal(game.auditionCampaign.progressWeeks, 4);
@@ -619,6 +628,7 @@ test('audition campaign progresses for five weeks and finalizes selected trainee
   assert.equal(game.auditionCampaign, null);
   assert.equal(game.auditions[0].size, 2);
   assert.equal(game.members.filter((member) => member.status === 'trainee').length, 2);
+  assert.ok(selected.every((memberId) => !game.unsignedMembers.some((member) => member.id === memberId)));
 });
 
 test('audition campaign rejects duplicate or non-Q4 starts', () => {
@@ -790,6 +800,39 @@ test('graduation preparation charges once and applies final-event and successor 
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
+});
+
+test('graduated member returns to the audition pool after exactly two years with reset stats', () => {
+  const draft = createGame('graduation-pool-return-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const graduate = game.members[0];
+  const rosterSupport = { ...game.unsignedMembers[0], status: 'active' };
+  const graduation = { id: 'graduation-pool-return', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: true };
+  const staged = {
+    ...game,
+    year: 3,
+    week: 47,
+    members: [{ ...graduate, status: 'graduated', canPerformTheater: false }, ...game.members.slice(1), rosterSupport],
+    unsignedMembers: game.unsignedMembers.slice(1),
+    graduations: [graduation],
+    dramaCooldown: 999,
+  };
+  const oneWeekEarly = resolveWeek(staged);
+  assert.ok(oneWeekEarly.members.some((member) => member.id === graduate.id));
+  assert.equal(oneWeekEarly.graduations[0].returnedToPool, undefined);
+  const returned = resolveWeek(oneWeekEarly);
+  const recycled = returned.unsignedMembers.find((member) => member.identityId === graduate.identityId);
+  assert.equal(returned.year, 4);
+  assert.equal(returned.week, 1);
+  assert.ok(recycled);
+  assert.notEqual(recycled.id, graduate.id);
+  assert.equal(returned.members.some((member) => member.id === graduate.id), false);
+  assert.equal(returned.graduations[0].returnedToPool, true);
+  assert.equal(returned.graduations[0].poolReturnYear, 4);
+  assert.equal(returned.graduations[0].poolReturnWeek, 1);
+  assert.deepEqual(recycled.appearances, { theater: 0, center: 0, media: 0, offAir: 0 });
+  const skillKeys = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
+  assert.notDeepEqual(skillKeys.map((skill) => recycled[skill]), skillKeys.map((skill) => graduate[skill]));
 });
 
 test('run summary includes development, generation, center, and sales records', () => {

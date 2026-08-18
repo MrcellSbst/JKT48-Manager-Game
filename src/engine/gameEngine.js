@@ -101,6 +101,80 @@ function makeFanComposition(rng) {
   return composition;
 }
 
+function shuffleWithRng(items, rng) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(rng, 0, index);
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function makePoolCandidate(member, poolSize, qualityBonus = 0) {
+  return {
+    ...member,
+    candidateId: member.id,
+    sourcePoolId: member.id,
+    identityId: member.identityId ?? member.id,
+    originalTeam: member.originalTeam ?? member.team,
+    team: 'TRAINEE',
+    status: 'trainee',
+    energy: 100,
+    suspensionWeeks: 0,
+    graduationPending: false,
+    traineeWeeks: 0,
+    trainingProgress: 0,
+    theaterAppearances: 0,
+    potential: clamp((member.potential ?? 70) + qualityBonus),
+    development: clamp((member.development ?? 50) + qualityBonus),
+    canPerformTheater: true,
+    finalistPoolSize: poolSize,
+  };
+}
+
+function recycleMemberForPool(member, state, graduation) {
+  const identityId = member.identityId ?? member.id;
+  const incarnation = (member.incarnation ?? 0) + 1;
+  const rng = createRng(hashSeed(`${state.seed}:pool-return:${graduation.id}:${incarnation}`));
+  const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
+  return {
+    id: `${identityId}-return-${incarnation}`,
+    identityId,
+    incarnation,
+    name: member.name,
+    nickname: member.nickname,
+    generation: member.generation,
+    team: member.originalTeam ?? member.team ?? '',
+    originalTeam: member.originalTeam ?? member.team ?? '',
+    photo: member.photo,
+    graduated: false,
+    archetype,
+    traits: [TRAITS[randomInt(rng, 0, TRAITS.length - 1)]],
+    ...makeStats(rng, 'Raw Prospect'),
+    ...makeHiddenProfile(rng, archetype),
+    popularity: randomInt(rng, 10, 35),
+    energy: 100,
+    ego: randomInt(rng, 0, 100),
+    potential: randomInt(rng, 62, 98),
+    development: randomInt(rng, 35, 92),
+    fanbase: randomInt(rng, 300, 1200),
+    fanComposition: makeFanComposition(rng),
+    oshiSentiment: 0,
+    momentum: 0,
+    traineeWeeks: 0,
+    trainingProgress: 0,
+    theaterAppearances: 0,
+    status: 'active',
+    careerStage: 'Early',
+    joinedYear: null,
+    joinedWeek: null,
+    canPerformTheater: true,
+    suspensionWeeks: 0,
+    appearances: { theater: 0, center: 0, media: 0, offAir: 0 },
+    setlistFamiliarity: {},
+  };
+}
+
 function developmentCurveMultiplier(member, year) {
   if (member.developmentCurve === 'late') return year >= 3 ? 1.2 : 0.82;
   if (member.developmentCurve === 'early') return year <= 2 ? 1.15 : 0.9;
@@ -181,7 +255,9 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     const stats = makeStats(rng, archetype);
     return {
       id: `${slug(identity.name)}-${index}`,
+      identityId: `${slug(identity.name)}-${index}`,
       ...identity,
+      originalTeam: identity.team,
       archetype,
       traits: [TRAITS[randomInt(rng, 0, TRAITS.length - 1)]],
       ...stats,
@@ -838,7 +914,7 @@ function makeRunSummary(state, members, eligibleCount, records) {
     totalMembers: members.length,
     finalActiveRoster: active,
     finalTrainees: members.filter((member) => member.status === 'trainee').length,
-    finalGraduatedMembers: members.filter((member) => member.status === 'graduated').length,
+    finalGraduatedMembers: (state.graduations ?? []).filter((item) => item.completed).length,
     finalEligibleRoster: eligibleCount,
     peakFanbase: records.peakFanbase,
     peakPopularity: records.peakPopularity ?? state.group.popularity,
@@ -967,6 +1043,7 @@ export function resolveWeek(state) {
   const theaterEconomics = Object.fromEntries([...validTheaterDays].map((day) => [day, createTheaterEconomics(state, day, effectiveTheater)]));
   const resolutionState = { ...state, theater: effectiveTheater, theaterEconomics };
   const weeklyDemandRecords = [];
+  let unsignedMembers = [...(state.unsignedMembers ?? [])];
   let members = state.members.map((member) => {
     if (member.suspensionWeeks > 0) {
       const left = member.suspensionWeeks - 1;
@@ -1076,6 +1153,21 @@ export function resolveWeek(state) {
     }
     return graduation;
   });
+  graduations = graduations.map((graduation) => {
+    if (!graduation.completed || graduation.returnedToPool) return graduation;
+    const returnAbsolute = toAbsoluteWeek(graduation.departureYear, graduation.departureWeek) + BALANCE.weeksPerYear * 2;
+    if (currentAbsolute + 1 < returnAbsolute) return graduation;
+    const poolCalendar = fromAbsoluteWeek(currentAbsolute + 1);
+    const graduatedMember = members.find((member) => member.id === graduation.memberId && member.status === 'graduated');
+    if (!graduatedMember) return { ...graduation, returnedToPool: true, poolReturnYear: poolCalendar.year, poolReturnWeek: poolCalendar.week };
+    const recycled = recycleMemberForPool(graduatedMember, state, graduation);
+    const identityAlreadyAvailable = unsignedMembers.some((member) => (member.identityId ?? member.id) === recycled.identityId);
+    members = members.filter((member) => member.id !== graduatedMember.id);
+    if (!identityAlreadyAvailable) unsignedMembers.push(recycled);
+    notifications.push({ type: 'success', text: `${graduation.memberName} is available in the audition pool again with a reset profile.` });
+    history.unshift({ id: `${graduation.id}-pool-return`, type: 'member', title: `${graduation.memberName} returns to the talent pool`, detail: 'Two years after graduation, the member can be recruited again with newly generated stats.', year: poolCalendar.year, week: poolCalendar.week });
+    return { ...graduation, returnedToPool: true, poolReturnYear: poolCalendar.year, poolReturnWeek: poolCalendar.week, recycledMemberId: recycled.id };
+  });
   const promotionResult = { members, promotions: [] };
   const promotions = state.promotions ?? [];
   if (rng() < 0.12) {
@@ -1100,7 +1192,9 @@ export function resolveWeek(state) {
     if (progressWeeks >= auditionCampaign.durationWeeks) {
       const selectedIds = (auditionCampaign.selectedCandidateIds?.length ? auditionCampaign.selectedCandidateIds : auditionCampaign.candidatePool.map((candidate) => candidate.id)).slice(0, auditionCampaign.maxIntake);
       const selectedCandidates = auditionCampaign.candidatePool.filter((candidate) => selectedIds.includes(candidate.id));
-      members = [...members, ...selectedCandidates.map(({ candidateId, ...candidate }) => ({ ...candidate, id: candidateId ?? candidate.id, status: 'trainee', joinedYear: year, joinedWeek: week, traineeWeeks: 0, trainingProgress: 0 }))];
+      const selectedPoolIds = new Set(selectedCandidates.map((candidate) => candidate.sourcePoolId ?? candidate.candidateId ?? candidate.id));
+      members = [...members, ...selectedCandidates.map(({ candidateId, sourcePoolId, ...candidate }) => ({ ...candidate, id: candidateId ?? candidate.id, status: 'trainee', joinedYear: year, joinedWeek: week, traineeWeeks: 0, trainingProgress: 0 }))];
+      unsignedMembers = unsignedMembers.filter((member) => !selectedPoolIds.has(member.id));
       auditions = [...auditions, { year: auditionCampaign.year, size: selectedCandidates.length, finalistPoolSize: auditionCampaign.finalistPoolSize, startWeek: auditionCampaign.startWeek, durationWeeks: auditionCampaign.durationWeeks }];
       auditionCampaign = null;
       notifications.push({ type: 'success', text: `${selectedCandidates.length} trainees join after the five-week audition.` });
@@ -1254,7 +1348,7 @@ export function resolveWeek(state) {
     statistics: {
       before: { money: state.money, fanbase: state.group.fanbase, popularity: state.group.popularity, fanTrust: state.group.fanTrust, reputation: state.group.reputation },
       after: { money: nextMoney, fanbase: group.fanbase, popularity: group.popularity, fanTrust: group.fanTrust, reputation: group.reputation },
-      roster: { total: members.length, active: members.filter((member) => ['active', 'trainee'].includes(member.status)).length, eligible: eligibleCount, trainees: members.filter((member) => member.status === 'trainee').length, graduated: members.filter((member) => member.status === 'graduated').length },
+      roster: { total: members.length, active: members.filter((member) => ['active', 'trainee'].includes(member.status)).length, eligible: eligibleCount, trainees: members.filter((member) => member.status === 'trainee').length, graduated: graduations.filter((item) => item.completed).length },
       dramaSuspensions: records.dramaSuspensions ?? 0,
       graduations: graduations.filter((item) => item.completed).length,
     },
@@ -1294,7 +1388,7 @@ export function resolveWeek(state) {
     notifications.push({ type: 'success', text: `New opportunity: ${template.title}. Respond within two weeks.` });
   }
   const next = {
-    ...state, year, week, members, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
+    ...state, year, week, members, unsignedMembers, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
     notifications, activeDrama, dramaMemory, dramaCooldown, fanNarratives, graduations, records, failureCounters, weeklyReports, concertVenueOffers: nextConcertVenueOffers, runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };
@@ -1306,48 +1400,18 @@ export function startAuditionCampaign(state, startWeek = state.week) {
   const auditionCost = applyRate(65_000_000, bonusValue(state, 'B021'));
   if (startWeek < BALANCE.auditionStartWeek || startWeek > BALANCE.weeksPerYear || state.money < auditionCost || state.auditionCampaign?.status === 'active' || state.auditions.some((item) => item.year === state.year)) return state;
   const rng = createRng(hashSeed(`${state.seed}:audition-campaign:${state.year}:${startWeek}`));
+  const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));
+  const availablePool = shuffleWithRng((state.unsignedMembers ?? []).filter((member) => !rosterIdentityIds.has(member.identityId ?? member.id)), rng);
+  if (!availablePool.length) return state;
   const managementScore = state.group.fanTrust * 0.55 + state.group.reputation * 0.45;
-  const maxIntake = state.auditions.length === 0 ? 4 : Math.min(6, managementScore < 40 ? 3 : managementScore < 60 ? 4 : managementScore < 80 ? 5 : 6);
+  const intakeLimit = state.auditions.length === 0 ? 4 : Math.min(6, managementScore < 40 ? 3 : managementScore < 60 ? 4 : managementScore < 80 ? 5 : 6);
+  const maxIntake = Math.min(intakeLimit, availablePool.length);
   const finalistBonus = bonusValue(state, 'B019');
   const applicantBonus = bonusValue(state, 'B022');
-  const poolSize = Math.max(maxIntake, Math.ceil((maxIntake + 2 + finalistBonus) * (1 + applicantBonus)));
+  const poolSize = Math.min(availablePool.length, Math.max(maxIntake, Math.ceil((maxIntake + 2 + finalistBonus) * (1 + applicantBonus))));
   const scoutingBonus = bonusValue(state, 'B020');
   const qualityBonus = Math.round((managementScore - 50) * 0.08);
-  const candidatePool = Array.from({ length: poolSize }, (_, index) => {
-    const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
-    const stats = makeStats(rng, 'Raw Prospect');
-    const candidateId = `trainee-${state.year}-${startWeek}-${index}`;
-    return {
-      id: candidateId,
-      candidateId,
-      name: `Trainee ${state.year}-${index + 1}`,
-      nickname: `Rookie ${index + 1}`,
-      generation: `GEN ${Math.max(14, state.year + 13)}`,
-      team: 'TRAINEE',
-      photo: '',
-      archetype,
-      traits: [TRAITS[randomInt(rng, 0, TRAITS.length - 1)]],
-      ...stats,
-      ...makeHiddenProfile(rng, archetype),
-      popularity: randomInt(rng, 10, 35),
-      energy: 100,
-      ego: randomInt(rng, 0, 100),
-      potential: clamp(randomInt(rng, 62, 98) + qualityBonus),
-      development: clamp(randomInt(rng, 35, 92) + qualityBonus),
-      fanbase: randomInt(rng, 300, 1200),
-      fanComposition: makeFanComposition(rng),
-      oshiSentiment: 0,
-      momentum: 0,
-      traineeWeeks: 0,
-      trainingProgress: 0,
-      theaterAppearances: 0,
-      status: 'trainee',
-      suspensionWeeks: 0,
-      canPerformTheater: true,
-      finalistPoolSize: poolSize,
-      appearances: { theater: 0, center: 0, media: 0 },
-    };
-  });
+  const candidatePool = availablePool.slice(0, poolSize).map((member) => makePoolCandidate(member, poolSize, qualityBonus));
   const campaign = { id: `audition-campaign-${state.year}-${startWeek}`, year: state.year, startYear: state.year, startWeek, phase: 'applications', progressWeeks: 0, durationWeeks: 5, maxIntake, finalistPoolSize: poolSize, candidatePool, selectedCandidateIds: [], cost: auditionCost, scoutingAccuracy: 1 + scoutingBonus, status: 'active' };
   return { ...state, money: state.money - auditionCost, auditionCampaign: campaign, history: [{ id: campaign.id, type: 'audition', title: 'Audition opens', detail: `Applications begin in Week ${startWeek}. Final selection completes after five weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
@@ -1364,17 +1428,13 @@ export function runAudition(state) {
   const auditionCost = applyRate(65_000_000, bonusValue(state, 'B021'));
   if (state.week < BALANCE.auditionStartWeek || state.money < auditionCost || state.auditions.some((item) => item.year === state.year)) return state;
   const rng = createRng(hashSeed(`${state.seed}:audition:${state.year}`));
-  const cap = state.auditions.length === 0 ? 4 : Math.min(6, 3 + Math.floor((state.group.fanTrust * 0.55 + state.group.reputation * 0.45) / 20));
+  const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));
+  const availablePool = shuffleWithRng((state.unsignedMembers ?? []).filter((member) => !rosterIdentityIds.has(member.identityId ?? member.id)), rng);
+  if (!availablePool.length) return state;
+  const cap = Math.min(availablePool.length, state.auditions.length === 0 ? 4 : Math.min(6, 3 + Math.floor((state.group.fanTrust * 0.55 + state.group.reputation * 0.45) / 20)));
   const finalistBonus = bonusValue(state, 'B019');
-  const candidates = Array.from({ length: cap }, (_, index) => {
-    const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
-    return {
-      id: `trainee-${state.year}-${index}`, name: `Trainee ${state.year}-${index + 1}`, nickname: `Rookie ${index + 1}`,
-      generation: `GEN ${Math.max(14, state.year + 13)}`, team: 'TRAINEE', photo: '', archetype,
-      traits: [TRAITS[randomInt(rng, 0, TRAITS.length - 1)]], ...makeStats(rng, 'Raw Prospect'), ...makeHiddenProfile(rng, archetype), popularity: randomInt(rng, 10, 35),
-      energy: 100, ego: randomInt(rng, 0, 100), potential: randomInt(rng, 68, 99), development: randomInt(rng, 45, 95), fanbase: randomInt(rng, 300, 1200), fanComposition: makeFanComposition(rng), oshiSentiment: 0, traineeWeeks: 0, trainingProgress: 0, theaterAppearances: 0,
-      momentum: 0, status: 'trainee', suspensionWeeks: 0, joinedYear: state.year, joinedWeek: state.week, canPerformTheater: true, finalistPoolSize: cap + finalistBonus, appearances: { theater: 0, center: 0, media: 0 }, setlistFamiliarity: {},
-    };
-  });
-  return { ...state, members: [...state.members, ...candidates], money: state.money - auditionCost, auditions: [...state.auditions, { year: state.year, size: candidates.length, finalistPoolSize: cap + finalistBonus }], history: [{ id: `audition-${state.year}`, type: 'audition', title: `Generation ${candidates[0]?.generation.replace('GEN ', '')} selected`, detail: `${candidates.length} trainees join from ${cap + finalistBonus} finalists after the Q4 audition.`, year: state.year, week: state.week }, ...state.history] };
+  const finalistPoolSize = Math.min(availablePool.length, cap + finalistBonus);
+  const candidates = availablePool.slice(0, cap).map((member) => ({ ...makePoolCandidate(member, finalistPoolSize), joinedYear: state.year, joinedWeek: state.week }));
+  const selectedPoolIds = new Set(candidates.map((candidate) => candidate.sourcePoolId));
+  return { ...state, members: [...state.members, ...candidates.map(({ candidateId, sourcePoolId, ...candidate }) => ({ ...candidate, id: candidateId }))], unsignedMembers: availablePool.filter((member) => !selectedPoolIds.has(member.id)), money: state.money - auditionCost, auditions: [...state.auditions, { year: state.year, size: candidates.length, finalistPoolSize }], history: [{ id: `audition-${state.year}`, type: 'audition', title: `Generation ${candidates[0]?.generation.replace('GEN ', '')} selected`, detail: `${candidates.length} trainees join from ${finalistPoolSize} finalists after the Q4 audition.`, year: state.year, week: state.week }, ...state.history] };
 }
