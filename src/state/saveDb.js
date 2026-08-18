@@ -65,9 +65,24 @@ export const loadActiveRun = () => loadSave(1);
 export const saveActiveRun = (state) => writeSave(1, state);
 export const deleteActiveRun = () => deleteSave(1);
 
-const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'], completedRuns: 0 };
+const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'], completedRuns: 0, runHistory: [] };
 export async function getMetaProfile() {
   const profile = await transactStore(META_STORE, 'readonly', (store) => store.get('profile'));
-  return profile ?? DEFAULT_META;
+  return profile ? { ...DEFAULT_META, ...profile, unlockedBonusIds: profile.unlockedBonusIds ?? DEFAULT_META.unlockedBonusIds, runHistory: profile.runHistory ?? [] } : { ...DEFAULT_META };
 }
 export const saveMetaProfile = (profile) => transactStore(META_STORE, 'readwrite', (store) => store.put({ ...profile, id: 'profile' }));
+
+export function createRunHistoryEntry(game, completedAt = Date.now()) {
+  if (!game?.runSummary || game.runStatus !== 'ended') return null;
+  const endedYear = game.runEndedAt?.year ?? game.year;
+  const endedWeek = game.runEndedAt?.week ?? game.week;
+  const historyKey = `${game.seed}:${endedYear}:${endedWeek}:${game.runSummary.score}:${game.runSummary.cause}`;
+  return { id: historyKey, completedAt, endedYear, endedWeek, ...game.runSummary };
+}
+
+export function mergeRunHistory(profile, entry, limit = 50) {
+  if (!entry) return profile;
+  const existing = profile.runHistory ?? [];
+  if (existing.some((item) => item.id === entry.id)) return profile;
+  return { ...profile, runHistory: [entry, ...existing].slice(0, limit) };
+}

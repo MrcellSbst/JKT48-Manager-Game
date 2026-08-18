@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, Archive, ArrowLeft, BookOpen, Building2, CalendarDays, Check, ChevronRight, CircleDollarSign, Clapperboard,
+  Activity, Archive, ArrowLeft, BookOpen, Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleDollarSign, Clapperboard,
   Clock3, Disc3, History, Languages, LayoutDashboard, Menu, Moon, Plus, Save, Search, ShieldAlert, Square,
   Sparkles, Sun, Target, Ticket, Trash2, TrendingUp, Trophy, UserRoundSearch, Users, Wrench, X,
 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SINGLE_BUDGETS } from '
 import { BONUS_BY_ID, BONUS_TEMPLATES } from './data/bonusTemplates.js';
 import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
 import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, assignActivity, configureTheaterShow, createFanTargetForYear, createGame, endRun, finalizeAudition, finalizeGameSetup, getFanGrowthMultiplier, getFanTargetPerformance, getRosterDanger, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction } from './engine/gameEngine.js';
-import { deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
+import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { localizeDocument } from './localization.js';
 
 const portraitModules = import.meta.glob([
@@ -22,10 +22,10 @@ const AUTOMATIC_ACTIVITY_LOCKS = ['mvProduction', 'concert', 'concertRehearsal',
 
 const NAV = [
   ['dashboard', 'Command', LayoutDashboard], ['schedule', 'Schedule', CalendarDays],
-  ['roster', 'Roster', Users], ['campaigns', 'Campaigns', Clapperboard], ['templates', 'Templates', Archive], ['finance', 'Finance', CircleDollarSign],
+  ['roster', 'Roster', Users], ['campaigns', 'Campaigns', Clapperboard], ['templates', 'Templates', Archive], ['statistics', 'Statistics', ChartNoAxesCombined],
   ['history', 'History', History], ['wiki', 'Wiki', BookOpen], ['saves', 'Saves', Archive],
 ];
-const ID_TEXT = { 'Game menu':'Menu permainan','Dark mode':'Mode gelap','Light mode':'Mode terang','Save run':'Simpan permainan','Saving...':'Menyimpan...','New timeline':'Linimasa baru',Command:'Komando',Schedule:'Jadwal',Roster:'Anggota',Campaigns:'Kampanye',History:'Riwayat',Saves:'Penyimpanan',Season:'Musim',Week:'Minggu','Resolve week':'Selesaikan minggu','Open menu':'Buka menu','Close menu':'Tutup menu','Simulation stats are fictional.':'Statistik simulasi bersifat fiktif.','Save controls become available after the founding lineup is confirmed.':'Kontrol penyimpanan tersedia setelah susunan awal dikonfirmasi.','Run saved just now.':'Permainan baru saja disimpan.','Save failed. Try again.':'Gagal menyimpan. Coba lagi.' };
+const ID_TEXT = { 'Game menu':'Menu permainan','Dark mode':'Mode gelap','Light mode':'Mode terang','Save run':'Simpan permainan','Saving...':'Menyimpan...','New timeline':'Linimasa baru',Command:'Komando',Schedule:'Jadwal',Roster:'Anggota',Campaigns:'Kampanye',Templates:'Templat',Statistics:'Statistik',History:'Riwayat',Wiki:'Wiki',Saves:'Penyimpanan',Season:'Musim',Week:'Minggu','Resolve week':'Selesaikan minggu','Open menu':'Buka menu','Close menu':'Tutup menu','Simulation stats are fictional.':'Statistik simulasi bersifat fiktif.','Save controls become available after the founding lineup is confirmed.':'Kontrol penyimpanan tersedia setelah susunan awal dikonfirmasi.','Run saved just now.':'Permainan baru saja disimpan.','Save failed. Try again.':'Gagal menyimpan. Coba lagi.' };
 const translate = (language, text) => language === 'id' ? (ID_TEXT[text] ?? text) : text;
 
 const number = new Intl.NumberFormat('en-US');
@@ -127,7 +127,7 @@ function Wiki({ game }) {
     <section className="wiki-section" id="wiki-stats"><div className="wiki-section-head"><span>01</span><div><h2>Member stats</h2><p>Most ratings use a 0–100 scale and are generated from the run seed.</p></div></div><div className="wiki-definition-grid">{WIKI_STATS.map(([name, description]) => <article key={name}><strong>{name}</strong><p>{description}</p></article>)}</div></section>
     <section className="wiki-section" id="wiki-income"><div className="wiki-section-head"><span>02</span><div><h2>Income and costs</h2><p>Activity costs are charged for every participating member unless noted otherwise.</p></div></div>
       <div className="wiki-callout"><CircleDollarSign size={20} /><div><strong>Weekly fixed expenses</strong><p>Rp 18m general operations + theater upkeep. Management Perks can reduce both amounts.</p></div></div>
-      <div className="wiki-table-wrap"><table className="wiki-table"><thead><tr><th>Activity</th><th>Energy</th><th>Cost / member</th><th>Gross income</th><th>Income rule</th></tr></thead><tbody>{activityRows.map(([id, item]) => <tr key={id}><td><strong>{item.label}</strong></td><td>{id === 'liveStream' ? `+${item.energyRecovery}` : item.energy}</td><td>{money(item.cost ?? 0)}</td><td>{id === 'theater' ? 'Attendance × ticket price' : id === 'liveStream' ? `Popularity × ${money(item.revenuePerPopularity)}` : item.capacity ? `Up to ${money(item.capacity * item.ticket)}` : item.revenue ? money(item.revenue) : 'None'}</td><td>{id === 'theater' ? 'Exactly 12 members; demand is capped by theater capacity.' : id.startsWith('vc') ? `${item.capacity} slots × ${money(item.ticket)} per selected member.` : id.startsWith('mg') ? `${item.capacity} slots × ${money(item.ticket)} per participating member.` : id === 'liveStream' ? 'Available every day; restores 6 Energy and adds fans based on Popularity.' : id === 'concert' ? 'Concert income comes from campaign ticket sales before the event.' : 'No direct income.'}</td></tr>)}</tbody></table></div>
+      <div className="wiki-table-wrap"><table className="wiki-table"><thead><tr><th>Activity</th><th>Energy</th><th>Cost / member</th><th>Gross income</th><th>Income rule</th></tr></thead><tbody>{activityRows.map(([id, item]) => <tr key={id}><td><strong>{item.label}</strong></td><td>{id === 'liveStream' ? `+${item.energyRecovery}` : item.energy}</td><td>{money(item.cost ?? 0)}</td><td>{id === 'theater' ? 'Attendance × ticket price' : ['liveStream','media'].includes(id) ? `Popularity × ${money(item.revenuePerPopularity)}` : id === 'offAir' ? `12-member total Popularity × ${money(item.revenuePerPopularity)}` : item.capacity ? `Up to ${money(item.capacity * item.ticket)}` : item.revenue ? money(item.revenue) : 'None'}</td><td>{id === 'theater' ? 'Exactly 12 members; demand is capped by theater capacity.' : id.startsWith('vc') ? `${item.capacity} slots × ${money(item.ticket)} per selected member.` : id.startsWith('mg') ? `${item.capacity} slots × ${money(item.ticket)} per participating member.` : id === 'liveStream' ? 'Available every day; restores 6 Energy and adds fans based on Popularity.' : id === 'media' ? 'Income is based on the participating member’s Popularity.' : id === 'offAir' ? 'Exactly 12 members; income is based on their total Popularity.' : id === 'yearEndMeetGreet' ? 'Every active member receives the normal Meet & Greet capacity and ticket price.' : id === 'concert' ? 'Concert income comes from campaign ticket sales before the event.' : 'No direct income.'}</td></tr>)}</tbody></table></div>
       <p className="wiki-note">Video Call and Meet & Greet sales are demand-limited. Video Call favors digital and casual fans; Meet & Greet favors event and core fans. Each result stores sold tickets, sell-through, and unmet demand.</p>
     </section>
     <section className="wiki-section" id="wiki-rules"><div className="wiki-section-head"><span>03</span><div><h2>Event rules</h2><p>Scheduling limits are enforced when assignments are made.</p></div></div><div className="wiki-rule-list"><article><strong>Theater show</strong><p>Exactly 12 members must be assigned on the same day. Demand controls attendance and revenue. Familiarity, ability, crowd traits, and sell-through shape satisfaction; results record center, unit songs, understudies, and Theater EXP.</p></article><article><strong>Video Call</strong><p>One 75-slot Video Call per member per four-week month. Only the selected member participates; tickets cost Rp 120k.</p></article><article><strong>Meet & Greet</strong><p>One 300-slot event per four-week month. Every available member participates; tickets cost Rp 50k.</p></article><article><strong>Concert</strong><p>One concert per four-week month. Every available member participates. Choose budget, venue, title, month, and day; ticket sales close two weeks before the event and its day is locked.</p></article><article><strong>MV and single</strong><p>Production needs exactly 12 members, occupies one chosen day for four weeks, and begins five weeks before release. Views decline after launch and enter a fanbase-capped long tail from week four.</p></article><article><strong>Training</strong><p>Training improves one skill. Gains depend on Potential, Development, development curve, Adaptability, skill level, Energy, traits, trainee status, mentorship, and Management Perks.</p></article></div></section>
@@ -267,6 +267,7 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember }) {
   useEffect(() => { if (!selectedMember && member) setSelectedMember(member.id); }, [member, selectedMember, setSelectedMember]);
   const activities = Object.entries(BALANCE.activities).filter(([, item]) => item.schedulable !== false);
   const theaterCounts = useMemo(() => Object.fromEntries(DAYS.map((day) => [day, game.members.reduce((count, item) => count + (game.schedule[`${item.id}:${day}`] === 'theater' ? 1 : 0), 0)])), [game.members, game.schedule]);
+  const offAirCounts = useMemo(() => Object.fromEntries(DAYS.map((day) => [day, game.members.reduce((count, item) => count + (game.schedule[`${item.id}:${day}`] === 'offAir' ? 1 : 0), 0)])), [game.members, game.schedule]);
   const historyReport = (game.weeklyReports ?? []).find((report) => report.year === historyYear && report.week === (historyMonth - 1) * BALANCE.weeksPerMonth + historyWeek);
   const historyByDay = Object.fromEntries(DAYS.map((day) => {
     const activitiesForDay = Object.entries(historyReport?.schedule ?? {}).filter(([key]) => key.endsWith(`:${day}`)).reduce((groups, [key, activityId]) => {
@@ -279,14 +280,14 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember }) {
     }, new Map());
     return [day, [...activitiesForDay.values()]];
   }));
-  const fillTheaterLineup = (day) => setGame((current) => {
-    const existingCount = current.members.reduce((count, item) => count + (current.schedule[`${item.id}:${day}`] === 'theater' ? 1 : 0), 0);
+  const fillRequiredLineup = (day, activityId) => setGame((current) => {
+    const existingCount = current.members.reduce((count, item) => count + (current.schedule[`${item.id}:${day}`] === activityId ? 1 : 0), 0);
     if (existingCount === 12) return current;
     const available = current.members.filter((item) => ['active','trainee'].includes(item.status) && !AUTOMATIC_ACTIVITY_LOCKS.includes(current.schedule[`${item.id}:${day}`])).sort((a, b) => b.energy - a.energy).slice(0, 12);
     if (available.length !== 12) return current;
     const schedule = { ...current.schedule };
-    current.members.forEach((item) => { if (schedule[`${item.id}:${day}`] === 'theater') delete schedule[`${item.id}:${day}`]; });
-    available.forEach((item) => { schedule[`${item.id}:${day}`] = 'theater'; });
+    current.members.forEach((item) => { if (schedule[`${item.id}:${day}`] === activityId) delete schedule[`${item.id}:${day}`]; });
+    available.forEach((item) => { schedule[`${item.id}:${day}`] = activityId; });
     return { ...current, schedule };
   });
   const toggleBatchMode = () => {
@@ -306,6 +307,7 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember }) {
     setGame((current) => batchMemberIds.reduce((next, memberId) => assignActivity(next, memberId, batchDay, activity), current));
   };
   const selectableMemberIds = activeMembers.filter((item) => ['active', 'trainee'].includes(item.status) && (item.suspensionWeeks ?? 0) === 0).map((item) => item.id);
+  const batchAssignmentValid = batchMemberIds.length > 0 && (activity !== 'offAir' || batchMemberIds.length === 12);
   const toggleSelectAll = () => setBatchMemberIds((current) => current.length === selectableMemberIds.length ? [] : selectableMemberIds);
   const createTemplate = () => {
     const entries = Object.entries(game.schedule).filter(([, activityId]) => !AUTOMATIC_ACTIVITY_LOCKS.includes(activityId)).map(([key, activityId]) => { const separator = key.lastIndexOf(':'); return { memberId: key.slice(0, separator), day: key.slice(separator + 1), activityId }; });
@@ -315,16 +317,17 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember }) {
   };
   return <div className="page schedule-page">
     <section className="page-heading"><div><span className="eyebrow">Weekly operations</span><h1>Schedule</h1><p>Select member, activity, then day. Existing assignments can be replaced.</p></div><div className="legend"><span><i className="fresh" />Fresh</span><span><i className="tired" />Tired</span><span><i className="unavailable" />Unavailable</span></div></section>
-    <div className="batch-toolbar"><button type="button" className={batchMode ? 'batch-toggle active' : 'batch-toggle'} onClick={toggleBatchMode} aria-pressed={batchMode}><Users size={17} /> Multiple select</button>{batchMode ? <><span><strong>{batchMemberIds.length}</strong> selected</span><button type="button" className="batch-select-all" onClick={toggleSelectAll}>{batchMemberIds.length === selectableMemberIds.length ? 'Clear all' : 'Select all'}</button><label>Day<select value={batchDay} onChange={(event) => setBatchDay(event.target.value)}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label><button type="button" className="batch-apply" disabled={!batchMemberIds.length} onClick={() => setConfirmBatch(true)}><Check size={17} /> Apply activity</button></> : <><small>Assign one activity and day to several members.</small><button type="button" className="save-template-button" disabled={!Object.values(game.schedule).some((activityId) => !AUTOMATIC_ACTIVITY_LOCKS.includes(activityId))} onClick={() => setConfirmTemplate(true)}><Save size={16} /> Save as template</button></>}</div>
+    <div className="batch-toolbar"><button type="button" className={batchMode ? 'batch-toggle active' : 'batch-toggle'} onClick={toggleBatchMode} aria-pressed={batchMode}><Users size={17} /> Multiple select</button>{batchMode ? <><span><strong>{batchMemberIds.length}</strong> selected{activity === 'offAir' ? ' / 12 required' : ''}</span><button type="button" className="batch-select-all" onClick={toggleSelectAll}>{batchMemberIds.length === selectableMemberIds.length ? 'Clear all' : 'Select all'}</button><label>Day<select value={batchDay} onChange={(event) => setBatchDay(event.target.value)}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label><button type="button" className="batch-apply" disabled={!batchAssignmentValid} onClick={() => setConfirmBatch(true)}><Check size={17} /> Apply activity</button></> : <><small>Assign one activity and day to several members.</small><button type="button" className="save-template-button" disabled={!Object.values(game.schedule).some((activityId) => !AUTOMATIC_ACTIVITY_LOCKS.includes(activityId))} onClick={() => setConfirmTemplate(true)}><Save size={16} /> Save as template</button></>}</div>
     <div className="schedule-layout">
       <section className="roster-rail" aria-label="Member selection"><div className="rail-title"><strong>Squad</strong><span>{batchMode ? `${batchMemberIds.length}/${activeMembers.length}` : activeMembers.length}</span></div>{activeMembers.map((item) => { const preview = projectedEnergy(item, game.schedule); return <button type="button" key={item.id} disabled={batchMode && (!['active','trainee'].includes(item.status) || (item.suspensionWeeks ?? 0) > 0)} className={batchMode ? (batchMemberSet.has(item.id) ? 'batch-selected' : '') : (item.id === member?.id ? 'selected' : '')} onClick={() => chooseMember(item)} aria-pressed={batchMode ? batchMemberSet.has(item.id) : item.id === member?.id}><Portrait member={item} size="tiny" /><span><strong>{displayName(item)}</strong><small>{item.generation}</small></span>{batchMode ? <Check className="batch-check" size={16} /> : <b className={energyTone(preview)}>{preview}</b>}</button>; })}</section>
       {member ? <section className="scheduler">
         <div className="selected-player"><Portrait member={member} size="large" /><div><span>{member.generation} · {member.team || 'JKT48'}</span><h2>{member.name}</h2><p>{member.archetype} · {member.traits.join(', ')}</p></div><div className={`energy-box ${energyTone(memberProjectedEnergy)}`}><span>Projected Energy</span><strong>{memberProjectedEnergy}</strong></div></div>
         {!['active','trainee'].includes(member.status) ? <div className="suspension"><ShieldAlert size={21} /><div><strong>Member unavailable</strong><span>{member.suspensionWeeks} week(s) remaining</span></div></div> : null}
         <div className="activity-picker"><label htmlFor="activity">Assignment</label><select id="activity" value={activity} onChange={(event) => setActivity(event.target.value)}>{activities.map(([id, item]) => <option key={id} value={id}>{item.label} · {activityEnergyLabel(item)} energy</option>)}</select></div>
-        <div className="theater-lineups"><div><Building2 size={18} /><span><strong>Theater requires 12 members</strong><small>Incomplete lineups cancel without fatigue or revenue.</small></span></div>{DAYS.map((day) => theaterCounts[day] > 0 ? <button type="button" key={day} disabled={theaterCounts[day] === 12} className={theaterCounts[day] === 12 ? 'ready' : ''} onClick={() => fillTheaterLineup(day)}><span>{day}</span><strong>{theaterCounts[day]}/12</strong>{theaterCounts[day] === 12 ? <Check size={15} /> : 'Fill'}</button> : null)}</div>
+        <div className="theater-lineups"><div><Building2 size={18} /><span><strong>Theater requires 12 members</strong><small>Incomplete lineups cancel without fatigue or revenue.</small></span></div>{DAYS.map((day) => theaterCounts[day] > 0 ? <button type="button" key={day} disabled={theaterCounts[day] === 12} className={theaterCounts[day] === 12 ? 'ready' : ''} onClick={() => fillRequiredLineup(day, 'theater')}><span>{day}</span><strong>{theaterCounts[day]}/12</strong>{theaterCounts[day] === 12 ? <Check size={15} /> : 'Fill'}</button> : null)}</div>
+        <div className="theater-lineups off-air-lineups"><div><Clapperboard size={18} /><span><strong>Off-air performance requires 12 members</strong><small>Income uses the total Popularity of the complete lineup.</small></span></div>{DAYS.map((day) => offAirCounts[day] > 0 ? <button type="button" key={day} disabled={offAirCounts[day] === 12} className={offAirCounts[day] === 12 ? 'ready' : ''} onClick={() => fillRequiredLineup(day, 'offAir')}><span>{day}</span><strong>{offAirCounts[day]}/12</strong>{offAirCounts[day] === 12 ? <Check size={15} /> : 'Fill'}</button> : null)}</div>
         <TheaterPlanner game={game} setGame={setGame} theaterCounts={theaterCounts} />
-        <div className="calendar-row">{DAYS.map((day) => { const key = `${member.id}:${day}`; const existing = game.schedule[key]; const locked = AUTOMATIC_ACTIVITY_LOCKS.includes(existing); return <button type="button" key={day} disabled={!['active','trainee'].includes(member.status) || locked} className={existing ? `assigned${locked ? ' locked' : ''}` : ''} onClick={() => setGame((current) => assignActivity(current, member.id, day, existing === activity ? 'clear' : activity))}><span>{day}</span><strong>{existing ? BALANCE.activities[existing].label : 'Available'}</strong><small>{locked ? 'Campaign date locked' : existing === 'theater' ? `Lineup ${theaterCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing ? `${activityEnergyLabel(BALANCE.activities[existing])} base energy` : activity === 'theater' ? `Current lineup ${theaterCounts[day]}/12` : 'Click to assign'}</small></button>; })}</div>
+        <div className="calendar-row">{DAYS.map((day) => { const key = `${member.id}:${day}`; const existing = game.schedule[key]; const locked = AUTOMATIC_ACTIVITY_LOCKS.includes(existing); return <button type="button" key={day} disabled={!['active','trainee'].includes(member.status) || locked} className={existing ? `assigned${locked ? ' locked' : ''}` : ''} onClick={() => setGame((current) => assignActivity(current, member.id, day, existing === activity ? 'clear' : activity))}><span>{day}</span><strong>{existing ? BALANCE.activities[existing].label : 'Available'}</strong><small>{locked ? 'Campaign date locked' : existing === 'theater' ? `Lineup ${theaterCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing === 'offAir' ? `Lineup ${offAirCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing ? `${activityEnergyLabel(BALANCE.activities[existing])} base energy` : activity === 'theater' ? `Current lineup ${theaterCounts[day]}/12` : activity === 'offAir' ? `Current lineup ${offAirCounts[day]}/12` : 'Click to assign'}</small></button>; })}</div>
         <div className="member-stats">{['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'ego'].map((key) => <div key={key}><span>{key}</span><div><i style={{ width: `${member[key]}%` }} /></div><strong>{Math.round(member[key])}</strong></div>)}</div>
       </section> : null}
     </div>
@@ -372,7 +375,6 @@ function AnnualEvents({ game, setGame }) {
   const venues = game.concertVenueOffers?.length ? game.concertVenueOffers : CONCERT_VENUES;
   const [mgWeek, setMgWeek] = useState(mgWeeks[0] ?? 44);
   const [mgDay, setMgDay] = useState('Sat');
-  const [mgSessions, setMgSessions] = useState(3);
   const [anniversaryWeek, setAnniversaryWeek] = useState(anniversaryWeeks[0] ?? 48);
   const [anniversaryDay, setAnniversaryDay] = useState('Sat');
   const [anniversaryBudget, setAnniversaryBudget] = useState('standard');
@@ -381,15 +383,14 @@ function AnnualEvents({ game, setGame }) {
   const [confirm, setConfirm] = useState(null);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
   const scheduleMg = () => {
-    const counts = Object.fromEntries(game.members.map((member) => [member.id, mgSessions]));
-    setGame((current) => scheduleYearEndMeetGreet(current, mgWeek, mgDay, current.week, counts));
+    setGame((current) => scheduleYearEndMeetGreet(current, mgWeek, mgDay, current.week));
     setConfirm(null);
   };
   const scheduleAnniversary = () => {
     setGame((current) => announceAnniversaryConcert(current, anniversaryWeek, anniversaryDay, anniversaryTitle, anniversaryBudget, anniversaryVenue, ['Tue', 'Thu']));
     setConfirm(null);
   };
-  return <section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? <div className="annual-event-status"><strong>Week {mgExisting.targetWeek} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div> : <><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><label>Sessions/member<select value={mgSessions} onChange={(event) => setMgSessions(Number(event.target.value))}>{[1,2,3].map((count) => <option key={count} value={count}>{count} · {count * 100} tickets</option>)}</select></label></div><button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || game.money < 40_000_000}>Review Rp 40m campaign</button></>}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? <div className="annual-event-status"><strong>Week {anniversaryExisting.targetWeek} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div> : <><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue','Thu'].includes(day)).map((day) => <option key={day}>{day}</option>)}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>)}</select></label></div><button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length}>Review anniversary</button></>}</article></div>{confirm ? <div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirm(null); }}><section className="confirm-week-modal" role="dialog" aria-modal="true"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2>Confirm {confirm === 'mg' ? 'year-end Meet & Greet' : 'Anniversary Concert'}?</h2><p>{confirm === 'mg' ? `Spend Rp 40m. Sales start now for Week ${mgWeek}; every active member receives ${mgSessions} session(s).` : `Book Week ${anniversaryWeek}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div> : null}</section>;
+  return <section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? <div className="annual-event-status"><strong>Week {mgExisting.targetWeek} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div> : <><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><div className="annual-event-rule"><span>Per member</span><strong>300 slots · Rp 50k</strong></div></div><button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || game.money < 40_000_000}>Review Rp 40m campaign</button></>}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? <div className="annual-event-status"><strong>Week {anniversaryExisting.targetWeek} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div> : <><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue','Thu'].includes(day)).map((day) => <option key={day}>{day}</option>)}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>)}</select></label></div><button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length}>Review anniversary</button></>}</article></div>{confirm ? <div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirm(null); }}><section className="confirm-week-modal" role="dialog" aria-modal="true"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2>Confirm {confirm === 'mg' ? 'year-end Meet & Greet' : 'Anniversary Concert'}?</h2><p>{confirm === 'mg' ? `Spend Rp 40m. Sales start now for Week ${mgWeek}; every active member receives 300 slots at Rp 50k, matching normal Meet & Greet.` : `Book Week ${anniversaryWeek}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div> : null}</section>;
 }
 
 function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate }) {
@@ -516,14 +517,60 @@ function FinanceDashboard({ game }) {
   </div>;
 }
 
+function StatisticsDashboard({ game }) {
+  const [period, setPeriod] = useState('month');
+  const reports = game.weeklyReports ?? [];
+  const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
+  const filtered = reports.filter((report) => period === 'all' || (report.year === game.year && (period === 'year' || Math.ceil(report.week / BALANCE.weeksPerMonth) === currentMonth)));
+  const totals = sumReports(filtered);
+  const firstSnapshot = filtered.find((report) => report.statistics?.before)?.statistics.before;
+  const lastSnapshot = [...filtered].reverse().find((report) => report.statistics?.after)?.statistics.after;
+  const currentSnapshot = lastSnapshot ?? { fanbase: game.group.fanbase, popularity: game.group.popularity, fanTrust: game.group.fanTrust, reputation: game.group.reputation };
+  const periodDelta = (key) => firstSnapshot ? currentSnapshot[key] - firstSnapshot[key] : (key === 'fanbase' ? totals.fanGain : null);
+  const formatDelta = (key) => {
+    const delta = periodDelta(key);
+    if (delta === null) return 'No period baseline';
+    return `${delta >= 0 ? '+' : ''}${number.format(delta)} this period`;
+  };
+  const incomeRows = [['Theater', totals.finances.theater], ['Video Call', totals.finances.videoCall], ['Meet & Greet', totals.finances.meetGreet], ['Media', totals.finances.media], ['Off-air', totals.finances.offAir], ['Live Stream', totals.finances.liveStream], ['Concert', totals.finances.concert], ['Other', totals.finances.otherIncome]];
+  const expenseRows = [['Activities', totals.finances.activityCosts], ['Refunds', totals.finances.refunds], ['Operations', totals.finances.generalOperations], ['Theater upkeep', totals.finances.theaterUpkeep]];
+  const largestCategory = Math.max(1, ...incomeRows.map(([, value]) => value), ...expenseRows.map(([, value]) => value));
+  const trend = filtered.slice(-12);
+  const largestTrend = Math.max(1, ...trend.map((report) => Math.abs(report.moneyDelta)));
+  const averageNet = filtered.length ? Math.round(totals.moneyDelta / filtered.length) : 0;
+  const roster = {
+    total: game.members.length,
+    active: game.members.filter((member) => member.status === 'active').length,
+    trainees: game.members.filter((member) => member.status === 'trainee').length,
+    graduated: game.members.filter((member) => member.status === 'graduated').length,
+    drama: game.records?.dramaSuspensions ?? 0,
+  };
+  return <div className="page finance-page statistics-page">
+    <section className="page-heading"><div><span className="eyebrow">Run analysis</span><h1>Statistics</h1><p>Track audience health, roster development, income, expenses, and weekly cash movement.</p></div><div className="finance-period" aria-label="Statistics period">{[['month', 'This month'], ['year', 'This year'], ['all', 'All time']].map(([value, label]) => <button type="button" key={value} className={period === value ? 'active' : ''} aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>)}</div></section>
+    <section className="statistics-kpis" aria-label="Audience statistics"><div><span>Fans</span><strong>{number.format(currentSnapshot.fanbase)}</strong><small>{formatDelta('fanbase')}</small></div><div><span>Popularity</span><strong>{currentSnapshot.popularity}/100</strong><small>{formatDelta('popularity')}</small></div><div><span>Fan Trust</span><strong>{currentSnapshot.fanTrust}/100</strong><small>{formatDelta('fanTrust')}</small></div><div><span>Reputation</span><strong>{currentSnapshot.reputation}/100</strong><small>{formatDelta('reputation')}</small></div></section>
+    <section className="statistics-roster" aria-label="Roster statistics"><div><span>Total members</span><strong>{roster.total}</strong></div><div><span>Active</span><strong>{roster.active}</strong></div><div><span>Trainees</span><strong>{roster.trainees}</strong></div><div><span>Graduated</span><strong>{roster.graduated}</strong></div><div><span>Drama incidents</span><strong>{roster.drama}</strong></div></section>
+    <section className="finance-kpis"><div><span>Total income</span><strong className="positive">{money(totals.finances.totalIncome)}</strong></div><div><span>Total expenses</span><strong className="negative">{money(totals.finances.totalExpenses)}</strong></div><div><span>Net cash</span><strong className={totals.moneyDelta >= 0 ? 'positive' : 'negative'}>{totals.moneyDelta >= 0 ? '+' : ''}{money(totals.moneyDelta)}</strong></div><div><span>Average weekly net</span><strong>{averageNet >= 0 ? '+' : ''}{money(averageNet)}</strong></div></section>
+    {filtered.length ? <section className="finance-analysis-grid"><article className="finance-analysis"><h2>Income sources</h2><div className="finance-bars">{incomeRows.map(([label, value]) => <div key={label}><span>{label}</span><div><i className="income-bar" style={{ width: `${value / largestCategory * 100}%` }} /></div><strong>{money(value)}</strong></div>)}</div></article><article className="finance-analysis"><h2>Expense categories</h2><div className="finance-bars">{expenseRows.map(([label, value]) => <div key={label}><span>{label}</span><div><i className="expense-bar" style={{ width: `${value / largestCategory * 100}%` }} /></div><strong>{money(value)}</strong></div>)}</div></article><article className="finance-analysis finance-trend"><h2>Weekly net trend</h2><div className="trend-chart">{trend.map((report) => <div key={`${report.year}-${report.week}`}><span>{report.moneyDelta >= 0 ? money(report.moneyDelta) : `-${money(Math.abs(report.moneyDelta))}`}</span><i className={report.moneyDelta >= 0 ? 'positive-bar' : 'negative-bar'} style={{ height: `${Math.max(8, Math.abs(report.moneyDelta) / largestTrend * 100)}%` }} /><small>{calendarParts(report.week).month} W{calendarParts(report.week).weekOfMonth}</small></div>)}</div></article></section> : <section className="finance-empty"><ChartNoAxesCombined size={28} /><strong>No reports in this period</strong><span>Resolve a week to record statistics and finances.</span></section>}
+  </div>;
+}
+
 function Saves({ game, activeSave, onLoad, onDelete }) {
   return <div className="page saves-page"><section className="page-heading"><div><span className="eyebrow">Browser storage</span><h1>Active run</h1><p>Only one timeline can remain active. Progress saves after founding lineup and every resolved week.</p></div></section><section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>{calendarLabel(game.year, game.week)}</span><h2>{game.seed}</h2><p>{number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${new Date(activeSave.updatedAt).toLocaleString()}` : 'Waiting for next weekly autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload saved run</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section><p className="storage-note">Starting another timeline replaces this run only after new founding setup is complete.</p></div>;
 }
 
-function StartScreen({ saves, onStart, onLoad }) {
+function StartScreen({ saves, onStart, onLoad, metaProfile }) {
   const [seed, setSeed] = useState(randomSeed);
   const activeSave = saves[0];
-  return <main className="start-screen"><section className="start-brand"><div className="start-number">48</div><div><span>Alternate timeline simulator</span><h1>JKT48<br />Manager</h1><p>Build the schedule. Develop the roster. Let every decision write a different history.</p></div></section><section className="start-control">{activeSave ? <div className="continue-run"><span>Active run</span><h2>{calendarLabel(activeSave.state.year, activeSave.state.week)}</h2><p>{activeSave.state.seed} · {number.format(activeSave.state.group.fanbase)} fans</p><button className="continue-button" type="button" onClick={onLoad}>Continue run <ChevronRight size={20} /></button></div> : <><span className="eyebrow">New management run</span><h2>Enter the theater office</h2></>}<div className={activeSave ? 'new-run-panel' : ''}>{activeSave ? <strong>Start replacement timeline</strong> : null}<label htmlFor="seed">Run seed</label><div className="seed-input"><input id="seed" value={seed} onChange={(e) => setSeed(e.target.value)} /><IconButton label="Randomize seed" onClick={() => setSeed(randomSeed())}><Sparkles size={19} /></IconButton></div><button className="start-button" type="button" onClick={() => onStart(seed)}>Start new timeline <ChevronRight size={20} /></button>{activeSave ? <small>Current run remains saved until new lineup is confirmed.</small> : null}</div><p className="fiction-note">Member skills, traits, and story outcomes are fictional gameplay data generated independently for each save.</p></section></main>;
+  const runHistory = metaProfile.runHistory ?? [];
+  return <main className="start-screen">
+    <section className="start-brand"><div className="start-number">48</div><div><span>Alternate timeline simulator</span><h1>JKT48<br />Manager</h1><p>Build the schedule. Develop the roster. Let every decision write a different history.</p></div></section>
+    <section className="start-control">
+      {activeSave ? <div className="continue-run"><span>Active run</span><h2>{calendarLabel(activeSave.state.year, activeSave.state.week)}</h2><p>{activeSave.state.seed} · {number.format(activeSave.state.group.fanbase)} fans</p><button className="continue-button" type="button" onClick={onLoad}>Continue run <ChevronRight size={20} /></button></div> : <><span className="eyebrow">New management run</span><h2>Enter the theater office</h2></>}
+      <div className={activeSave ? 'new-run-panel' : ''}>{activeSave ? <strong>Start replacement timeline</strong> : null}<label htmlFor="seed">Run seed</label><div className="seed-input"><input id="seed" value={seed} onChange={(e) => setSeed(e.target.value)} /><IconButton label="Randomize seed" onClick={() => setSeed(randomSeed())}><Sparkles size={19} /></IconButton></div><button className="start-button" type="button" onClick={() => onStart(seed)}>Start new timeline <ChevronRight size={20} /></button>{activeSave ? <small>Current run remains saved until new lineup is confirmed.</small> : null}</div>
+      <p className="fiction-note">Member skills, traits, and story outcomes are fictional gameplay data generated independently for each save.</p>
+      <section className="past-run-history"><header><div><span className="eyebrow">Past timelines</span><h3>Management history</h3></div><strong>{runHistory.length} completed</strong></header>{runHistory.length ? <div className="past-run-list">{runHistory.map((run) => <article key={run.id}><div className="past-run-title"><span>{run.managementName || 'Unnamed Management'}</span><h4>{run.rank} · {run.score} points</h4><small>{new Date(run.completedAt).toLocaleDateString()} · {run.yearsSurvived} year(s), {run.weeksSurvived} weeks</small></div><dl><div><dt>Final money</dt><dd>{money(run.finalMoney)}</dd></div><div><dt>Fans</dt><dd>{number.format(run.finalFanbase)}</dd></div><div><dt>Popularity</dt><dd>{run.finalPopularity}</dd></div><div><dt>Fan Trust</dt><dd>{run.finalFanTrust}</dd></div><div><dt>Reputation</dt><dd>{run.finalReputation}</dd></div><div><dt>Total members</dt><dd>{run.totalMembers}</dd></div><div><dt>Graduated</dt><dd>{run.finalGraduatedMembers}</dd></div><div><dt>Drama</dt><dd>{run.dramaSuspensions}</dd></div></dl><p>{run.cause}</p></article>)}</div> : <div className="past-run-empty"><History size={22} /><span>Completed runs will be summarized here.</span></div>}</section>
+    </section>
+  </main>;
 }
 
 function MemberStatModal({ member, selected, atLimit, onConfirm, onClose }) {
@@ -602,10 +649,10 @@ function FoundingSetup({ draft, metaProfile, onUnlockBonus, onComplete, onCancel
   </main>;
 }
 
-const sumReports = (reports) => reports.reduce((total, report) => ({ moneyDelta: total.moneyDelta + report.moneyDelta, fanGain: total.fanGain + report.fanGain, activities: total.activities + report.activities, finances: Object.fromEntries(Object.keys(total.finances).map((key) => [key, total.finances[key] + (report.finances?.[key] ?? 0)])) }), { moneyDelta: 0, fanGain: 0, activities: 0, finances: { theater: 0, videoCall: 0, meetGreet: 0, liveStream: 0, concert: 0, otherIncome: 0, activityCosts: 0, refunds: 0, generalOperations: 0, theaterUpkeep: 0, totalIncome: 0, totalExpenses: 0 } });
+const sumReports = (reports) => reports.reduce((total, report) => ({ moneyDelta: total.moneyDelta + report.moneyDelta, fanGain: total.fanGain + report.fanGain, activities: total.activities + report.activities, finances: Object.fromEntries(Object.keys(total.finances).map((key) => [key, total.finances[key] + (report.finances?.[key] ?? 0)])) }), { moneyDelta: 0, fanGain: 0, activities: 0, finances: { theater: 0, videoCall: 0, meetGreet: 0, media: 0, offAir: 0, liveStream: 0, concert: 0, otherIncome: 0, activityCosts: 0, refunds: 0, generalOperations: 0, theaterUpkeep: 0, totalIncome: 0, totalExpenses: 0 } });
 
 function ReportSummary({ title, report }) {
-  const incomeRows = [['Theater tickets', 'theater'], ['Video Call', 'videoCall'], ['Meet & Greet', 'meetGreet'], ['Live Stream', 'liveStream'], ['Concerts', 'concert']];
+  const incomeRows = [['Theater tickets', 'theater'], ['Video Call', 'videoCall'], ['Meet & Greet', 'meetGreet'], ['Media appearances', 'media'], ['Off-air performances', 'offAir'], ['Live Stream', 'liveStream'], ['Concerts', 'concert']];
   return <section className="report-summary"><h3>{title}</h3><div className="report-kpis"><div><span>Net cash</span><strong className={report.moneyDelta >= 0 ? 'positive' : 'negative'}>{report.moneyDelta >= 0 ? '+' : ''}{money(report.moneyDelta)}</strong></div><div><span>New fans</span><strong>+{number.format(report.fanGain)}</strong></div><div><span>Activities</span><strong>{report.activities}</strong></div></div><div className="report-ledger">{incomeRows.map(([label, key]) => <div key={key}><span>{label}</span><strong>{money(report.finances?.[key] ?? 0)}</strong></div>)}<div><span>Total income</span><strong className="positive">{money(report.finances?.totalIncome ?? 0)}</strong></div><div><span>Total expenses</span><strong className="negative">{money(report.finances?.totalExpenses ?? 0)}</strong></div></div></section>;
 }
 
@@ -679,7 +726,7 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState('');
   const [statisticsReport, setStatisticsReport] = useState(null);
   const [graduationAlert, setGraduationAlert] = useState(null);
-  const [metaProfile, setMetaProfile] = useState({ id: 'profile', currency: 0, unlockedBonusIds: [], completedRuns: 0 });
+  const [metaProfile, setMetaProfile] = useState({ id: 'profile', currency: 0, unlockedBonusIds: [], completedRuns: 0, runHistory: [] });
   const [metaLoaded, setMetaLoaded] = useState(false);
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem('jkt48-manager-theme') === 'dark' ? 'dark' : 'light'; }
@@ -691,6 +738,7 @@ export default function App() {
   });
   const advancingRef = useRef(false);
   const rewardingRef = useRef(false);
+  const rewardingPromiseRef = useRef(null);
 
   const refreshSaves = useCallback(async () => { const active = await getActiveRun(); setSaves(active ? [{ ...active, state: normalizeSessionActivities(active.state) }] : []); }, []);
   useEffect(() => { refreshSaves().catch(console.error); }, [refreshSaves]);
@@ -786,18 +834,46 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!metaLoaded || rewardingRef.current || game?.runStatus !== 'ended' || game.metaRewardClaimed || !game.runSummary) return;
+    if (!metaLoaded || rewardingRef.current || game?.runStatus !== 'ended' || !game.runSummary) return;
+    const historyEntry = createRunHistoryEntry(game);
+    const needsArchive = historyEntry && !(metaProfile.runHistory ?? []).some((entry) => entry.id === historyEntry.id);
+    const needsReward = !game.metaRewardClaimed;
+    if (!needsArchive && !needsReward) return;
     rewardingRef.current = true;
-    const claimedGame = { ...game, metaRewardClaimed: true };
-    const nextMeta = { ...metaProfile, currency: metaProfile.currency + game.runSummary.metaReward, completedRuns: (metaProfile.completedRuns ?? 0) + 1 };
-    Promise.all([saveActiveRun(claimedGame), saveMetaProfile(nextMeta)]).then(() => { setGame(claimedGame); setMetaProfile(nextMeta); }).catch(console.error).finally(() => { rewardingRef.current = false; });
+    const claimedGame = needsReward ? { ...game, metaRewardClaimed: true } : game;
+    const rewardedMeta = needsReward ? { ...metaProfile, currency: metaProfile.currency + game.runSummary.metaReward, completedRuns: (metaProfile.completedRuns ?? 0) + 1 } : metaProfile;
+    const nextMeta = mergeRunHistory(rewardedMeta, historyEntry);
+    const rewardingPromise = Promise.all([saveActiveRun(claimedGame), saveMetaProfile(nextMeta)]);
+    rewardingPromiseRef.current = rewardingPromise;
+    rewardingPromise.then(() => { setGame((current) => current?.runStatus === 'ended' && current.seed === claimedGame.seed ? claimedGame : current); setMetaProfile(nextMeta); }).catch(console.error).finally(() => { rewardingRef.current = false; if (rewardingPromiseRef.current === rewardingPromise) rewardingPromiseRef.current = null; });
   }, [game, metaLoaded, metaProfile]);
+
+  const beginAnotherRun = async () => {
+    let baseMeta = metaProfile;
+    let rewardAlreadyPersisted = false;
+    if (rewardingPromiseRef.current) {
+      try {
+        await rewardingPromiseRef.current;
+        baseMeta = await getMetaProfile();
+        rewardAlreadyPersisted = true;
+      } catch { /* Retry the reward and archive together below. */ }
+    }
+    const historyEntry = createRunHistoryEntry(game);
+    const needsReward = !game.metaRewardClaimed && !rewardAlreadyPersisted;
+    const rewardedMeta = needsReward ? { ...baseMeta, currency: baseMeta.currency + game.runSummary.metaReward, completedRuns: (baseMeta.completedRuns ?? 0) + 1 } : baseMeta;
+    const nextMeta = mergeRunHistory(rewardedMeta, historyEntry);
+    await saveMetaProfile(nextMeta);
+    await deleteActiveRun();
+    setMetaProfile(nextMeta);
+    setSaves([]);
+    setGame(null);
+  };
 
   const toggleLanguage = () => setLanguage((value) => value === 'id' ? 'en' : 'id');
   const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} />;
   if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUnlockBonus={unlockBonus} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} /></>;
-  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} /></>;
-  if (game.runStatus === 'ended') return <><PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} /><RunEndScreen game={game} onNewRun={async () => { await deleteActiveRun(); setSaves([]); setGame(null); }} /></>;
+  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} /></>;
+  if (game.runStatus === 'ended') return <><PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} /><RunEndScreen game={game} onNewRun={beginAnotherRun} /></>;
 
   return <AppShell game={game} activeView={activeView} setActiveView={setActiveView} onAdvance={advance} onNewRun={() => setGame(null)} onEndRun={finishRun} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language}>
     {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={setActiveView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} /> : null}
@@ -805,7 +881,7 @@ export default function App() {
     {activeView === 'roster' ? <Roster game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} /> : null}
     {activeView === 'campaigns' ? <Campaigns game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} onRenovate={renovate} /> : null}
     {activeView === 'templates' ? <ScheduleTemplates game={game} setGame={setGame} /> : null}
-    {activeView === 'finance' ? <FinanceDashboard game={game} /> : null}
+    {activeView === 'statistics' ? <StatisticsDashboard game={game} /> : null}
     {activeView === 'history' ? <HistoryView game={game} /> : null}
     {activeView === 'wiki' ? <Wiki game={game} /> : null}
     {activeView === 'saves' ? <Saves game={game} activeSave={saves[0]} onLoad={load} onDelete={remove} /> : null}

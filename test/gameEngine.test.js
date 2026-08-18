@@ -4,6 +4,7 @@ import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applySche
 import { SETLISTS } from '../src/data/setlists.js';
 import { BALANCE } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
+import { createRunHistoryEntry, mergeRunHistory } from '../src/state/saveDb.js';
 
 test('active roster excludes graduated members and JKT48V', () => {
   const roster = getActiveRoster();
@@ -23,12 +24,31 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Save plan · Rp 28m'), 'Simpan rencana · Rp 28m');
   assert.equal(translateIndonesian('Fan target grade'), 'Nilai target penggemar');
   assert.equal(translateIndonesian('Annual fan result: Exceptional (120.5%).'), 'Hasil target penggemar tahunan: Luar biasa (120.5%).');
+  assert.equal(translateIndonesian('Statistics'), 'Statistik');
+  assert.equal(translateIndonesian('+12,500 this period'), '+12,500 periode ini');
+  assert.equal(translateIndonesian('3 completed'), '3 selesai');
+  assert.equal(translateIndonesian('Off-air performance requires 12 members'), 'Penampilan off-air membutuhkan 12 anggota');
 });
 
 test('same seed creates same fictional roster stats', () => {
   const first = createGame('test-seed');
   const second = createGame('test-seed');
   assert.deepEqual(first.members, second.members);
+});
+
+test('completed run history entries persist summary statistics without duplicates', () => {
+  const draft = createGame('run-history-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id), 'History Office');
+  const ended = endRun(game);
+  const entry = createRunHistoryEntry(ended, 123456);
+  assert.equal(entry.managementName, 'History Office');
+  assert.equal(entry.finalMoney, ended.money);
+  assert.equal(entry.finalFanbase, ended.group.fanbase);
+  assert.equal(entry.totalMembers, ended.members.length);
+  assert.equal(entry.weeksSurvived, ended.runSummary.weeksSurvived);
+  const profile = mergeRunHistory({ id: 'profile', currency: 0, runHistory: [] }, entry);
+  assert.equal(profile.runHistory.length, 1);
+  assert.equal(mergeRunHistory(profile, entry), profile);
 });
 
 test('member hidden profiles and fan composition are deterministic and normalized', () => {
@@ -435,16 +455,38 @@ test('single and concert creation persist trimmed custom titles', () => {
   assert.equal(announceConcert(game, 'Sat', 1, 2, 'x'.repeat(61)), game);
 });
 
-test('Off-air performance costs energy and money while gaining fans', () => {
+test('media appearance earns popularity-scaled income', () => {
+  const draft = createGame('media-income-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const member = game.members[0];
+  game = { ...game, members: game.members.map((item) => item.id === member.id ? { ...item, popularity: 50 } : item) };
+  const next = resolveWeek(assignActivity(game, member.id, 'Mon', 'media'));
+  assert.equal(next.lastResult.finances.media, 50 * BALANCE.activities.media.revenuePerPopularity);
+  assert.equal(next.lastResult.finances.activityCosts, BALANCE.activities.media.cost);
+  assert.ok(next.lastResult.fanGain > 0);
+});
+
+test('incomplete off-air performance cancels without activity cost or fan gain', () => {
   const draft = createGame('off-air-performance-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const member = game.members[0];
-  game = { ...game, members: game.members.map((item) => item.id === member.id ? { ...item, energy: 50 } : item) };
   const next = resolveWeek(assignActivity(game, member.id, 'Tue', 'offAir'));
+  assert.equal(next.lastResult.fanGain, 0);
+  assert.equal(next.lastResult.finances.offAir, 0);
+  assert.equal(next.lastResult.finances.activityCosts, 0);
+  assert.match(next.notifications[0].text, /off-air performance canceled/);
+});
+
+test('complete off-air performance requires 12 members and earns total-popularity income', () => {
+  const draft = createGame('off-air-lineup-income-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = game.members.reduce((current, member) => assignActivity(current, member.id, 'Tue', 'offAir'), game);
+  const expectedRevenue = game.members.reduce((sum, member) => sum + member.popularity * BALANCE.activities.offAir.revenuePerPopularity, 0);
+  const next = resolveWeek(game);
+  assert.equal(next.lastResult.finances.offAir, expectedRevenue);
+  assert.equal(next.lastResult.finances.activityCosts, 12 * BALANCE.activities.offAir.cost);
   assert.ok(next.lastResult.fanGain > 0);
-  assert.ok(next.lastResult.finances.activityCosts >= 600_000);
-  assert.ok(next.members.find((item) => item.id === member.id).energy < 100);
-  assert.equal(next.members.find((item) => item.id === member.id).appearances.offAir, 1);
+  assert.ok(next.members.every((member) => member.appearances.offAir === 1));
 });
 
 test('released single views decline and use the fanbase long-tail cap from week four', () => {
@@ -514,6 +556,8 @@ test('year-end Meet & Greet sells tickets and locks its target day', () => {
   game = scheduleYearEndMeetGreet(game, 38, 'Sat', 36);
   assert.equal(game.yearEndMeetGreets[0].memberSessions.length, 12);
   assert.equal(game.yearEndMeetGreets[0].memberSessions[0].capacity, 300);
+  assert.equal(game.yearEndMeetGreets[0].ticketPrice, BALANCE.activities.mg1.ticket);
+  assert.equal(game.yearEndMeetGreets[0].memberSessions[0].capacity, BALANCE.activities.mg1.capacity);
   game = resolveWeek(game);
   assert.ok(game.yearEndMeetGreets[0].revenue > 0);
   game = resolveWeek(game);
@@ -752,7 +796,7 @@ test('run summary includes development, generation, center, and sales records', 
   const draft = createGame('expanded-summary-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const summary = endRun(game).runSummary;
-  ['membersDeveloped', 'newGenerations', 'breakoutStars', 'successfulCenters', 'highestSellingSingle'].forEach((key) => assert.ok(Object.hasOwn(summary, key)));
+  ['membersDeveloped', 'newGenerations', 'breakoutStars', 'successfulCenters', 'highestSellingSingle', 'finalMoney', 'finalFanbase', 'finalPopularity', 'finalFanTrust', 'finalReputation', 'totalMembers', 'finalGraduatedMembers', 'dramaSuspensions'].forEach((key) => assert.ok(Object.hasOwn(summary, key)));
 });
 
 test('single selection raises selected oshi sentiment and lowers excluded sentiment', () => {

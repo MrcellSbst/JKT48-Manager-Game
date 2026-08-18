@@ -40,8 +40,8 @@ export const BALANCE = {
     ...TRAINING_ACTIVITIES,
     rest: { label: 'Rest', energy: 0, energyRecovery: 20, cost: 0, tone: 'rest', type: 'light' },
     theater: { label: 'Theater show', energy: 18, cost: 750_000, type: 'medium' },
-    media: { label: 'Media appearance', energy: 10, cost: 500_000, type: 'light' },
-    offAir: { label: 'Off-air performance', energy: 14, cost: 600_000, type: 'medium' },
+    media: { label: 'Media appearance', energy: 10, cost: 500_000, revenuePerPopularity: 60_000, type: 'light' },
+    offAir: { label: 'Off-air performance', energy: 14, cost: 600_000, revenuePerPopularity: 25_000, requiredMembers: 12, type: 'medium' },
     liveStream: { label: 'Live Stream', energy: 0, energyRecovery: 6, cost: 200_000, revenuePerPopularity: 40_000, fansPerPopularity: 5, type: 'light' },
     photoshoot: { label: 'Photoshoot', energy: 10, cost: 800_000, type: 'light' },
     vc1: { label: 'Video Call', energy: 13, cost: 450_000, capacity: 75, ticket: 120_000, type: 'medium' },
@@ -52,7 +52,7 @@ export const BALANCE = {
     mvProduction: { label: 'MV Production', energy: 25, cost: 0, type: 'heavy', schedulable: false },
     concertRehearsal: { label: 'Concert rehearsal', energy: 8, cost: 1_000_000, type: 'medium', schedulable: false },
     concert: { label: 'Concert', energy: 34, cost: 4_000_000, revenue: 0, type: 'heavy', schedulable: false },
-    yearEndMeetGreet: { label: 'Year-end Meet & Greet', energy: 20, cost: 750_000, type: 'heavy', schedulable: false },
+    yearEndMeetGreet: { label: 'Year-end Meet & Greet', energy: 20, cost: 750_000, capacity: 300, ticket: 50_000, type: 'heavy', schedulable: false },
   },
 };
 
