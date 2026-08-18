@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceConcert, applyScheduleTemplate, assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberChemistry, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { SETLISTS } from '../src/data/setlists.js';
+import { BALANCE } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
 
 test('active roster excludes graduated members and JKT48V', () => {
@@ -16,12 +18,27 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Fiony has graduated.'), 'Fiony telah lulus.');
   assert.equal(translateIndonesian('Management Perks'), 'Management Perks');
   assert.equal(translateIndonesian('Management Token'), 'Management Token');
+  assert.equal(translateIndonesian('Theater results'), 'Hasil teater');
+  assert.equal(translateIndonesian('3 unmet'), '3 tidak terpenuhi');
+  assert.equal(translateIndonesian('Save plan · Rp 28m'), 'Simpan rencana · Rp 28m');
+  assert.equal(translateIndonesian('Fan target grade'), 'Nilai target penggemar');
+  assert.equal(translateIndonesian('Annual fan result: Exceptional (120.5%).'), 'Hasil target penggemar tahunan: Luar biasa (120.5%).');
 });
 
 test('same seed creates same fictional roster stats', () => {
   const first = createGame('test-seed');
   const second = createGame('test-seed');
   assert.deepEqual(first.members, second.members);
+});
+
+test('member hidden profiles and fan composition are deterministic and normalized', () => {
+  const game = createGame('hidden-profile-test');
+  game.members.forEach((member) => {
+    assert.ok(member.consistency >= 35 && member.consistency <= 95);
+    assert.ok(member.adaptability >= 30 && member.adaptability <= 96);
+    assert.ok(['early', 'steady', 'late'].includes(member.developmentCurve));
+    assert.equal(Object.values(member.fanComposition).reduce((sum, value) => sum + value, 0), 100);
+  });
 });
 
 test('setup purchases theater and creates exactly 12-member roster', () => {
@@ -78,6 +95,21 @@ test('management can voluntarily end a run exactly once', () => {
   assert.equal(ended.runSummary.cause, 'RUN ENDED BY MANAGEMENT');
   assert.ok(ended.runSummary.metaReward > 0);
   assert.equal(endRun(ended), ended);
+});
+
+test('sustained bankruptcy ends only after four consecutive weeks', () => {
+  const draft = createGame('bankruptcy-pressure-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = { ...game, money: -1 };
+  for (let index = 0; index < 3; index += 1) {
+    game = resolveWeek(game);
+    assert.equal(game.runStatus, 'active');
+  }
+  game = resolveWeek(game);
+  assert.equal(game.runStatus, 'ended');
+  assert.equal(game.runSummary.cause, 'SUSTAINED BANKRUPTCY');
+  assert.ok(Number.isFinite(game.runSummary.score));
+  assert.match(game.runSummary.rank, /^[SABCD]$/);
 });
 
 test('graduation planning runs at the start of each month from Year 2', () => {
@@ -190,6 +222,29 @@ test('incomplete theater lineup is canceled without fatigue or appearance', () =
   assert.match(next.notifications[0].text, /1\/12 members/);
 });
 
+test('complete theater shows persist setlist, center, and familiarity progress', () => {
+  const draft = createGame('theater-setlist-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id), 'Setlist Test');
+  game.members.forEach((member) => { game = assignActivity(game, member.id, 'Sat', 'theater'); });
+  const centerId = game.members[3].id;
+  game = configureTheaterShow(game, 'Sat', SETLISTS[1].id, centerId);
+  game = resolveWeek(game);
+  assert.equal(game.lastResult.theaterShows[0].setlistTitle, SETLISTS[1].title);
+  assert.equal(game.lastResult.theaterShows[0].centerId, centerId);
+  assert.equal(game.theaterHistory[0].songs.length, SETLISTS[1].songs.length);
+  assert.ok(game.members.every((member) => member.setlistFamiliarity[SETLISTS[1].id] > 0));
+  assert.equal(game.members.find((member) => member.id === centerId).appearances.center, 1);
+  assert.deepEqual(game.theaterShows, {});
+});
+
+test('theater show configuration rejects unknown setlists and non-lineup centers', () => {
+  const draft = createGame('theater-setlist-validation-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = assignActivity(game, game.members[0].id, 'Sat', 'theater');
+  assert.equal(configureTheaterShow(game, 'Sat', 'missing', game.members[0].id), game);
+  assert.equal(configureTheaterShow(game, 'Sat', SETLISTS[0].id, game.members[1].id), game);
+});
+
 test('theater lineup cannot exceed 12 members on one day', () => {
   const game = createGame('theater-cap-test');
   const scheduled = game.members.slice(0, 13).reduce((current, member) => assignActivity(current, member.id, 'Sat', 'theater'), game);
@@ -231,6 +286,19 @@ test('weekly report lists skill improvements after training', () => {
   assert.ok(change);
   assert.ok(change.delta > 0);
   assert.ok(change.after > change.before);
+});
+
+test('training intensity and starting energy affect development', () => {
+  const draft = createGame('training-intensity-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = base.members[0].id;
+  const prepare = (energy, activity) => assignActivity({ ...base, members: base.members.map((member) => member.id === memberId ? { ...member, energy, vocal: 40, potential: 95, development: 90 } : member) }, memberId, 'Mon', activity);
+  const light = resolveWeek(prepare(100, 'vocalLight')).members.find((member) => member.id === memberId).vocal;
+  const intensive = resolveWeek(prepare(100, 'vocalIntensive')).members.find((member) => member.id === memberId).vocal;
+  const exhausted = resolveWeek(prepare(15, 'vocalIntensive')).members.find((member) => member.id === memberId).vocal;
+  assert.ok(intensive > light);
+  assert.ok(intensive > exhausted);
+  assert.equal(BALANCE.activities.variety.skill, 'variety');
 });
 
 test('schedule template assigns available members and skips unavailable members', () => {
@@ -311,6 +379,27 @@ test('single production auto-locks every member when exactly 12 are eligible', (
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const started = startSingleProduction(game, game.members[0].id, 'Thu', [game.members[0].id]);
   assert.deepEqual(new Set(started.singles[0].memberIds), new Set(game.members.map((member) => member.id)));
+});
+
+test('single production budget controls cost and release trust and popularity', () => {
+  const draft = createGame('single-budget-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const ids = game.members.map((member) => member.id);
+  const low = startSingleProduction(game, ids[0], 'Thu', ids, null, null, '', 'low');
+  const high = startSingleProduction(game, ids[0], 'Thu', ids, null, null, '', 'high');
+  assert.equal(low.money, game.money - 50_000_000);
+  assert.equal(high.money, game.money - 150_000_000);
+  assert.equal(low.singles[0].budgetId, 'low');
+  assert.equal(high.singles[0].budgetId, 'high');
+  let lowReleased = low;
+  let highReleased = high;
+  for (let index = 0; index < 4; index += 1) {
+    lowReleased = resolveWeek(lowReleased);
+    highReleased = resolveWeek(highReleased);
+  }
+  assert.equal(highReleased.group.popularity - lowReleased.group.popularity, 3);
+  assert.equal(highReleased.group.fanTrust - lowReleased.group.fanTrust, 4);
+  assert.equal(startSingleProduction(game, ids[0], 'Thu', ids, null, null, '', 'unknown'), game);
 });
 
 test('scheduled single starts five weeks before its release month and releases in week four', () => {
@@ -400,6 +489,62 @@ test('concert tickets sell through D-2 and the target week locks every member', 
   game = resolveWeek(game);
   assert.equal(game.concerts[0].status, 'completed');
   assert.ok(game.lastResult.concertSummary.songCount >= 35);
+  assert.ok(game.lastResult.concertSummary.evaluation.overall >= 0);
+  assert.equal(game.lastResult.concertSummary.evaluation.capacity, game.concerts[0].capacity);
+  assert.ok(Number.isFinite(game.lastResult.concertSummary.evaluation.managementEfficiency));
+});
+
+test('concert venue offers are seeded and venue perks alter choices and costs', () => {
+  assert.deepEqual(generateConcertVenueOffers('venue-seed', 2), generateConcertVenueOffers('venue-seed', 2));
+  const draft = createGame('concert-perk-test');
+  const ids = draft.members.slice(0, 12).map((member) => member.id);
+  const base = finalizeGameSetup(draft, 'community', ids, 'Base');
+  const perked = finalizeGameSetup(draft, 'community', ids, 'Perked', ['B006', 'B007', 'B008']);
+  assert.equal(base.concertVenueOffers.length, 3);
+  assert.equal(perked.concertVenueOffers.length, 4);
+  const venue = perked.concertVenueOffers[0];
+  const announced = announceConcert(perked, 'Sat', 1, 2, '', 'standard', venue.id);
+  assert.ok(announced.concerts[0].productionCost < 200_000_000);
+  assert.ok(announced.concerts[0].venueCost < venue.cost);
+});
+
+test('year-end Meet & Greet sells tickets and locks its target day', () => {
+  const draft = createGame('year-end-mg-test');
+  let game = finalizeGameSetup({ ...draft, week: 36 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = scheduleYearEndMeetGreet(game, 38, 'Sat', 36);
+  assert.equal(game.yearEndMeetGreets[0].memberSessions.length, 12);
+  assert.equal(game.yearEndMeetGreets[0].memberSessions[0].capacity, 300);
+  game = resolveWeek(game);
+  assert.ok(game.yearEndMeetGreets[0].revenue > 0);
+  game = resolveWeek(game);
+  assert.equal(Object.values(game.schedule).filter((activity) => activity === 'yearEndMeetGreet').length, 12);
+  game = resolveWeek(game);
+  assert.equal(game.yearEndMeetGreets[0].status, 'completed');
+  assert.ok(game.lastResult.yearEndMeetGreetSummary.attendance <= game.lastResult.yearEndMeetGreetSummary.capacity);
+});
+
+test('anniversary concert locks rehearsal and concert dates', () => {
+  const draft = createGame('anniversary-concert-test');
+  let game = finalizeGameSetup({ ...draft, week: 43 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const venueId = game.concertVenueOffers[0].id;
+  game = announceAnniversaryConcert(game, 45, 'Sat', 'Anniversary Night', 'standard', venueId, ['Tue', 'Thu']);
+  assert.equal(game.concerts[0].eventType, 'anniversary');
+  game = resolveWeek(game);
+  game = resolveWeek(game);
+  assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concert').length, 12);
+  assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concertRehearsal').length, 24);
+  assert.equal(assignActivity(game, game.members[0].id, 'Tue', 'rest'), game);
+});
+
+test('concert announcement persists selected budget and venue size', () => {
+  const draft = createGame('concert-budget-venue-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const announced = announceConcert(game, 'Sat', 1, 2, 'Big Night', 'standard', 'arena');
+  assert.equal(announced.concerts[0].budgetId, 'standard');
+  assert.equal(announced.concerts[0].venueId, 'arena');
+  assert.equal(announced.concerts[0].capacity, 4_500);
+  assert.equal(announced.concerts[0].upfrontCost, 280_000_000);
+  assert.equal(announced.money, game.money - 280_000_000);
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
@@ -413,4 +558,279 @@ test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
 test('Q4 audition requires available funds', () => {
   const game = { ...createGame('poor-audition-test'), week: 37, money: 64_999_999 };
   assert.equal(runAudition(game), game);
+});
+
+test('audition campaign progresses for five weeks and finalizes selected trainees', () => {
+  let game = finalizeGameSetup({ ...createGame('audition-campaign-test'), week: 37 }, 'community', createGame('audition-campaign-test').members.slice(0, 12).map((member) => member.id));
+  game = startAuditionCampaign(game, 37);
+  assert.equal(game.auditionCampaign.phase, 'applications');
+  assert.equal(game.auditionCampaign.progressWeeks, 0);
+  assert.ok(game.auditionCampaign.candidatePool.length >= game.auditionCampaign.maxIntake);
+  const selected = game.auditionCampaign.candidatePool.slice(0, 2).map((candidate) => candidate.id);
+  for (let index = 0; index < 4; index += 1) game = resolveWeek(game);
+  assert.equal(game.auditionCampaign.progressWeeks, 4);
+  game = finalizeAudition(game, selected);
+  assert.deepEqual(game.auditionCampaign.selectedCandidateIds, selected);
+  game = resolveWeek(game);
+  assert.equal(game.auditionCampaign, null);
+  assert.equal(game.auditions[0].size, 2);
+  assert.equal(game.members.filter((member) => member.status === 'trainee').length, 2);
+});
+
+test('audition campaign rejects duplicate or non-Q4 starts', () => {
+  const base = { ...createGame('audition-campaign-limits'), week: 36 };
+  const game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
+  assert.equal(startAuditionCampaign(game, 36), game);
+  const started = startAuditionCampaign({ ...game, week: 37 }, 37);
+  assert.equal(startAuditionCampaign(started, 38), started);
+  let ready = started;
+  for (let index = 0; index < 4; index += 1) ready = resolveWeek(ready);
+  assert.equal(finalizeAudition(ready, ready.auditionCampaign.candidatePool.map((candidate) => candidate.id)).auditionCampaign.selectedCandidateIds.length, ready.auditionCampaign.maxIntake);
+});
+
+test('trainee progression records trainee time and training progress', () => {
+  const draft = createGame('trainee-progression-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const trainee = { ...game.members[0], id: 'trainee-progression', status: 'trainee', team: 'TRAINEE', traineeWeeks: 0, trainingProgress: 0, theaterAppearances: 0 };
+  const withTrainee = { ...game, members: [trainee, ...game.members.slice(1)] };
+  const next = resolveWeek(assignActivity(withTrainee, trainee.id, 'Mon', 'vocal'));
+  const progressed = next.members.find((member) => member.id === trainee.id);
+  assert.equal(progressed.traineeWeeks, 1);
+  assert.ok(progressed.trainingProgress > 0);
+  assert.equal(getTraineePromotionStatus(next, trainee.id).eligible, false);
+});
+
+test('trainees promote after required milestones and remain save-compatible', () => {
+  const draft = createGame('trainee-promotion-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const trainee = { ...game.members[0], id: 'trainee-ready', status: 'trainee', team: 'TRAINEE', traineeWeeks: 12, trainingProgress: 24, theaterAppearances: 4 };
+  const ready = { ...game, members: [trainee, ...game.members.slice(1)] };
+  assert.equal(getTraineePromotionStatus(ready, trainee.id).eligible, true);
+  const promoted = promoteTrainee(ready, trainee.id);
+  const member = promoted.members.find((item) => item.id === trainee.id);
+  assert.equal(member.status, 'active');
+  assert.equal(member.team, 'JKT48');
+  assert.equal(promoted.promotions.length, 1);
+  assert.equal(promoteTrainee(promoted, trainee.id), promoted);
+});
+
+test('mentorship gives trainee development bonus and completes after eight weeks', () => {
+  const draft = createGame('mentorship-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const mentorId = base.members[0].id;
+  const menteeId = base.members[1].id;
+  const members = base.members.map((member) => member.id === mentorId ? { ...member, careerStage: 'Veteran' } : member.id === menteeId ? { ...member, status: 'trainee', team: 'TRAINEE', energy: 100, vocal: 40, potential: 95, development: 90 } : member);
+  const game = { ...base, members };
+  const mentored = startMentorship(game, mentorId, menteeId);
+  assert.equal(mentored.mentorships[0].durationWeeks, 8);
+  const withoutMentor = resolveWeek(assignActivity(game, menteeId, 'Mon', 'vocal'));
+  const withMentor = resolveWeek(assignActivity(mentored, menteeId, 'Mon', 'vocal'));
+  const baselineGain = withoutMentor.members.find((member) => member.id === menteeId).vocal - game.members.find((member) => member.id === menteeId).vocal;
+  const mentoredGain = withMentor.members.find((member) => member.id === menteeId).vocal - game.members.find((member) => member.id === menteeId).vocal;
+  assert.ok(mentoredGain > baselineGain);
+  let completed = withMentor;
+  for (let index = 0; index < 7; index += 1) completed = resolveWeek(completed);
+  assert.equal(completed.mentorships[0].status, 'completed');
+  assert.equal(completed.mentorshipHistory.length, 1);
+});
+
+test('member chemistry is deterministic, symmetric, and persisted in run state', () => {
+  const game = createGame('chemistry-test');
+  const firstId = game.members[0].id;
+  const secondId = game.members[1].id;
+  const first = getMemberChemistry(game, firstId, secondId);
+  const reverse = getMemberChemistry(game, secondId, firstId);
+  assert.deepEqual(first, reverse);
+  assert.deepEqual(game.chemistry[[firstId, secondId].sort().join('::')], first);
+  assert.deepEqual(Object.keys(first).sort(), ['mc', 'performance', 'stage', 'unit']);
+  assert.ok(Object.values(first).every((value) => value >= 35 && value <= 95));
+});
+
+test('year rollover creates a persistent annual review', () => {
+  const base = { ...createGame('annual-review-test'), week: BALANCE.weeksPerYear, fanTarget: createAnnualFanTarget(1, 125_000, 125_000) };
+  const game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
+  const next = resolveWeek(game);
+  assert.equal(next.year, 2);
+  assert.equal(next.week, 1);
+  assert.equal(next.annualReviews.length, 1);
+  assert.equal(next.annualReviews[0].year, 1);
+  assert.equal(next.annualReviews[0].categories.length, 9);
+  assert.equal(next.annualReviews[0].snapshot.fanGrowth.targetFans, 162_500);
+  assert.equal(next.annualReviews[0].snapshot.fanGrowth.actualFans, next.group.fanbase);
+  assert.match(next.annualReviews[0].overallGrade, /^(S|A\+?|A-|B\+?|B-|C|D|E)$/);
+});
+
+test('runs do not end at a fixed five-year limit', () => {
+  const base = { ...createGame('open-ended-run-test'), year: 5, week: BALANCE.weeksPerYear, dramaCooldown: 999, fanTarget: { year: 5, startingFanbase: 100_000, requiredGain: 20_000, targetFanbase: 120_000 } };
+  const game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
+  const next = resolveWeek(game);
+  assert.equal(next.year, 6);
+  assert.equal(next.runStatus, 'active');
+});
+
+test('drama refunds sold future fan-event tickets for the suspended member', () => {
+  const previousChance = BALANCE.dramaChance;
+  BALANCE.dramaChance = 1;
+  try {
+    const base = { ...createGame('drama-refund-test'), year: 2, week: 37, dramaCooldown: 0 };
+    let game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
+    game = scheduleYearEndMeetGreet(game, 44, 'Sat', 37, Object.fromEntries(game.members.map((member) => [member.id, 3])));
+    const next = resolveWeek(game);
+    const refundedSessions = next.yearEndMeetGreets[0].memberSessions.filter((session) => (session.refunded ?? 0) > 0);
+    assert.equal(refundedSessions.length, 1);
+    assert.equal(refundedSessions[0].sold, 0);
+    assert.ok(next.lastResult.finances.refunds > 0);
+  } finally {
+    BALANCE.dramaChance = previousChance;
+  }
+});
+
+test('theater resolution records demand, satisfaction, unit songs, and understudies', () => {
+  const draft = createGame('theater-economics-test');
+  let game = finalizeGameSetup(draft, 'city', draft.members.slice(0, 12).map((member) => member.id));
+  game = game.members.reduce((current, member) => assignActivity(current, member.id, 'Mon', 'theater'), game);
+  game = configureTheaterShow(game, 'Mon', SETLISTS[0].id, game.members[0].id);
+  const next = resolveWeek(game);
+  const show = next.lastResult.theaterShows[0];
+  assert.ok(show.attendance > 0 && show.attendance <= show.capacity);
+  assert.equal(show.revenue, show.attendance * game.theater.ticketPrice);
+  assert.ok(show.audienceSatisfaction >= 0 && show.audienceSatisfaction <= 100);
+  assert.ok(show.units.length >= 1);
+  assert.ok(show.units.every((unit) => unit.memberIds.length >= 2));
+  assert.ok(Array.isArray(show.understudyIds));
+  assert.ok(next.members.every((member) => member.theaterExp > 0));
+});
+
+test('video-call demand history records profile-specific sell-through and unmet demand', () => {
+  const draft = createGame('demand-history-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = assignActivity(game, game.members[0].id, 'Tue', 'vc1');
+  const next = resolveWeek(game);
+  const demand = next.demandHistory.find((entry) => entry.memberId === game.members[0].id && entry.type === 'videoCall');
+  assert.ok(demand);
+  assert.equal(demand.capacity, BALANCE.activities.vc1.capacity);
+  assert.equal(demand.unmetDemand, Math.max(0, demand.demand - demand.sold));
+  assert.ok(demand.sellThrough >= 0 && demand.sellThrough <= 100);
+});
+
+test('management opportunities can be accepted or declined with persistent outcomes', () => {
+  const draft = createGame('opportunity-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const offer = { id: 'test-offer', title: 'Test Broadcast', category: 'media', memberIds: game.members.slice(0, 3).map((member) => member.id), cost: 2_000_000, revenue: 7_000_000, fans: 900, awareness: 3, reputation: 1, energy: 8 };
+  const accepted = respondToOpportunity({ ...game, pendingOpportunity: offer }, true);
+  assert.equal(accepted.pendingOpportunity, null);
+  assert.equal(accepted.opportunityHistory.at(-1).accepted, true);
+  assert.equal(accepted.money, game.money + 5_000_000);
+  assert.equal(accepted.group.fanbase, game.group.fanbase + 900);
+  const declined = respondToOpportunity({ ...game, pendingOpportunity: offer }, false);
+  assert.equal(declined.opportunityHistory.at(-1).accepted, false);
+  assert.equal(declined.money, game.money);
+});
+
+test('graduation preparation charges once and applies final-event and successor benefits', () => {
+  const draft = createGame('graduation-preparation-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const graduate = game.members[0];
+  const successor = game.members[1];
+  const graduation = { id: 'graduation-test', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: false };
+  const staged = { ...game, year: 2, week: 1, graduations: [graduation] };
+  const prepared = prepareGraduation(staged, graduation.id, { finalShow: true, specialSegment: true, merchandise: true, successorId: successor.id });
+  assert.equal(prepared.money, staged.money - 28_000_000);
+  assert.equal(prepared.graduations[0].preparation.successorId, successor.id);
+  assert.equal(prepareGraduation(prepared, graduation.id, { finalShow: true }), prepared);
+  const resolved = resolveWeek(prepared);
+  const completed = resolved.graduations[0];
+  const promotedSuccessor = resolved.members.find((member) => member.id === successor.id);
+  assert.equal(completed.completed, true);
+  assert.equal(completed.outcome.fanGain, 5_500);
+  assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
+  assert.equal(promotedSuccessor.performance, successor.performance + 2);
+  assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
+});
+
+test('run summary includes development, generation, center, and sales records', () => {
+  const draft = createGame('expanded-summary-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const summary = endRun(game).runSummary;
+  ['membersDeveloped', 'newGenerations', 'breakoutStars', 'successfulCenters', 'highestSellingSingle'].forEach((key) => assert.ok(Object.hasOwn(summary, key)));
+});
+
+test('single selection raises selected oshi sentiment and lowers excluded sentiment', () => {
+  const draft = createGame('oshi-sentiment-test');
+  const selectedIds = draft.members.slice(0, 12).map((member) => member.id);
+  const base = finalizeGameSetup(draft, 'community', selectedIds);
+  const excluded = { ...draft.members[12], status: 'active' };
+  const single = { id: 'sentiment-single', title: 'Selection Test', centerId: selectedIds[0], memberIds: selectedIds, productionDay: 'Mon', status: 'ready', progressWeeks: 4, durationWeeks: 4, releaseYear: 1, releaseWeek: 1, productionStartYear: 1, productionStartWeek: 1, popularityGain: 3, fanTrustGain: 1 };
+  const next = resolveWeek({ ...base, members: [...base.members, excluded], singles: [single] });
+  assert.equal(next.members.find((member) => member.id === selectedIds[0]).oshiSentiment, 4);
+  assert.equal(next.members.find((member) => member.id === selectedIds[1]).oshiSentiment, 2);
+  assert.equal(next.members.find((member) => member.id === excluded.id).oshiSentiment, -1);
+});
+
+test('annual fan target curve uses the previous target and caps acceleration at 45 percent', () => {
+  const expected = [162_500, 219_375, 307_125, 445_331, 645_730, 936_309, 1_357_648, 1_968_590, 2_854_456, 4_138_961];
+  let previous = 125_000;
+  expected.forEach((target, index) => {
+    previous = calculateNextFanTarget(previous, index + 1);
+    assert.equal(previous, target);
+  });
+});
+
+test('missing the annual fan target applies review penalties without ending the run', () => {
+  const draft = createGame('missed-fan-target-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const target = { formulaVersion: 2, year: 1, baseTarget: 125_000, startingFanbase: base.group.fanbase, requiredGain: 999_875_000, targetFanbase: 1_000_000_000 };
+  const next = resolveWeek({ ...base, week: BALANCE.weeksPerYear, fanTarget: target });
+  assert.equal(next.runStatus, 'active');
+  assert.equal(next.year, 2);
+  assert.equal(next.fanTargetHistory.at(-1).id, 'majorFailure');
+  assert.equal(next.group.fanTrust, base.group.fanTrust - 8);
+  assert.equal(next.group.reputation, base.group.reputation - 5);
+  assert.equal(next.annualReviews[0].snapshot.fanGrowth.label, 'Major Failure');
+});
+
+test('overperforming creates the next target from the previous target, not actual fans', () => {
+  const draft = createGame('achieved-fan-target-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const target = createAnnualFanTarget(1, 125_000, 125_000);
+  const next = resolveWeek({ ...base, week: BALANCE.weeksPerYear, group: { ...base.group, fanbase: 500_000 }, fanTarget: target });
+  assert.equal(next.runStatus, 'active');
+  assert.equal(next.year, 2);
+  assert.equal(next.week, 1);
+  assert.equal(next.fanTarget.year, 2);
+  assert.equal(next.fanTarget.baseTarget, 162_500);
+  assert.equal(next.fanTarget.targetFanbase, 219_375);
+  assert.equal(next.fanTargetHistory.at(-1).id, 'exceptional');
+  assert.equal(next.fanTargetMetaReward, 5);
+});
+
+test('fan soft-cap bands and resistance follow the configured boundaries', () => {
+  const target = 100_000;
+  assert.deepEqual([99_999, 100_000, 110_000, 120_000, 130_000].map((fans) => getFanGrowthMultiplier(fans, target)), [1, 0.75, 0.4, 0.15, 0.05]);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0), 2_400);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0.5), 4_200);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0.8), 5_280);
+  assert.equal(applyFanSoftCap(-6_000, 0.05, 0), -6_000);
+});
+
+test('annual target performance bands expose review and management deltas', () => {
+  assert.deepEqual([1.2, 1, 0.9, 0.75, 0.74].map((ratio) => getFanTargetPerformance(ratio * 100_000, 100_000).id), ['exceptional', 'achieved', 'slightlyBelow', 'underperformed', 'majorFailure']);
+});
+
+test('media opportunities use soft-cap resistance after the target is exceeded', () => {
+  const draft = createGame('soft-cap-opportunity-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const offer = { id: 'capped-media', title: 'Capped Broadcast', category: 'media', memberIds: game.members.slice(0, 3).map((member) => member.id), cost: 0, revenue: 0, fans: 1_000, awareness: 1, reputation: 0, energy: 0 };
+  const saturated = { ...game, group: { ...game.group, fanbase: 180_000 }, pendingOpportunity: offer };
+  const next = respondToOpportunity(saturated, true);
+  assert.equal(next.opportunityHistory.at(-1).baseFans, 1_000);
+  assert.equal(next.opportunityHistory.at(-1).fansGained, 520);
+  assert.equal(next.group.fanbase, 180_520);
+});
+
+test('annual fan performance rewards contribute to final Management Token payout', () => {
+  const draft = createGame('fan-target-meta-reward-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const baseReward = endRun(game).runSummary.metaReward;
+  assert.equal(endRun({ ...game, fanTargetMetaReward: 7 }).runSummary.metaReward, baseReward + 7);
 });
