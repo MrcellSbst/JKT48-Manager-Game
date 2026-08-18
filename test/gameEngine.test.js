@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberChemistry, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
-import { BALANCE } from '../src/data/balance.js';
+import { BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory } from '../src/state/saveDb.js';
 
@@ -30,6 +30,17 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Off-air performance requires 12 members'), 'Penampilan off-air membutuhkan 12 anggota');
   assert.equal(translateIndonesian('24 pool members available'), '24 anggota tersedia di kumpulan');
   assert.equal(translateIndonesian('Fiony returns to the talent pool'), 'Fiony kembali ke kumpulan talenta');
+});
+
+test('schedule activity groups are ordered and cover every schedulable activity once', () => {
+  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS.map((group) => group.label), ['Light training', 'Regular training', 'Intensive training', 'Media', 'Show']);
+  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[3].activities, ['photoshoot', 'media']);
+  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[4].activities, ['theater', 'offAir']);
+  assert.deepEqual(SCHEDULE_STANDALONE_ACTIVITIES, ['rest', 'liveStream']);
+  const configured = [...SCHEDULE_ACTIVITY_GROUPS.flatMap((group) => group.activities), ...SCHEDULE_STANDALONE_ACTIVITIES];
+  const schedulable = Object.entries(BALANCE.activities).filter(([, activity]) => activity.schedulable !== false).map(([id]) => id);
+  assert.equal(new Set(configured).size, configured.length);
+  assert.deepEqual(new Set(configured), new Set(schedulable));
 });
 
 test('same seed creates same fictional roster stats', () => {

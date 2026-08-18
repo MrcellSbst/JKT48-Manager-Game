@@ -56,6 +56,18 @@ export const BALANCE = {
   },
 };
 
+const TRAINING_SKILLS = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
+
+export const SCHEDULE_ACTIVITY_GROUPS = [
+  { label: 'Light training', activities: TRAINING_SKILLS.map((skill) => `${skill}Light`) },
+  { label: 'Regular training', activities: TRAINING_SKILLS },
+  { label: 'Intensive training', activities: TRAINING_SKILLS.map((skill) => `${skill}Intensive`) },
+  { label: 'Media', activities: ['photoshoot', 'media'] },
+  { label: 'Show', activities: ['theater', 'offAir'] },
+];
+
+export const SCHEDULE_STANDALONE_ACTIVITIES = ['rest', 'liveStream'];
+
 export const FAN_BALANCE = {
   startingFans: 125_000,
   target: {
