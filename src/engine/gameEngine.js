@@ -9,6 +9,8 @@ const TRAITS = ['Quick Learner', 'Big Stage Performer', 'Theater Specialist', 'R
 const SKILLS = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
+const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
+const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 const moneyText = (value) => `Rp ${value.toLocaleString('id-ID')}`;
 const hasBonus = (state, id) => (state.bonusLoadout ?? []).includes(id);
@@ -197,8 +199,8 @@ export function getTheaterRenovationOffer(state) {
   };
 }
 
-export function startSingleProduction(state, centerId, productionDay, selectedMemberIds = null) {
-  if (state.runStatus === 'ended' || state.money < 85_000_000 || state.singles.some((single) => single.status === 'production')) return state;
+export function startSingleProduction(state, centerId, productionDay, selectedMemberIds = null, releaseYear = null, releaseMonth = null, requestedTitle = '') {
+  if (state.runStatus === 'ended' || state.money < 85_000_000 || state.singles.some((single) => single.status !== 'released')) return state;
   if (!DAYS.includes(productionDay)) return state;
   const eligible = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0);
   const center = eligible.find((member) => member.id === centerId);
@@ -208,11 +210,39 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const requestedIds = eligible.length === 12 ? automaticIds : selectedMemberIds ? [centerId, ...selectedMemberIds.filter((memberId) => memberId !== centerId)] : automaticIds;
   const memberIds = [...new Set(requestedIds)];
   if (memberIds.length !== 12 || memberIds.some((memberId) => !eligible.some((member) => member.id === memberId))) return state;
-  if (memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return state;
+  const scheduledRelease = Number.isInteger(releaseYear) && Number.isInteger(releaseMonth);
+  const releaseWeek = scheduledRelease ? releaseMonth * BALANCE.weeksPerMonth : null;
+  const releaseAbsolute = scheduledRelease ? toAbsoluteWeek(releaseYear, releaseWeek) : null;
+  const productionStartAbsolute = scheduledRelease ? releaseAbsolute - 5 : toAbsoluteWeek(state.year, state.week);
+  const currentAbsolute = toAbsoluteWeek(state.year, state.week);
+  if (scheduledRelease && (releaseMonth < 1 || releaseMonth > 12 || productionStartAbsolute < currentAbsolute)) return state;
+  const startsNow = productionStartAbsolute === currentAbsolute;
+  if (startsNow && memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return state;
   const schedule = { ...state.schedule };
-  memberIds.forEach((memberId) => { schedule[`${memberId}:${productionDay}`] = 'mvProduction'; });
-  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, week: state.week, year: state.year, status: 'production', progressWeeks: 0, durationWeeks: 4 };
-  return { ...state, money: state.money - 85_000_000, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: `${single.title} enters production`, detail: `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
+  if (startsNow) memberIds.forEach((memberId) => { schedule[`${memberId}:${productionDay}`] = 'mvProduction'; });
+  const productionStart = fromAbsoluteWeek(productionStartAbsolute);
+  const customTitle = requestedTitle.trim();
+  if (customTitle.length > 60) return state;
+  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: customTitle || `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, week: state.week, year: state.year, status: startsNow ? 'production' : 'planned', progressWeeks: 0, durationWeeks: 4, ...(scheduledRelease ? { releaseYear, releaseMonth, releaseWeek, productionStartYear: productionStart.year, productionStartWeek: productionStart.week } : {}) };
+  return { ...state, money: state.money - 85_000_000, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
+}
+
+export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '') {
+  if (state.runStatus === 'ended' || state.money < 120_000_000 || !DAYS.includes(concertDay) || targetMonth < 1 || targetMonth > 12) return state;
+  const targetWeek = targetMonth * BALANCE.weeksPerMonth;
+  const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
+  const currentAbsolute = toAbsoluteWeek(state.year, state.week);
+  if (targetAbsolute - currentAbsolute < 2 || state.concerts.some((concert) => concert.targetYear === targetYear && concert.targetMonth === targetMonth)) return state;
+  const memberIds = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0).map((member) => member.id);
+  if (memberIds.length < BALANCE.theaterMinimumMembers) return state;
+  const demand = Math.round(state.group.fanbase * (state.group.popularity / 100) * 0.045);
+  const capacity = demand > 6000 ? 7500 : demand > 3000 ? 4500 : 2000;
+  const projectedSold = Math.min(capacity, Math.round(demand * 0.9));
+  const saleCloseAbsolute = targetAbsolute - 2;
+  const customTitle = requestedTitle.trim();
+  if (customTitle.length > 60) return state;
+  const concert = { id: `concert-${targetYear}-${targetMonth}-${state.concerts.length + 1}`, title: customTitle || `Concert ${state.concerts.length + 1}`, targetYear, targetMonth, targetWeek, day: concertDay, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedSold, sold: 0, ticketPrice: 450_000, saleCloseAbsolute, salesWeeks: saleCloseAbsolute - currentAbsolute + 1, memberIds };
+  return { ...state, money: state.money - 120_000_000, concerts: [...state.concerts, concert], history: [{ id: concert.id, type: 'concert', title: `${concert.title} announced`, detail: `${capacity.toLocaleString()} seats · Year ${targetYear}, Month ${targetMonth}, Week 4 on ${concertDay}. Ticket sales close two weeks before the show.`, year: state.year, week: state.week }, ...state.history] };
 }
 
 export function applyScheduleTemplate(state, template) {
@@ -230,7 +260,7 @@ export function applyScheduleTemplate(state, template) {
   return { ...next, notifications: [notification, ...(next.notifications ?? [])].slice(0, 20) };
 }
 
-function createConcertSummary(rng, members, day) {
+function createConcertSummary(rng, members, day, title = 'Concert') {
   const pool = dreamSetlistSongs.filter(({ title }) => !/JKT48[_ ]?V|virtual/i.test(title));
   for (let index = pool.length - 1; index > 0; index -= 1) {
     const swapIndex = randomInt(rng, 0, index);
@@ -245,7 +275,16 @@ function createConcertSummary(rng, members, day) {
     const performerNames = Array.from({ length: performerCount }, (_, offset) => members[(start + offset) % members.length].nickname || members[(start + offset) % members.length].name);
     return { songId: song.id, title: song.title, performerType: 'members', performerNames };
   });
-  return { day, songCount, songs };
+  return { title, day, songCount, songs };
+}
+
+function mvViewGain(single, group, viewWeek) {
+  const launchViews = single.launchViews ?? Math.max(1, Math.round(group.fanbase * (0.12 + group.publicAwareness / 500)));
+  if (viewWeek === 1) return { gain: launchViews, launchViews };
+  if (viewWeek === 2) return { gain: Math.round(launchViews * 0.55), launchViews };
+  if (viewWeek === 3) return { gain: Math.round(launchViews * 0.25), launchViews };
+  const longTailCap = Math.max(1, Math.round((group.fanbase / 5) * 0.01));
+  return { gain: Math.min(longTailCap, Math.max(1, Math.round(longTailCap * (0.85 ** (viewWeek - 4))))), launchViews };
 }
 
 export function renovateTheater(state) {
@@ -308,6 +347,12 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       appearances.media += 1;
       fanGain += Math.round(member.variety * 2.2);
       popularity += 1;
+    }
+    if (activityId === 'offAir') {
+      appearances.offAir = (appearances.offAir ?? 0) + 1;
+      fanGain += Math.round(score * 3.2);
+      popularity += score >= 70 ? 1 : 0;
+      momentum += score >= 75 ? 1 : 0;
     }
     if (activityId === 'liveStream') {
       const streamRevenue = Math.round(member.popularity * activity.revenuePerPopularity);
@@ -376,7 +421,7 @@ function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
 function makeRunSummary(state, members, eligibleCount, records) {
   const active = members.filter((member) => ['active', 'trainee'].includes(member.status)).length;
   const reward = 5 + (state.year - 1) * 5 + Math.floor((state.week - 1) / 12) + Math.floor((records.peakFanTrust + records.peakReputation) / 40);
-  return { yearsSurvived: state.year - 1, weeksSurvived: (state.year - 1) * BALANCE.weeksPerYear + state.week, theaterShows: records.theaterShows, largestRoster: records.largestRoster, lowestEligibleRoster: records.lowestEligibleRoster, membersRecruited: (state.auditions ?? []).reduce((sum, item) => sum + item.size, 0), graduations: (state.graduations ?? []).filter((item) => item.completed).length, dramaSuspensions: records.dramaSuspensions, concertsHeld: state.concerts.length, peakFanbase: records.peakFanbase, peakFanTrust: records.peakFanTrust, peakReputation: records.peakReputation, finalActiveRoster: active, finalEligibleRoster: eligibleCount, cause: 'THEATER ROSTER FAILURE', metaReward: reward };
+  return { yearsSurvived: state.year - 1, weeksSurvived: (state.year - 1) * BALANCE.weeksPerYear + state.week, theaterShows: records.theaterShows, largestRoster: records.largestRoster, lowestEligibleRoster: records.lowestEligibleRoster, membersRecruited: (state.auditions ?? []).reduce((sum, item) => sum + item.size, 0), graduations: (state.graduations ?? []).filter((item) => item.completed).length, dramaSuspensions: records.dramaSuspensions, concertsHeld: state.concerts.filter((concert) => concert.status === 'completed' || !concert.status).length, peakFanbase: records.peakFanbase, peakFanTrust: records.peakFanTrust, peakReputation: records.peakReputation, finalActiveRoster: active, finalEligibleRoster: eligibleCount, cause: 'THEATER ROSTER FAILURE', metaReward: reward };
 }
 
 export function endRun(state) {
@@ -389,6 +434,7 @@ export function endRun(state) {
 export function resolveWeek(state) {
   if (state.runStatus === 'ended') return state;
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
+  const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   let moneyDelta = -applyRate(18_000_000, bonusValue(state, 'B004')) - (state.theater?.weeklyUpkeep ?? 0);
   let fanGain = 0;
   const finances = { theater: 0, videoCall: 0, meetGreet: 0, liveStream: 0, concert: 0, otherIncome: 0, activityCosts: 0, generalOperations: applyRate(18_000_000, bonusValue(state, 'B004')), theaterUpkeep: state.theater?.weeklyUpkeep ?? 0 };
@@ -397,7 +443,17 @@ export function resolveWeek(state) {
   const scheduledEntries = Object.entries(state.schedule);
   const concertDay = DAYS.find((day) => scheduledEntries.some(([key, activity]) => key.endsWith(`:${day}`) && activity === 'concert'));
   const concertMembers = concertDay ? state.members.filter((member) => state.schedule[`${member.id}:${concertDay}`] === 'concert') : [];
-  const concertSummary = concertDay && concertMembers.length ? createConcertSummary(rng, concertMembers, concertDay) : null;
+  const currentConcert = state.concerts.find((concert) => concert.targetYear === state.year && concert.targetWeek === state.week);
+  const concertSummary = concertDay && concertMembers.length ? createConcertSummary(rng, concertMembers, concertDay, currentConcert?.title) : null;
+  let concerts = state.concerts.map((concert) => {
+    if (concert.status !== 'selling' || currentAbsolute > concert.saleCloseAbsolute) return concert;
+    const remaining = concert.projectedSold - concert.sold;
+    const weeklyTarget = currentAbsolute === concert.saleCloseAbsolute ? remaining : Math.min(remaining, Math.ceil(concert.projectedSold / concert.salesWeeks));
+    const salesRevenue = weeklyTarget * concert.ticketPrice;
+    moneyDelta += salesRevenue;
+    finances.concert += salesRevenue;
+    return { ...concert, sold: concert.sold + weeklyTarget, status: currentAbsolute === concert.saleCloseAbsolute ? 'salesClosed' : 'selling' };
+  });
   const activityEvents = [...(state.activityEvents ?? [])];
   if (scheduledEntries.some(([, activity]) => activity === 'concert')) activityEvents.push({ id: `concert-${state.year}-${state.week}`, type: 'concert', year: state.year, week: state.week, month });
   if (scheduledEntries.some(([, activity]) => activity.startsWith('mg'))) activityEvents.push({ id: `meet-greet-${state.year}-${state.week}`, type: 'meetGreet', year: state.year, week: state.week, month });
@@ -475,18 +531,53 @@ export function resolveWeek(state) {
   members = members.map((member) => ['active', 'trainee'].includes(member.status) ? { ...member, energy: clamp(member.energy + BALANCE.weeklyRecovery + bonusValue(state, 'B011')) } : member);
   let completedSingles = 0;
   const singles = state.singles.map((single) => {
-    if (single.status !== 'production') return single;
-    const progressWeeks = Math.min(single.durationWeeks, single.progressWeeks + 1);
-    if (progressWeeks < single.durationWeeks) return { ...single, progressWeeks };
-    completedSingles += 1;
-    notifications.push({ type: 'success', text: `${single.title} MV production completed.` });
-    history.unshift({ id: `${single.id}-release`, type: 'single', title: `${single.title} released`, detail: 'Four-week MV production completed. Group popularity and public awareness increased.', year, week });
-    return { ...single, progressWeeks, status: 'released', releasedYear: year, releasedWeek: week };
+    if (single.status === 'released') {
+      const viewWeek = (single.viewWeeks ?? 0) + 1;
+      const viewResult = mvViewGain(single, state.group, viewWeek);
+      return { ...single, views: (single.views ?? 0) + viewResult.gain, weeklyViewGain: viewResult.gain, viewWeeks: viewWeek, launchViews: viewResult.launchViews };
+    }
+    if (!single.releaseYear || !single.releaseWeek) {
+      if (single.status !== 'production') return single;
+      const progressWeeks = Math.min(single.durationWeeks, single.progressWeeks + 1);
+      if (progressWeeks < single.durationWeeks) return { ...single, progressWeeks };
+      completedSingles += 1;
+      notifications.push({ type: 'success', text: `${single.title} MV production completed.` });
+      history.unshift({ id: `${single.id}-release`, type: 'single', title: `${single.title} released`, detail: 'Four-week MV production completed. Group popularity and public awareness increased.', year, week });
+      const viewResult = mvViewGain(single, state.group, 1);
+      return { ...single, progressWeeks, status: 'released', releasedYear: year, releasedWeek: week, views: viewResult.gain, weeklyViewGain: viewResult.gain, viewWeeks: 1, launchViews: viewResult.launchViews };
+    }
+    const productionStartAbsolute = toAbsoluteWeek(single.productionStartYear, single.productionStartWeek);
+    const releaseAbsolute = toAbsoluteWeek(single.releaseYear, single.releaseWeek);
+    let nextSingle = single;
+    if (currentAbsolute >= productionStartAbsolute && currentAbsolute < productionStartAbsolute + single.durationWeeks) {
+      const progressWeeks = Math.min(single.durationWeeks, single.progressWeeks + 1);
+      nextSingle = { ...single, status: progressWeeks === single.durationWeeks ? 'ready' : 'production', progressWeeks };
+      if (progressWeeks === single.durationWeeks) notifications.push({ type: 'success', text: `${single.title} MV production completed. Release preparations begin.` });
+    }
+    if (currentAbsolute === releaseAbsolute) {
+      completedSingles += 1;
+      notifications.push({ type: 'success', text: `${single.title} released.` });
+      history.unshift({ id: `${single.id}-release`, type: 'single', title: `${single.title} released`, detail: 'The scheduled single release increased group popularity and public awareness.', year: state.year, week: state.week });
+      const viewResult = mvViewGain(single, state.group, 1);
+      nextSingle = { ...nextSingle, status: 'released', releasedYear: state.year, releasedWeek: state.week, views: viewResult.gain, weeklyViewGain: viewResult.gain, viewWeeks: 1, launchViews: viewResult.launchViews };
+    }
+    return nextSingle;
   });
   const nextSchedule = {};
-  singles.filter((single) => single.status === 'production').forEach((single) => {
-    single.memberIds.forEach((memberId) => { nextSchedule[`${memberId}:${single.productionDay}`] = 'mvProduction'; });
+  const nextAbsolute = toAbsoluteWeek(year, week);
+  singles.forEach((single) => {
+    if (!single.productionStartYear || !single.productionStartWeek) {
+      if (single.status === 'production') single.memberIds.forEach((memberId) => { nextSchedule[`${memberId}:${single.productionDay}`] = 'mvProduction'; });
+      return;
+    }
+    const startAbsolute = toAbsoluteWeek(single.productionStartYear, single.productionStartWeek);
+    if (nextAbsolute >= startAbsolute && nextAbsolute < startAbsolute + single.durationWeeks) single.memberIds.forEach((memberId) => { nextSchedule[`${memberId}:${single.productionDay}`] = 'mvProduction'; });
   });
+  concerts.forEach((concert) => {
+    if (nextAbsolute !== toAbsoluteWeek(concert.targetYear, concert.targetWeek)) return;
+    concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { nextSchedule[`${memberId}:${concert.day}`] = 'concert'; });
+  });
+  if (concertSummary) concerts = concerts.map((concert) => concert.targetYear === state.year && concert.targetWeek === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert);
   const group = {
     ...state.group,
     fanbase: state.group.fanbase + fanGain,
@@ -503,10 +594,11 @@ export function resolveWeek(state) {
     const previous = state.members.find((item) => item.id === member.id);
     return previous ? SKILLS.filter((skill) => member[skill] !== previous[skill]).map((skill) => ({ memberId: member.id, memberName: member.nickname || member.name, skill, before: previous[skill], after: member[skill], delta: Math.round((member[skill] - previous[skill]) * 10) / 10 })) : [];
   });
-  const lastResult = { year: state.year, week: state.week, moneyDelta, fanGain, activities: Object.keys(state.schedule).length, schedule: { ...state.schedule }, skillChanges, concertSummary, finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.liveStream + finances.concert + finances.otherIncome, totalExpenses: finances.activityCosts + finances.generalOperations + finances.theaterUpkeep } };
+  const singleViewChanges = singles.filter((single) => (single.views ?? 0) > (state.singles.find((item) => item.id === single.id)?.views ?? 0)).map((single) => ({ singleId: single.id, title: single.title, gain: single.weeklyViewGain, total: single.views, viewWeek: single.viewWeeks }));
+  const lastResult = { year: state.year, week: state.week, moneyDelta, fanGain, activities: Object.keys(state.schedule).length, schedule: { ...state.schedule }, skillChanges, singleViewChanges, concertSummary, finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.liveStream + finances.concert + finances.otherIncome, totalExpenses: finances.activityCosts + finances.generalOperations + finances.theaterUpkeep } };
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult].slice(-(BALANCE.weeksPerYear * 2));
   const next = {
-    ...state, year, week, members, singles, concerts: state.concerts.map((concert) => concert.year === state.year && concert.week === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert), group, money: state.money + moneyDelta, schedule: nextSchedule, activityEvents: activityEvents.slice(-500), history: history.slice(0, 250),
+    ...state, year, week, members, singles, concerts, group, money: state.money + moneyDelta, schedule: nextSchedule, activityEvents: activityEvents.slice(-500), history: history.slice(0, 250),
     notifications, activeDrama, dramaCooldown, graduations, records, weeklyReports, runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };

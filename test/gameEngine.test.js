@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyScheduleTemplate, assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceConcert, applyScheduleTemplate, assignActivity, createGame, endRun, finalizeGameSetup, getActiveRoster, getTheaterEligibleMembers, getTheaterRenovationOffer, renovateTheater, resolveWeek, runAudition, startSingleProduction } from '../src/engine/gameEngine.js';
 import { translateIndonesian } from '../src/localization.js';
 
 test('active roster excludes graduated members and JKT48V', () => {
@@ -311,6 +311,95 @@ test('single production auto-locks every member when exactly 12 are eligible', (
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const started = startSingleProduction(game, game.members[0].id, 'Thu', [game.members[0].id]);
   assert.deepEqual(new Set(started.singles[0].memberIds), new Set(game.members.map((member) => member.id)));
+});
+
+test('scheduled single starts five weeks before its release month and releases in week four', () => {
+  const draft = createGame('scheduled-single-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = startSingleProduction(game, game.members[0].id, 'Wed', game.members.map((member) => member.id), 1, 2);
+  assert.equal(game.singles[0].status, 'planned');
+  assert.equal(game.singles[0].productionStartWeek, 3);
+  assert.equal(game.singles[0].releaseWeek, 8);
+  assert.equal(Object.keys(game.schedule).length, 0);
+  game = resolveWeek(resolveWeek(game));
+  assert.equal(game.week, 3);
+  assert.equal(Object.values(game.schedule).filter((activity) => activity === 'mvProduction').length, 12);
+  for (let index = 0; index < 4; index += 1) game = resolveWeek(game);
+  assert.equal(game.singles[0].status, 'ready');
+  assert.equal(game.singles[0].progressWeeks, 4);
+  game = resolveWeek(game);
+  assert.equal(game.week, 8);
+  assert.equal(game.singles[0].status, 'ready');
+  game = resolveWeek(game);
+  assert.equal(game.singles[0].status, 'released');
+  assert.equal(game.singles[0].releasedWeek, 8);
+});
+
+test('single and concert creation persist trimmed custom titles', () => {
+  const draft = createGame('custom-campaign-title-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const single = startSingleProduction(game, game.members[0].id, 'Wed', game.members.map((member) => member.id), 1, 2, '  Sakura Horizon  ');
+  assert.equal(single.singles[0].title, 'Sakura Horizon');
+  const concert = announceConcert(game, 'Sat', 1, 2, '  Jakarta Resonance  ');
+  assert.equal(concert.concerts[0].title, 'Jakarta Resonance');
+  assert.equal(startSingleProduction(game, game.members[0].id, 'Wed', game.members.map((member) => member.id), 1, 2, 'x'.repeat(61)), game);
+  assert.equal(announceConcert(game, 'Sat', 1, 2, 'x'.repeat(61)), game);
+});
+
+test('Off-air performance costs energy and money while gaining fans', () => {
+  const draft = createGame('off-air-performance-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const member = game.members[0];
+  game = { ...game, members: game.members.map((item) => item.id === member.id ? { ...item, energy: 50 } : item) };
+  const next = resolveWeek(assignActivity(game, member.id, 'Tue', 'offAir'));
+  assert.ok(next.lastResult.fanGain > 0);
+  assert.ok(next.lastResult.finances.activityCosts >= 600_000);
+  assert.ok(next.members.find((item) => item.id === member.id).energy < 100);
+  assert.equal(next.members.find((item) => item.id === member.id).appearances.offAir, 1);
+});
+
+test('released single views decline and use the fanbase long-tail cap from week four', () => {
+  const draft = createGame('single-view-decay-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = startSingleProduction(game, game.members[0].id, 'Wed');
+  for (let index = 0; index < 4; index += 1) game = resolveWeek(game);
+  const first = game.singles[0].weeklyViewGain;
+  game = resolveWeek(game);
+  const second = game.singles[0].weeklyViewGain;
+  game = resolveWeek(game);
+  const third = game.singles[0].weeklyViewGain;
+  game = resolveWeek(game);
+  const fourth = game.singles[0].weeklyViewGain;
+  const longTailCap = Math.round((game.group.fanbase / 5) * 0.01);
+  assert.ok(first > second && second > third && third > fourth);
+  assert.ok(fourth <= longTailCap);
+  const previousTotal = game.singles[0].views;
+  game = resolveWeek(game);
+  assert.ok(game.singles[0].weeklyViewGain < fourth);
+  assert.equal(game.singles[0].views, previousTotal + game.singles[0].weeklyViewGain);
+  assert.equal(game.lastResult.singleViewChanges[0].total, game.singles[0].views);
+});
+
+test('concert tickets sell through D-2 and the target week locks every member', () => {
+  const draft = createGame('scheduled-concert-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const startingMoney = game.money;
+  game = announceConcert(game, 'Sat', 1, 2);
+  assert.equal(game.concerts[0].status, 'selling');
+  assert.equal(game.money, startingMoney - 120_000_000);
+  assert.equal(game.concerts[0].sold, 0);
+  for (let index = 0; index < 6; index += 1) game = resolveWeek(game);
+  assert.equal(game.week, 7);
+  assert.equal(game.concerts[0].status, 'salesClosed');
+  assert.equal(game.concerts[0].sold, game.concerts[0].projectedSold);
+  const soldAtClose = game.concerts[0].sold;
+  game = resolveWeek(game);
+  assert.equal(game.week, 8);
+  assert.equal(game.concerts[0].sold, soldAtClose);
+  assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concert').length, 12);
+  game = resolveWeek(game);
+  assert.equal(game.concerts[0].status, 'completed');
+  assert.ok(game.lastResult.concertSummary.songCount >= 35);
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
