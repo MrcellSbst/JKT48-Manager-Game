@@ -429,8 +429,10 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
   };
 }
 
-export function getMemberSalary(member, year = 1) {
-  const base = member?.status === 'trainee' ? BALANCE.salary.trainee : BALANCE.salary.regular;
+export function getMemberSalary(member, year = 1, hardMode = false) {
+  const base = hardMode
+    ? (member?.status === 'trainee' ? BALANCE.salary.hardModeTrainee : BALANCE.salary.hardModeRegular)
+    : (member?.status === 'trainee' ? BALANCE.salary.trainee : BALANCE.salary.regular);
   return member?.salary ?? Math.round(base * ((1 + BALANCE.salary.annualIncreasePercent / 100) ** Math.max(0, year - 1)));
 }
 

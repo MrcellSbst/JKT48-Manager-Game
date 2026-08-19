@@ -44,7 +44,7 @@ export const BALANCE = {
   // A member left out of every weekly activity drifts toward graduation.
   idle: { graduationWeightPerWeek: 1.4, noticeAfterWeeks: 3 },
   fire: { flatSeverance: 22_500_000, fanTrustPenalty: 6, reputationPenalty: 4 },
-  salary: { regular: 12_000_000, trainee: 4_500_000, hardModeMultiplier: 0.75, annualIncreasePercent: 5, unpaidMonthsToEnd: 2 },
+  salary: { regular: 12_000_000, trainee: 4_500_000, hardModeRegular: 9_000_000, hardModeTrainee: 3_375_000, annualIncreasePercent: 5, unpaidMonthsToEnd: 2 },
   loans: { offersPerYear: 3, termsMonths: [6, 9, 12], repaymentMultipliers: [1.5, 1.65, 1.8], monthlyFeeRate: 0.04, reputationPenalty: 2 },
   twoShot: { roulette: { slotsPerMember: 5, ticket: 100_000 }, meetGreet: { slotsPerEvent: 150, ticket: 180_000 } },
   seitansai: { fanGain: 1_500, oshiSentiment: 8, trustGain: 2, missedTrustLoss: 4, missedOshiLoss: 10 },

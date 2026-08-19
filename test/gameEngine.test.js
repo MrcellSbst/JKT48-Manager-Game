@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
@@ -80,9 +80,8 @@ test('hard mode reduces member salary by 25%', () => {
   const ids = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const normal = finalizeGameSetupEngine(draft, 'community', ids, 'Normal Salary Office');
   const hard = finalizeGameSetupEngine(draft, 'community', ids, 'Hard Salary Office', [], { hardMode: true });
-  const normalReport = resolveWeek(normal);
-  const hardReport = resolveWeek(hard);
-  assert.equal(hardReport.lastResult.finances.salary, Math.round(normalReport.lastResult.finances.salary * BALANCE.salary.hardModeMultiplier));
+  assert.equal(getMemberSalary(normal.members[0], 1, false), BALANCE.salary.regular);
+  assert.equal(getMemberSalary(hard.members[0], 1, true), BALANCE.salary.hardModeRegular);
 });
 
 test('member birthdays are seeded, stable, and expose a derived age', () => {
