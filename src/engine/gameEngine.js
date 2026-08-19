@@ -608,6 +608,20 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
   if (targetWeek > state.week) {
     const selectedIds = type === 'meetGreet' ? eligibleIds : [...new Set(memberIds)].filter((id) => eligibleIds.includes(id));
     if (!selectedIds.length || (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type)) return state;
+    if (type === 'videoCall') {
+      const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
+      const currentMonth = Math.ceil(state.week / BALANCE.weeksPerMonth);
+      const hasExisting = selectedIds.some((memberId) => {
+        const resolved = (state.activityEvents ?? []).some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === targetMonth);
+        const planned = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth);
+        const scheduled = currentMonth === targetMonth && Object.entries(state.schedule).some(([key, value]) => {
+          const [id] = key.split(':');
+          return value.startsWith('vc') && id === memberId;
+        });
+        return resolved || planned || scheduled;
+      });
+      if (hasExisting) return state;
+    }
     return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: `fan-event-${type}-${state.year}-${targetWeek}`, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
   }
   if (type === 'meetGreet') {
