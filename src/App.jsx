@@ -11,6 +11,7 @@ import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
  import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, assignActivity, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, endRun, finalizeAudition, finalizeGameSetup, fireMember, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberSalary, getRosterDanger, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, punishMember, payDebt, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { localizeDocument, translateIndonesian } from './localization.js';
+import comingSoonImage from './Asset/Pics/Coming_SoonCOPY.png';
 
 const portraitModules = import.meta.glob([
   './Asset/member_active/*',
@@ -779,7 +780,7 @@ function StartScreen({ saves, onStart, onLoad, metaProfile }) {
   const activeSave = saves[0];
   const runHistory = metaProfile.runHistory ?? [];
   return <main className="start-screen">
-    <section className="start-brand"><div className="start-number">48</div><div><span>Alternate timeline simulator</span><h1>JKT48<br />Manager</h1><p>Build the schedule. Develop the roster. Let every decision write a different history.</p></div></section>
+     <section className="start-brand"><div className="start-number">48</div><div><img className="coming-soon-logo" src={comingSoonImage} alt="Coming soon" /><p>Build the schedule. Develop the roster. Let every decision write a different history.</p></div></section>
     <section className="start-control">
       {activeSave ? <div className="continue-run"><span>Active run</span><h2>{calendarLabel(activeSave.state.year, activeSave.state.week)}</h2><p>{activeSave.state.seed} · {number.format(activeSave.state.group.fanbase)} fans</p><button className="continue-button" type="button" onClick={onLoad}>Continue run <ChevronRight size={20} /></button></div> : <><span className="eyebrow">New management run</span><h2>Enter the theater office</h2></>}
       <div className={activeSave ? 'new-run-panel' : ''}>{activeSave ? <strong>Start replacement timeline</strong> : null}<label htmlFor="seed">Run seed</label><div className="seed-input"><input id="seed" value={seed} onChange={(e) => setSeed(e.target.value)} /><IconButton label="Randomize seed" onClick={() => setSeed(randomSeed())}><Sparkles size={19} /></IconButton></div><button className="start-button" type="button" onClick={() => onStart(seed)}>Start new timeline <ChevronRight size={20} /></button>{activeSave ? <small>Current run remains saved until new lineup is confirmed.</small> : null}</div>
@@ -851,7 +852,7 @@ function FoundingSetup({ draft, metaProfile, onUnlockBonus, onChangeRosterScope,
   };
 
   return <main className="founding-setup">
-    <header className="setup-header"><button type="button" className="setup-back" onClick={step === 'bonuses' ? onCancel : () => setStep(step === 'lineup' ? 'theater' : step === 'theater' ? 'management' : 'bonuses')}><ArrowLeft size={19} />{step === 'bonuses' ? 'Change seed' : step === 'management' ? 'Bonus loadout' : step === 'theater' ? 'Management name' : 'Theater choice'}</button><div className="setup-brand"><span>48</span><strong>JKT48 Manager</strong></div><div className="setup-progress" aria-label={`Setup step ${step === 'bonuses' ? 1 : step === 'management' ? 2 : step === 'theater' ? 3 : 4} of 4`}><span className="active" /><span className={step !== 'bonuses' ? 'active' : ''} /><span className={['theater','lineup'].includes(step) ? 'active' : ''} /><span className={step === 'lineup' ? 'active' : ''} /><b>{step === 'bonuses' ? '1' : step === 'management' ? '2' : step === 'theater' ? '3' : '4'} / 4</b></div></header>
+     <header className="setup-header"><button type="button" className="setup-back" onClick={step === 'bonuses' ? onCancel : () => setStep(step === 'lineup' ? 'theater' : step === 'theater' ? 'management' : 'bonuses')}><ArrowLeft size={19} />{step === 'bonuses' ? 'Change seed' : step === 'management' ? 'Bonus loadout' : step === 'theater' ? 'Management name' : 'Theater choice'}</button><div className="setup-brand"><img src={comingSoonImage} alt="Coming soon" /></div><div className="setup-progress" aria-label={`Setup step ${step === 'bonuses' ? 1 : step === 'management' ? 2 : step === 'theater' ? 3 : 4} of 4`}><span className="active" /><span className={step !== 'bonuses' ? 'active' : ''} /><span className={['theater','lineup'].includes(step) ? 'active' : ''} /><span className={step === 'lineup' ? 'active' : ''} /><b>{step === 'bonuses' ? '1' : step === 'management' ? '2' : step === 'theater' ? '3' : '4'} / 4</b></div></header>
     {step === 'bonuses' ? <section className="bonus-step">
       <div className="setup-title lineup-title"><div><span className="eyebrow">Management Perks</span><h1>Choose your run bonuses</h1><p>Unlock bonuses permanently, then equip exactly {BALANCE.bonusSlots}. The loadout locks when the run begins.</p></div><div className={selectedBonusIds.length === BALANCE.bonusSlots ? 'selection-count complete' : 'selection-count'}><strong>{selectedBonusIds.length}</strong><span>of {BALANCE.bonusSlots} equipped</span></div></div>
       <div className="bonus-wallet"><CircleDollarSign size={18} /><strong>{metaProfile.currency}</strong><span>Management Token available</span></div>
@@ -973,7 +974,7 @@ export default function App() {
   useEffect(() => { getMetaProfile().then(setMetaProfile).catch(console.error).finally(() => setMetaLoaded(true)); }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#11110f' : '#d71920');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#11110f' : '#0b1f37');
     try { localStorage.setItem('jkt48-manager-theme', theme); }
     catch { /* Theme still applies for this session when storage is unavailable. */ }
   }, [theme]);
