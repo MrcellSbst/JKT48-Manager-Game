@@ -245,17 +245,17 @@ test('sustained bankruptcy ends only after four consecutive weeks', () => {
   assert.match(game.runSummary.rank, /^[SABCD]$/);
 });
 
-test('graduation planning runs at the start of each month from Year 2', () => {
+test('graduation planning runs at the start of each month once members pass their tenure cooldown', () => {
   const draft = createGame('graduation-plan-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
-  const expanded = { ...game, year: 2, week: 45, members: [...game.members, ...game.unsignedMembers.slice(0, 4)] };
+  const expanded = { ...game, year: 4, week: 45, members: [...game.members, ...game.unsignedMembers.slice(0, 4)] };
   const next = resolveWeek(expanded);
-  const plans = next.graduations.filter((item) => item.planYear === 2);
+  const plans = next.graduations.filter((item) => item.planYear === 4);
   assert.equal(plans.length, 1);
   assert.equal(plans[0].announcementWeek, 45);
   assert.equal(plans[0].announced, true);
   assert.ok(next.members.length - plans.length >= 12);
-  assert.deepEqual(plans, resolveWeek({ ...expanded }).graduations.filter((item) => item.planYear === 2));
+  assert.deepEqual(plans, resolveWeek({ ...expanded }).graduations.filter((item) => item.planYear === 4));
   assert.deepEqual(resolveWeek({ ...expanded, week: 46 }).graduations, []);
 });
 

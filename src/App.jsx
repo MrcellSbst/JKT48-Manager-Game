@@ -760,11 +760,11 @@ function MemberStatModal({ member, selected, atLimit, onConfirm, onClose }) {
   </div></ModalPortal>;
 }
 
-function FoundingSetup({ draft, metaProfile, onUnlockBonus, onChangeRosterScope, onComplete, onCancel }) {
+function FoundingSetup({ draft, metaProfile, onUnlockBonus, onChangeRosterScope, onChangeDifficulty, onComplete, onCancel }) {
   const [step, setStep] = useState('bonuses');
   const [selectedBonusIds, setSelectedBonusIds] = useState([]);
   const [managementName, setManagementName] = useState(draft.managementName ?? '');
-  const [hardMode, setHardMode] = useState(false);
+  const [hardMode, setHardMode] = useState(draft.hardMode ?? false);
   const [theaterId, setTheaterId] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [memberSearch, setMemberSearch] = useState('');
@@ -812,7 +812,7 @@ function FoundingSetup({ draft, metaProfile, onUnlockBonus, onChangeRosterScope,
       <footer className="setup-footer"><div><span>Locked loadout</span><strong>{selectedBonusIds.length}/{BALANCE.bonusSlots} equipped</strong><small>Bonuses cannot be changed during the run.</small></div><button type="button" className="setup-primary" disabled={selectedBonusIds.length !== BALANCE.bonusSlots} onClick={() => setStep('management')}>Confirm loadout <ChevronRight size={19} /></button></footer>
     </section> : step === 'management' ? <section className="management-step">
       <div className="management-form"><div className="management-icon"><UserRoundSearch size={28} /></div><span className="eyebrow">Founding identity</span><h1>Name your management</h1><p>This name identifies the office responsible for your active timeline.</p><label htmlFor="management-name">Management name</label><input id="management-name" autoFocus maxLength={40} value={managementName} onChange={(event) => setManagementName(event.target.value)} placeholder="Example: Senayan Stage Office" onKeyDown={(event) => { if (event.key === 'Enter' && managementName.trim()) setStep('theater'); }} /><small>{managementName.trim().length}/40 characters</small>
-        <div className="difficulty-choice" role="radiogroup" aria-label="Run difficulty"><span className="difficulty-label">Difficulty</span>{[['normal', 'Normal', 'Weekly operating costs only. Payroll, arrears, loans, and birthday obligations stay switched off.'], ['hard', 'Hard', 'Adds monthly member salaries, unpaid-cost arrears, predatory loans, and mandatory Seitansai shows. Missing payroll for more than two months ends the run.']].map(([value, label, description]) => <button type="button" key={value} role="radio" aria-checked={hardMode === (value === 'hard')} className={hardMode === (value === 'hard') ? 'difficulty-option selected' : 'difficulty-option'} onClick={() => setHardMode(value === 'hard')}><strong>{label}{hardMode === (value === 'hard') ? <Check size={17} /> : null}</strong><small>{description}</small></button>)}</div>
+        <div className="difficulty-choice" role="radiogroup" aria-label="Run difficulty"><span className="difficulty-label">Difficulty</span>{[['normal', 'Normal', 'Weekly operating costs only. Payroll, arrears, loans, and birthday obligations stay switched off.'], ['hard', 'Hard', 'Adds monthly member salaries, unpaid-cost arrears, predatory loans, and mandatory Seitansai shows. Missing payroll for more than two months ends the run.']].map(([value, label, description]) => <button type="button" key={value} role="radio" aria-checked={hardMode === (value === 'hard')} className={hardMode === (value === 'hard') ? 'difficulty-option selected' : 'difficulty-option'} onClick={() => { const next = value === 'hard'; setHardMode(next); onChangeDifficulty(next); }}><strong>{label}{hardMode === (value === 'hard') ? <Check size={17} /> : null}</strong><small>{description}</small></button>)}</div>
       </div>
       <footer className="setup-footer"><div><span>Run seed</span><strong>{draft.seed}</strong><small>The seed keeps member stats and theater offers consistent.</small></div><button type="button" className="setup-primary" disabled={!managementName.trim()} onClick={() => setStep('theater')}>Continue to theater <ChevronRight size={19} /></button></footer>
     </section> : step === 'theater' ? <section className="theater-step">
@@ -940,6 +940,8 @@ export default function App() {
   const start = (seed) => { setSetupDraft(createGame(seed.trim() || randomSeed())); };
   // Roster scope changes the identity pool, so the seeded draft is rebuilt from the same seed.
   const changeRosterScope = (scope) => setSetupDraft((current) => current ? createGame(current.seed, scope) : current);
+  // Difficulty changes the seeded stat band, so the draft is rebuilt so founding stats reflect it.
+  const changeDifficulty = (hardMode) => setSetupDraft((current) => current ? createGame(current.seed, current.rosterScope ?? 'active', hardMode) : current);
   const unlockBonus = async (bonus) => {
     if (metaProfile.unlockedBonusIds.includes(bonus.id) || metaProfile.currency < bonus.unlockCost) return;
     const next = { ...metaProfile, currency: metaProfile.currency - bonus.unlockCost, unlockedBonusIds: [...metaProfile.unlockedBonusIds, bonus.id] };
@@ -1059,7 +1061,7 @@ export default function App() {
     setActiveView(view);
   };
   const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} />;
-  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUnlockBonus={unlockBonus} onChangeRosterScope={changeRosterScope} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} /></>;
+  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUnlockBonus={unlockBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} /></>;
   if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} /></>;
   if (game.runStatus === 'ended') return <><PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} /><RunEndScreen game={game} onNewRun={beginAnotherRun} /></>;
 

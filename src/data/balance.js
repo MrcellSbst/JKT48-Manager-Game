@@ -31,10 +31,9 @@ export const BALANCE = {
   injury: {
     loadByType: { light: 1, medium: 2, heavy: 3 },
     loadThreshold: 6,
-    chancePerLoadOverThreshold: 0.035,
+    chanceByEnergy: { high: 0.05, mid: 0.08, low: 0.12 },
+    highEnergyThreshold: 70,
     lowEnergyThreshold: 30,
-    lowEnergyMultiplier: 1.8,
-    maxWeeklyChance: 0.3,
     severities: [
       { id: 'minor', label: 'Minor', weight: 60, weeks: 1, blocks: ['training', 'theater', 'concert', 'concertRehearsal', 'offAir'] },
       { id: 'moderate', label: 'Moderate', weight: 30, weeks: 2, blocks: ['training', 'theater', 'concert', 'concertRehearsal', 'offAir', 'media', 'photoshoot', 'meetGreet', 'videoCall', 'mv'] },
@@ -64,7 +63,7 @@ export const BALANCE = {
     developmentBonus: 0.2,
   },
   bonusSlots: 3,
-  graduation: { year1Max: 3, normalMin: 2, normalMax: 5, extremeMax: 7, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, generatedMinimumTenureYears: 2, idleWeightPerWeek: 1.4 },
+  graduation: { year1Max: 3, normalMin: 2, normalMax: 5, extremeMax: 7, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
   theaterTiers: [
     { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [60_000, 80_000] },
     { id: 'city', name: 'City Theater', tier: 'Middle', priceRange: [210_000_000, 330_000_000], capacityRange: [300, 470], ticketRange: [80_000, 105_000] },
