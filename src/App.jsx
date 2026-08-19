@@ -508,9 +508,10 @@ function LegacyFanEventCampaigns({ game, setGame }) {
   const month = Math.ceil(game.week / BALANCE.weeksPerMonth);
   const eligibleMembers = game.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0);
   const completedVcIds = new Set((game.activityEvents ?? []).filter((event) => event.type === 'videoCall' && event.year === game.year && event.month === month).map((event) => event.memberId));
-  const scheduledVcIds = new Set(Object.entries(game.schedule).filter(([, activityId]) => activityId === 'vc1').map(([key]) => key.slice(0, key.lastIndexOf(':'))));
-  const vcMembers = eligibleMembers.filter((member) => !completedVcIds.has(member.id) && !scheduledVcIds.has(member.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(game.schedule[`${member.id}:${eventDay}`]));
-  const meetGreetUsed = (game.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === game.year && event.month === month) || Object.values(game.schedule).some((activityId) => activityId === 'mg1');
+const scheduledVcIds = new Set(Object.entries(game.schedule).filter(([, activityId]) => activityId === 'vc1').map(([key]) => key.slice(0, key.lastIndexOf(':'))));
+const plannedVcIds = new Set((game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === month && plan.type === 'videoCall').flatMap((plan) => plan.memberIds));
+const vcMembers = eligibleMembers.filter((member) => !completedVcIds.has(member.id) && !scheduledVcIds.has(member.id) && !plannedVcIds.has(member.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(game.schedule[`${member.id}:${eventDay}`]));
+const meetGreetUsed = (game.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === game.year && event.month === month) || Object.values(game.schedule).some((activityId) => activityId === 'mg1') || (game.fanEventPlans ?? []).some((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === month && plan.type === 'meetGreet');
   const chosenIds = selectedIds.filter((memberId) => vcMembers.some((member) => member.id === memberId));
   const dayHasCampaignLock = eligibleMembers.some((member) => AUTOMATIC_ACTIVITY_LOCKS.includes(game.schedule[`${member.id}:${eventDay}`]));
   const eventWeeks = useMemo(() => Array.from({ length: BALANCE.weeksPerYear - game.week + 1 }, (_, index) => game.week + index), [game.week]);
@@ -542,9 +543,9 @@ function FanEventCampaigns({ game, setGame }) {
   const eventSchedule = eventWeek === game.week ? game.schedule : {};
   const completedVcIds = new Set((game.activityEvents ?? []).filter((event) => event.type === 'videoCall' && event.year === game.year && event.month === targetMonth).map((event) => event.memberId));
   const scheduledVcIds = new Set(Object.entries(eventSchedule).filter(([, activityId]) => activityId === 'vc1').map(([key]) => key.slice(0, key.lastIndexOf(':'))));
-  const plannedVcIds = new Set((game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && plan.targetWeek === eventWeek && plan.type === 'videoCall').flatMap((plan) => plan.memberIds));
+  const plannedVcIds = new Set((game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'videoCall').flatMap((plan) => plan.memberIds));
   const vcMembers = eligibleMembers.filter((member) => !completedVcIds.has(member.id) && !scheduledVcIds.has(member.id) && !plannedVcIds.has(member.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(eventSchedule[`${member.id}:${eventDay}`]));
-  const meetGreetUsed = (game.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === game.year && event.month === targetMonth) || Object.values(eventSchedule).some((activityId) => activityId === 'mg1') || (game.fanEventPlans ?? []).some((plan) => plan.year === game.year && plan.targetWeek === eventWeek && plan.type === 'meetGreet');
+  const meetGreetUsed = (game.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === game.year && event.month === targetMonth) || Object.values(eventSchedule).some((activityId) => activityId === 'mg1') || (game.fanEventPlans ?? []).some((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'meetGreet');
   const chosenIds = selectedIds.filter((memberId) => vcMembers.some((member) => member.id === memberId));
   const dayHasCampaignLock = eligibleMembers.some((member) => AUTOMATIC_ACTIVITY_LOCKS.includes(eventSchedule[`${member.id}:${eventDay}`]));
   useEffect(() => { setEventWeek((current) => Math.max(game.week, Math.min(current, BALANCE.weeksPerYear))); }, [game.week]);
