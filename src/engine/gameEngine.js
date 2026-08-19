@@ -1766,7 +1766,7 @@ export function finalizeAudition(state, selectedCandidateIds = []) {
 
 export function runAudition(state) {
   if (state.runStatus === 'ended') return state;
-  const auditionCost = applyRate(65_000_000, bonusValue(state, 'B021'));
+  const auditionCost = applyRate(97_500_000, bonusValue(state, 'B021'));
   if (state.week < BALANCE.auditionStartWeek || state.money < auditionCost || state.auditions.some((item) => item.year === state.year)) return state;
   const rng = createRng(hashSeed(`${state.seed}:audition:${state.year}`));
   const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));
