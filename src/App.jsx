@@ -271,14 +271,16 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
     <aside id="main-sidebar" className={mobileOpen ? 'sidebar open' : 'sidebar'}>
       <IconButton label={translate(language, 'Close menu')} className="sidebar-close-button" onClick={() => setMobileOpen(false)}><X size={20} /></IconButton>
       <div className="brand"><div className="brand-mark">48</div><div><strong>JKT48</strong><span>{game.managementName || 'Manager'}</span></div></div>
-      <nav aria-label="Main navigation">{NAV.map(([id, label, Icon]) => <button key={id} type="button" className={activeView === id ? 'active' : ''} onClick={() => { setActiveView(id); setMobileOpen(false); }}><Icon size={19} /><span>{translate(language, label)}</span></button>)}</nav>
-      <div className="sidebar-footer">
-        <button type="button" onClick={onManualSave} disabled={manualSaving}><Save size={18} />{translate(language, manualSaving ? 'Saving...' : 'Save run')}</button>
-        <button type="button" onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}{translate(language, theme === 'dark' ? 'Light mode' : 'Dark mode')}</button>
-        <button type="button" onClick={onToggleLanguage}><Languages size={18} />{language === 'id' ? 'English' : 'Bahasa Indonesia'}</button>
-        <button type="button" onClick={onNewRun}><Plus size={18} />{translate(language, 'New timeline')}</button>
-        <button type="button" className="end-run-button" onClick={onEndRun}><Square size={17} />{translate(language, 'End run')}</button>
-        <p className={saveMessage ? 'sidebar-save-status visible' : 'sidebar-save-status'} aria-live="polite">{translate(language, saveMessage || 'Simulation stats are fictional.')}</p>
+      <div className="sidebar-scroll">
+        <nav aria-label="Main navigation">{NAV.map(([id, label, Icon]) => <button key={id} type="button" className={activeView === id ? 'active' : ''} onClick={() => { setActiveView(id); setMobileOpen(false); }}><Icon size={19} /><span>{translate(language, label)}</span></button>)}</nav>
+        <div className="sidebar-footer">
+          <button type="button" onClick={onManualSave} disabled={manualSaving}><Save size={18} />{translate(language, manualSaving ? 'Saving...' : 'Save run')}</button>
+          <button type="button" onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}{translate(language, theme === 'dark' ? 'Light mode' : 'Dark mode')}</button>
+          <button type="button" onClick={onToggleLanguage}><Languages size={18} />{language === 'id' ? 'English' : 'Bahasa Indonesia'}</button>
+          <button type="button" onClick={onNewRun}><Plus size={18} />{translate(language, 'New timeline')}</button>
+          <button type="button" className="end-run-button" onClick={onEndRun}><Square size={17} />{translate(language, 'End run')}</button>
+          <p className={saveMessage ? 'sidebar-save-status visible' : 'sidebar-save-status'} aria-live="polite">{translate(language, saveMessage || 'Simulation stats are fictional.')}</p>
+        </div>
       </div>
     </aside>
     <main>
