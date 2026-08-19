@@ -107,10 +107,10 @@ export function getRosterDanger(count) {
 }
 
 function makeStats(rng, archetype, hardMode = false) {
-  const baseMin = hardMode ? 30 : 38;
-  const baseMax = hardMode ? 68 : 82;
+  const baseMin = hardMode ? 40 : 38;
+  const baseMax = hardMode ? 60 : 82;
   const boostMin = hardMode ? 5 : 8;
-  const boostMax = hardMode ? 12 : 18;
+  const boostMax = hardMode ? 10 : 18;
   const stats = Object.fromEntries(SKILLS.map((key) => [key, randomInt(rng, baseMin, baseMax)]));
   const boost = {
     Performer: ['dance', 'performance'], Vocalist: ['vocal'], Entertainer: ['mc', 'variety'],
@@ -253,13 +253,13 @@ export function calculateNextFanTarget(lastFanTarget, year) {
   return Math.round(lastFanTarget * (1 + (fixedGrowthPercent + runningGrowthPercent + bonusPercent) / 100));
 }
 
-export function createAnnualFanTarget(year, lastFanTarget = FAN_BALANCE.startingFans, startingFanbase = FAN_BALANCE.startingFans) {
+export function createAnnualFanTarget(year, lastFanTarget = FAN_BALANCE.startingFanTarget, startingFanbase = FAN_BALANCE.startingFans) {
   const targetFanbase = calculateNextFanTarget(lastFanTarget, year);
   return { formulaVersion: 2, year, baseTarget: lastFanTarget, startingFanbase, requiredGain: Math.max(0, targetFanbase - startingFanbase), targetFanbase };
 }
 
 export function createFanTargetForYear(year, startingFanbase = FAN_BALANCE.startingFans) {
-  let lastFanTarget = FAN_BALANCE.startingFans;
+  let lastFanTarget = FAN_BALANCE.startingFanTarget;
   for (let runningYear = 1; runningYear < year; runningYear += 1) lastFanTarget = calculateNextFanTarget(lastFanTarget, runningYear);
   return createAnnualFanTarget(year, lastFanTarget, startingFanbase);
 }
@@ -385,8 +385,8 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     money: BALANCE.startingMoney,
     theaterOffers: generateTheaterOffers(seed),
     concertVenueOffers: generateConcertVenueOffers(seed, 1),
-    group: { fanbase: FAN_BALANCE.startingFans, popularity: 48, fanTrust: 58, reputation: 52, publicAwareness: 44, fanPools: { coreWota: 34_000, casual: 31_000, generalPublic: 18_000, digital: 25_000, event: 17_000, oshi: 29_000, groupFans: 38_000 }, fanSentiment: { coreWota: 0, casual: 0, generalPublic: 0, digital: 0, event: 0, oshi: 0, groupFans: 0 } },
-    fanTarget: createAnnualFanTarget(1, FAN_BALANCE.startingFans),
+    group: { fanbase: FAN_BALANCE.startingFans, popularity: 48, fanTrust: 58, reputation: 52, publicAwareness: 44, fanPools: { coreWota: 2_700, casual: 2_500, generalPublic: 1_400, digital: 2_000, event: 1_400, oshi: 2_300, groupFans: 3_000 }, fanSentiment: { coreWota: 0, casual: 0, generalPublic: 0, digital: 0, event: 0, oshi: 0, groupFans: 0 } },
+    fanTarget: createAnnualFanTarget(1, FAN_BALANCE.startingFanTarget, FAN_BALANCE.startingFans),
     fanTargetHistory: [],
     fanTargetMetaReward: 0,
     members,

@@ -103,7 +103,10 @@ export const SCHEDULE_ACTIVITY_GROUPS = [
 export const SCHEDULE_STANDALONE_ACTIVITIES = ['rest', 'liveStream'];
 
 export const FAN_BALANCE = {
-  startingFans: 125_000,
+  startingFans: 10_000,
+  // The fan-target curve is anchored here, deliberately above the starting fanbase so Year 1
+  // opens with a real climb (162,500) instead of a trivial target.
+  startingFanTarget: 125_000,
   // Global tuning knob: every positive fan gain is reduced by 40% before soft-cap bands apply.
   generationMultiplier: 0.3,
   target: {
