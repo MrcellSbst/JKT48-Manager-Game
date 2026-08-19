@@ -974,7 +974,7 @@ export default function App() {
   useEffect(() => { getMetaProfile().then(setMetaProfile).catch(console.error).finally(() => setMetaLoaded(true)); }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#11110f' : '#0b1f37');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#11110f' : '#11509c');
     try { localStorage.setItem('jkt48-manager-theme', theme); }
     catch { /* Theme still applies for this session when storage is unavailable. */ }
   }, [theme]);
