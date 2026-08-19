@@ -18,6 +18,7 @@ export const BALANCE = {
   weeksPerYear: 48,
   weeksPerMonth: 4,
   auditionStartWeek: 37,
+  foundingRosterSize: 16,
   theaterMinimumMembers: 12,
   // Year 1 of a run is treated as this calendar year when deriving fictional ages from birth years.
   birthdayReferenceYear: 2025,
@@ -35,15 +36,15 @@ export const BALANCE = {
     highEnergyThreshold: 70,
     lowEnergyThreshold: 30,
     severities: [
-      { id: 'minor', label: 'Minor', weight: 60, weeks: 1, blocks: ['training', 'theater', 'concert', 'concertRehearsal', 'offAir'] },
-      { id: 'moderate', label: 'Moderate', weight: 30, weeks: 2, blocks: ['training', 'theater', 'concert', 'concertRehearsal', 'offAir', 'media', 'photoshoot', 'meetGreet', 'videoCall', 'mv'] },
+      { id: 'minor', label: 'Minor', weight: 60, weeks: 1, blocks: ['training', 'theater', 'offAir', 'meetGreet'] },
+      { id: 'moderate', label: 'Moderate', weight: 30, weeks: 2, blocks: ['photoshoot', 'media', 'videoCall'] },
       { id: 'severe', label: 'Severe', weight: 10, weeks: 2, blocks: ['all'] },
     ],
   },
   // A member left out of every weekly activity drifts toward graduation.
   idle: { graduationWeightPerWeek: 1.4, noticeAfterWeeks: 3 },
   fire: { flatSeverance: 22_500_000, fanTrustPenalty: 6, reputationPenalty: 4 },
-  salary: { regular: 12_000_000, trainee: 4_500_000, annualIncreasePercent: 5, unpaidMonthsToEnd: 2 },
+  salary: { regular: 12_000_000, trainee: 4_500_000, hardModeMultiplier: 0.75, annualIncreasePercent: 5, unpaidMonthsToEnd: 2 },
   loans: { offersPerYear: 3, termsMonths: [6, 9, 12], repaymentMultipliers: [1.5, 1.65, 1.8], monthlyFeeRate: 0.04, reputationPenalty: 2 },
   twoShot: { roulette: { slotsPerMember: 5, ticket: 100_000 }, meetGreet: { slotsPerEvent: 150, ticket: 180_000 } },
   seitansai: { fanGain: 1_500, oshiSentiment: 8, trustGain: 2, missedTrustLoss: 4, missedOshiLoss: 10 },
@@ -64,6 +65,7 @@ export const BALANCE = {
   },
   bonusSlots: 3,
   graduation: { year1Max: 3, normalMin: 2, normalMax: 5, extremeMax: 7, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
+  managementTokenMultiplier: 0.5,
   theaterTiers: [
     { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [60_000, 80_000] },
     { id: 'city', name: 'City Theater', tier: 'Middle', priceRange: [210_000_000, 330_000_000], capacityRange: [300, 470], ticketRange: [80_000, 105_000] },
@@ -106,16 +108,15 @@ export const FAN_BALANCE = {
   startingFans: 10_000,
   // The fan-target curve is anchored here, deliberately above the starting fanbase so Year 1
   // opens with a real climb (162,500) instead of a trivial target.
-  startingFanTarget: 125_000,
+  startingFanTarget: 100_000,
   // Global tuning knob: every positive fan gain is reduced by 40% before soft-cap bands apply.
   generationMultiplier: 0.3,
   target: {
-    fixedGrowthPercent: 10,
+    fixedGrowthPercent: 0,
     startingRunningGrowthPercent: 20,
-    runningGrowthIncreasePerYear: 5,
-    maxRunningGrowthPercent: 35,
-    // Management expectations harden once the first season is behind you.
-    year2PlusBonusPercent: 10,
+    runningGrowthIncreasePerYear: 0,
+    maxRunningGrowthPercent: 20,
+    year2PlusBonusPercent: 0,
   },
   softCap: [
     { minRatio: 0, maxRatio: 1, multiplier: 1 },
@@ -136,9 +137,9 @@ export const FAN_BALANCE = {
     extremeViral: 0.95,
   },
   annualPerformance: [
-    { id: 'exceptional', minRatio: 1.2, label: 'Exceptional', trustDelta: 6, reputationDelta: 5, reviewScore: 100, metaReward: 5 },
-    { id: 'achieved', minRatio: 1, label: 'Target Achieved', trustDelta: 3, reputationDelta: 2, reviewScore: 85, metaReward: 3 },
-    { id: 'slightlyBelow', minRatio: 0.9, label: 'Slightly Below Target', trustDelta: -1, reputationDelta: 0, reviewScore: 65, metaReward: 1 },
+    { id: 'exceptional', minRatio: 1.2, label: 'Exceptional', trustDelta: 6, reputationDelta: 5, reviewScore: 100, metaReward: 2 },
+    { id: 'achieved', minRatio: 1, label: 'Target Achieved', trustDelta: 3, reputationDelta: 2, reviewScore: 85, metaReward: 1 },
+    { id: 'slightlyBelow', minRatio: 0.9, label: 'Slightly Below Target', trustDelta: -1, reputationDelta: 0, reviewScore: 65, metaReward: 0 },
     { id: 'underperformed', minRatio: 0.75, label: 'Underperformed', trustDelta: -4, reputationDelta: -2, reviewScore: 40, metaReward: 0 },
     { id: 'majorFailure', minRatio: 0, label: 'Major Failure', trustDelta: -8, reputationDelta: -5, reviewScore: 15, metaReward: 0 },
   ],

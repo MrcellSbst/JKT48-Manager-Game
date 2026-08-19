@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory } from '../src/state/saveDb.js';
+
+const finalizeGameSetup = (draft, theaterId, memberIds, ...args) => {
+  const foundingIds = memberIds.length === 12 ? [...memberIds, ...draft.members.slice(12, BALANCE.foundingRosterSize).map((member) => member.id)] : memberIds;
+  const game = finalizeGameSetupEngine(draft, theaterId, foundingIds, ...args);
+  if (memberIds.length !== 12) return game;
+  return { ...game, members: game.members.slice(0, 12), unsignedMembers: [...game.members.slice(12), ...game.unsignedMembers] };
+};
 
 test('active roster includes current members, including JKT48V', () => {
   const roster = getActiveRoster();
@@ -66,6 +73,16 @@ test('hard mode is opt-in at setup and defaults to off', () => {
   assert.equal(draft.hardMode, false);
   assert.equal(finalizeGameSetup(draft, 'community', ids, 'Normal Office').hardMode, false);
   assert.equal(finalizeGameSetup(draft, 'community', ids, 'Hard Office', [], { hardMode: true }).hardMode, true);
+});
+
+test('hard mode reduces member salary by 25%', () => {
+  const draft = createGame('salary-reduction-test');
+  const ids = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const normal = finalizeGameSetupEngine(draft, 'community', ids, 'Normal Salary Office');
+  const hard = finalizeGameSetupEngine(draft, 'community', ids, 'Hard Salary Office', [], { hardMode: true });
+  const normalReport = resolveWeek(normal);
+  const hardReport = resolveWeek(hard);
+  assert.equal(hardReport.lastResult.finances.salary, Math.round(normalReport.lastResult.finances.salary * BALANCE.salary.hardModeMultiplier));
 });
 
 test('member birthdays are seeded, stable, and expose a derived age', () => {
@@ -172,16 +189,16 @@ test('member hidden profiles and fan composition are deterministic and normalize
   });
 });
 
-test('setup purchases theater and creates exactly 12-member roster', () => {
+test('setup purchases theater and creates exactly 16-member founding roster', () => {
   const draft = createGame('setup-test');
-  const selectedIds = draft.members.slice(0, 12).map((member) => member.id);
-  const game = finalizeGameSetup(draft, 'city', selectedIds, '  Senayan Stage Office  ');
+  const selectedIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const game = finalizeGameSetupEngine(draft, 'city', selectedIds, '  Senayan Stage Office  ');
   const offer = draft.theaterOffers.find((theater) => theater.id === 'city');
   assert.deepEqual(game.theater, { ...offer, renovationLevel: 0 });
-  assert.equal(game.members.length, 12);
-  // Default scope is current members only: 62 identities minus the founding 12.
+  assert.equal(game.members.length, BALANCE.foundingRosterSize);
+  // Default scope is current members only: 62 identities minus the founding 16.
   assert.equal(game.rosterScope, 'active');
-  assert.equal(game.unsignedMembers.length, 50);
+  assert.equal(game.unsignedMembers.length, 62 - BALANCE.foundingRosterSize);
   assert.equal(game.money, draft.money - offer.price);
   assert.equal(game.managementName, 'Senayan Stage Office');
 });
@@ -298,7 +315,7 @@ test('renovation is unavailable before December Week 4', () => {
 
 test('setup rejects incomplete founding lineup', () => {
   const draft = createGame('invalid-setup');
-  assert.throws(() => finalizeGameSetup(draft, 'community', draft.members.slice(0, 11).map((member) => member.id)), /exactly 12/);
+  assert.throws(() => finalizeGameSetupEngine(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize - 1).map((member) => member.id)), /exactly 16/);
 });
 
 test('scheduled activity resolves, clears calendar, and advances week', () => {
@@ -323,7 +340,7 @@ test('Rest is scheduled explicitly and restores energy without another activity'
   assert.equal(scheduled.schedule[`${memberId}:Mon`], 'rest');
   // Stamina scales both the Rest recovery and the weekly passive regen.
   const stamina = game.members.find((member) => member.id === memberId).stamina;
-  const expected = Math.round(BALANCE.activities.rest.energyRecovery * staminaRecoveryMultiplier(stamina)) + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina));
+  const expected = Math.min(100, Math.round(BALANCE.activities.rest.energyRecovery * staminaRecoveryMultiplier(stamina)) * 7 + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina)));
   assert.equal(resolveWeek(scheduled).members.find((member) => member.id === memberId).energy, Math.min(100, expected));
   assert.ok(expected > BALANCE.activities.rest.energyRecovery + BALANCE.weeklyRecovery);
   assert.equal(assignActivity(scheduled, memberId, 'Mon', 'clear').schedule[`${memberId}:Mon`], undefined);
@@ -338,9 +355,11 @@ test('stamina lowers activity energy cost and raises every form of recovery', ()
   const draft = createGame('stamina-scaling-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const memberId = base.members[0].id;
-  const drain = (stamina) => {
-    const prepared = { ...base, members: base.members.map((member) => member.id === memberId ? { ...member, stamina, energy: 60 } : member) };
-    return resolveWeek(assignActivity(prepared, memberId, 'Mon', 'media')).members.find((member) => member.id === memberId).energy;
+   const drain = (stamina) => {
+     const prepared = { ...base, members: base.members.map((member) => member.id === memberId ? { ...member, stamina, energy: 60 } : member) };
+     let scheduled = prepared;
+     for (const day of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) scheduled = assignActivity(scheduled, memberId, day, 'media');
+     return resolveWeek(scheduled).members.find((member) => member.id === memberId).energy;
   };
   assert.ok(drain(90) > drain(30));
 });
@@ -511,7 +530,7 @@ test('Live Stream is available daily and scales revenue and fans with popularity
   assert.equal(next.lastResult.finances.liveStream, 4_480_000);
   assert.equal(next.lastResult.fanGain, 240);
   const stamina = updated.stamina;
-  assert.equal(updated.energy, Math.min(100, 20 + 2 * Math.round(BALANCE.activities.liveStream.energyRecovery * staminaRecoveryMultiplier(stamina)) + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina))));
+  assert.equal(updated.energy, 100);
   assert.equal(next.lastResult.moneyDelta, next.lastResult.finances.totalIncome - next.lastResult.finances.totalExpenses);
 });
 
@@ -886,7 +905,7 @@ test('year rollover creates a persistent annual review', () => {
   assert.equal(next.annualReviews.length, 1);
   assert.equal(next.annualReviews[0].year, 1);
   assert.equal(next.annualReviews[0].categories.length, 9);
-  assert.equal(next.annualReviews[0].snapshot.fanGrowth.targetFans, 162_500);
+  assert.equal(next.annualReviews[0].snapshot.fanGrowth.targetFans, 100_000);
   assert.equal(next.annualReviews[0].snapshot.fanGrowth.actualFans, next.group.fanbase);
   assert.match(next.annualReviews[0].overallGrade, /^(S|A\+?|A-|B\+?|B-|C|D|E)$/);
 });
@@ -1064,20 +1083,17 @@ test('single selection raises selected oshi sentiment and lowers excluded sentim
 });
 
 test('annual fan target curve adds the Year 2+ bonus and caps acceleration', () => {
-  // 30% in Year 1, then +10pp on top of the running curve from Year 2: 45%, 50%, 55%, 55%...
-  const expected = [162_500, 235_625, 353_438, 547_829, 849_135, 1_316_159];
-  let previous = 125_000;
+  const expected = [120_000, 144_000, 172_800, 207_360, 248_832, 298_598];
+  let previous = 100_000;
   expected.forEach((target, index) => {
     previous = calculateNextFanTarget(previous, index + 1);
     assert.equal(previous, target);
   });
   // Year 1 is deliberately exempt from the bonus; every later year carries it.
-  assert.equal(calculateNextFanTarget(100_000, 1), 130_000);
-  assert.equal(calculateNextFanTarget(100_000, 2), 145_000);
-  assert.equal(calculateNextFanTarget(100_000, 3), 150_000);
-  assert.equal(calculateNextFanTarget(100_000, 4), 155_000);
-  assert.equal(calculateNextFanTarget(100_000, 9), 155_000);
-  assert.equal(FAN_BALANCE.target.year2PlusBonusPercent, 10);
+  assert.equal(calculateNextFanTarget(100_000, 1), 120_000);
+  assert.equal(calculateNextFanTarget(100_000, 2), 120_000);
+  assert.equal(calculateNextFanTarget(100_000, 9), 120_000);
+  assert.equal(FAN_BALANCE.target.startingRunningGrowthPercent, 20);
 });
 
 test('missing the annual fan target applies review penalties without ending the run', () => {
@@ -1096,16 +1112,16 @@ test('missing the annual fan target applies review penalties without ending the 
 test('overperforming creates the next target from the previous target, not actual fans', () => {
   const draft = createGame('achieved-fan-target-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
-  const target = createAnnualFanTarget(1, 125_000, 125_000);
+  const target = createAnnualFanTarget(1, 100_000, 100_000);
   const next = resolveWeek({ ...base, week: BALANCE.weeksPerYear, group: { ...base.group, fanbase: 500_000 }, fanTarget: target });
   assert.equal(next.runStatus, 'active');
   assert.equal(next.year, 2);
   assert.equal(next.week, 1);
   assert.equal(next.fanTarget.year, 2);
-  assert.equal(next.fanTarget.baseTarget, 162_500);
-  assert.equal(next.fanTarget.targetFanbase, 235_625);
+  assert.equal(next.fanTarget.baseTarget, 100_000);
+  assert.equal(next.fanTarget.targetFanbase, 120_000);
   assert.equal(next.fanTargetHistory.at(-1).id, 'exceptional');
-  assert.equal(next.fanTargetMetaReward, 5);
+  assert.equal(next.fanTargetMetaReward, 2);
 });
 
 test('fan soft-cap bands and resistance follow the configured boundaries', () => {
@@ -1129,8 +1145,8 @@ test('media opportunities use soft-cap resistance after the target is exceeded',
   const saturated = { ...game, group: { ...game.group, fanbase: 180_000 }, pendingOpportunity: offer };
   const next = respondToOpportunity(saturated, true);
   assert.equal(next.opportunityHistory.at(-1).baseFans, 1_000);
-  assert.equal(next.opportunityHistory.at(-1).fansGained, 156);
-  assert.equal(next.group.fanbase, 180_156);
+  assert.equal(next.opportunityHistory.at(-1).fansGained, 72);
+  assert.equal(next.group.fanbase, 180_072);
 });
 
 test('annual fan performance rewards contribute to final Management Token payout', () => {
