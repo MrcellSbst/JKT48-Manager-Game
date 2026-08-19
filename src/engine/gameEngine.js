@@ -106,14 +106,18 @@ export function getRosterDanger(count) {
   return 'THEATER CANNOT OPERATE';
 }
 
-function makeStats(rng, archetype) {
-  const stats = Object.fromEntries(SKILLS.map((key) => [key, randomInt(rng, 38, 82)]));
+function makeStats(rng, archetype, hardMode = false) {
+  const baseMin = hardMode ? 40 : 38;
+  const baseMax = hardMode ? 60 : 82;
+  const boostMin = hardMode ? 5 : 8;
+  const boostMax = hardMode ? 10 : 18;
+  const stats = Object.fromEntries(SKILLS.map((key) => [key, randomInt(rng, baseMin, baseMax)]));
   const boost = {
     Performer: ['dance', 'performance'], Vocalist: ['vocal'], Entertainer: ['mc', 'variety'],
     'All-Rounder': SKILLS, Specialist: [SKILLS[randomInt(rng, 0, SKILLS.length - 1)]],
     'Raw Prospect': [], Prodigy: ['vocal', 'dance', 'performance'], 'Late Bloomer': [],
   }[archetype];
-  boost.forEach((key) => { stats[key] = clamp(stats[key] + randomInt(rng, 8, 18)); });
+  boost.forEach((key) => { stats[key] = clamp(stats[key] + randomInt(rng, boostMin, boostMax)); });
   return stats;
 }
 
@@ -197,7 +201,7 @@ function recycleMemberForPool(member, state, graduation) {
     graduated: false,
     archetype,
     traits: [TRAITS[randomInt(rng, 0, TRAITS.length - 1)]],
-    ...makeStats(rng, 'Raw Prospect'),
+    ...makeStats(rng, 'Raw Prospect', state.hardMode),
     ...makeHiddenProfile(rng, archetype),
     popularity: randomInt(rng, 10, 35),
     energy: 100,
@@ -249,13 +253,13 @@ export function calculateNextFanTarget(lastFanTarget, year) {
   return Math.round(lastFanTarget * (1 + (fixedGrowthPercent + runningGrowthPercent + bonusPercent) / 100));
 }
 
-export function createAnnualFanTarget(year, lastFanTarget = FAN_BALANCE.startingFans, startingFanbase = FAN_BALANCE.startingFans) {
+export function createAnnualFanTarget(year, lastFanTarget = FAN_BALANCE.startingFanTarget, startingFanbase = FAN_BALANCE.startingFans) {
   const targetFanbase = calculateNextFanTarget(lastFanTarget, year);
   return { formulaVersion: 2, year, baseTarget: lastFanTarget, startingFanbase, requiredGain: Math.max(0, targetFanbase - startingFanbase), targetFanbase };
 }
 
 export function createFanTargetForYear(year, startingFanbase = FAN_BALANCE.startingFans) {
-  let lastFanTarget = FAN_BALANCE.startingFans;
+  let lastFanTarget = FAN_BALANCE.startingFanTarget;
   for (let runningYear = 1; runningYear < year; runningYear += 1) lastFanTarget = calculateNextFanTarget(lastFanTarget, runningYear);
   return createAnnualFanTarget(year, lastFanTarget, startingFanbase);
 }
@@ -320,7 +324,7 @@ export function getActiveRoster() {
   return getRosterPool('active');
 }
 
-export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 12).toUpperCase()}`, rosterScope = 'active') {
+export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 12).toUpperCase()}`, rosterScope = 'active', hardMode = false) {
   const scope = ROSTER_SCOPES.includes(rosterScope) ? rosterScope : 'active';
   const members = getRosterPool(scope).map((identity) => {
     const identityKey = `${identity.generation}:${identity.name}`;
@@ -329,7 +333,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     // fictional stats from one member to another.
     const rng = createRng(hashSeed(`${seed}:member:${identityKey}`));
     const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
-    const stats = makeStats(rng, archetype);
+    const stats = makeStats(rng, archetype, hardMode);
     const member = {
       id: memberId,
       identityId: memberId,
@@ -373,7 +377,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     calendarWeeks: BALANCE.weeksPerYear,
     seed,
     rosterScope: scope,
-    hardMode: false,
+    hardMode,
     managementName: '',
     rngStep: 1,
     year: 1,
@@ -381,8 +385,8 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     money: BALANCE.startingMoney,
     theaterOffers: generateTheaterOffers(seed),
     concertVenueOffers: generateConcertVenueOffers(seed, 1),
-    group: { fanbase: FAN_BALANCE.startingFans, popularity: 48, fanTrust: 58, reputation: 52, publicAwareness: 44, fanPools: { coreWota: 34_000, casual: 31_000, generalPublic: 18_000, digital: 25_000, event: 17_000, oshi: 29_000, groupFans: 38_000 }, fanSentiment: { coreWota: 0, casual: 0, generalPublic: 0, digital: 0, event: 0, oshi: 0, groupFans: 0 } },
-    fanTarget: createAnnualFanTarget(1, FAN_BALANCE.startingFans),
+    group: { fanbase: FAN_BALANCE.startingFans, popularity: 48, fanTrust: 58, reputation: 52, publicAwareness: 44, fanPools: { coreWota: 2_700, casual: 2_500, generalPublic: 1_400, digital: 2_000, event: 1_400, oshi: 2_300, groupFans: 3_000 }, fanSentiment: { coreWota: 0, casual: 0, generalPublic: 0, digital: 0, event: 0, oshi: 0, groupFans: 0 } },
+    fanTarget: createAnnualFanTarget(1, FAN_BALANCE.startingFanTarget, FAN_BALANCE.startingFans),
     fanTargetHistory: [],
     fanTargetMetaReward: 0,
     members,
@@ -608,6 +612,20 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
   if (targetWeek > state.week) {
     const selectedIds = type === 'meetGreet' ? eligibleIds : [...new Set(memberIds)].filter((id) => eligibleIds.includes(id));
     if (!selectedIds.length || (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type)) return state;
+    if (type === 'videoCall') {
+      const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
+      const currentMonth = Math.ceil(state.week / BALANCE.weeksPerMonth);
+      const hasExisting = selectedIds.some((memberId) => {
+        const resolved = (state.activityEvents ?? []).some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === targetMonth);
+        const planned = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth);
+        const scheduled = currentMonth === targetMonth && Object.entries(state.schedule).some(([key, value]) => {
+          const [id] = key.split(':');
+          return value.startsWith('vc') && id === memberId;
+        });
+        return resolved || planned || scheduled;
+      });
+      if (hasExisting) return state;
+    }
     return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: `fan-event-${type}-${state.year}-${targetWeek}`, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
   }
   if (type === 'meetGreet') {
@@ -1037,7 +1055,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
 }
 
 // Weekly wear from what a member was actually asked to do. Heavy days (theater, concerts, M&G, MV)
-// count for more than light ones, running on empty multiplies the risk, and stamina buys it down.
+// count for more than light ones; the injury roll then uses the member's current energy band.
 function rollInjury(member, assignments, rng, state) {
   const config = BALANCE.injury;
   if (isMemberInjured(member) || !assignments.length) return null;
@@ -1049,8 +1067,11 @@ function rollInjury(member, assignments, rng, state) {
   }, 0);
   const excess = load - config.loadThreshold;
   if (excess <= 0) return null;
-  const exhausted = member.energy <= config.lowEnergyThreshold;
-  const chance = Math.min(config.maxWeeklyChance, excess * config.chancePerLoadOverThreshold * (exhausted ? config.lowEnergyMultiplier : 1) * staminaCostMultiplier(member.stamina)) * 0.5;
+  const chance = member.energy <= config.lowEnergyThreshold
+    ? config.chanceByEnergy.low
+    : member.energy >= config.highEnergyThreshold
+      ? config.chanceByEnergy.high
+      : config.chanceByEnergy.mid;
   if (rng() >= chance) return null;
   const severity = weightedPick(rng, config.severities, (option) => option.weight);
   return { severity: severity.id, label: severity.label, weeksRemaining: severity.weeks, weeks: severity.weeks, blocks: [...severity.blocks], causedBy: { year: state.year, week: state.week, load } };
@@ -1059,12 +1080,11 @@ function rollInjury(member, assignments, rng, state) {
 function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
   const config = BALANCE.graduation;
   const existing = state.graduations ?? [];
-  if (targetYear < 2) return existing;
   if ((currentWeek - 1) % BALANCE.weeksPerMonth !== 0) return existing;
   const eligible = members.filter((member) => {
     if (!['active', 'trainee'].includes(member.status) || member.graduationPending) return false;
-    if (member.id.startsWith('trainee-')) return targetYear - (member.joinedYear ?? targetYear) >= config.generatedMinimumTenureYears;
-    return targetYear >= (member.careerStage === 'Early' ? 3 : 2);
+    const joinedYear = member.joinedYear ?? 1;
+    return targetYear - joinedYear >= config.minimumTenureYears;
   });
   const budgetRng = createRng(hashSeed(`${state.seed}:graduation-budget:${targetYear}`));
   const maximum = Math.min(config.extremeMax, randomInt(budgetRng, config.normalMin, config.normalMax));
@@ -1752,7 +1772,7 @@ export function finalizeAudition(state, selectedCandidateIds = []) {
 
 export function runAudition(state) {
   if (state.runStatus === 'ended') return state;
-  const auditionCost = applyRate(65_000_000, bonusValue(state, 'B021'));
+  const auditionCost = applyRate(97_500_000, bonusValue(state, 'B021'));
   if (state.week < BALANCE.auditionStartWeek || state.money < auditionCost || state.auditions.some((item) => item.year === state.year)) return state;
   const rng = createRng(hashSeed(`${state.seed}:audition:${state.year}`));
   const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));

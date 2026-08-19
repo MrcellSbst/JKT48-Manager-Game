@@ -245,17 +245,17 @@ test('sustained bankruptcy ends only after four consecutive weeks', () => {
   assert.match(game.runSummary.rank, /^[SABCD]$/);
 });
 
-test('graduation planning runs at the start of each month from Year 2', () => {
+test('graduation planning runs at the start of each month once members pass their tenure cooldown', () => {
   const draft = createGame('graduation-plan-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
-  const expanded = { ...game, year: 2, week: 45, members: [...game.members, ...game.unsignedMembers.slice(0, 4)] };
+  const expanded = { ...game, year: 4, week: 45, members: [...game.members, ...game.unsignedMembers.slice(0, 4)] };
   const next = resolveWeek(expanded);
-  const plans = next.graduations.filter((item) => item.planYear === 2);
+  const plans = next.graduations.filter((item) => item.planYear === 4);
   assert.equal(plans.length, 1);
   assert.equal(plans[0].announcementWeek, 45);
   assert.equal(plans[0].announced, true);
   assert.ok(next.members.length - plans.length >= 12);
-  assert.deepEqual(plans, resolveWeek({ ...expanded }).graduations.filter((item) => item.planYear === 2));
+  assert.deepEqual(plans, resolveWeek({ ...expanded }).graduations.filter((item) => item.planYear === 4));
   assert.deepEqual(resolveWeek({ ...expanded, week: 46 }).graduations, []);
 });
 
@@ -509,7 +509,7 @@ test('Live Stream is available daily and scales revenue and fans with popularity
   const next = resolveWeek(scheduledTwice);
   const updated = next.members.find((member) => member.id === memberId);
   assert.equal(next.lastResult.finances.liveStream, 4_480_000);
-  assert.equal(next.lastResult.fanGain, 480);
+  assert.equal(next.lastResult.fanGain, 240);
   const stamina = updated.stamina;
   assert.equal(updated.energy, Math.min(100, 20 + 2 * Math.round(BALANCE.activities.liveStream.energyRecovery * staminaRecoveryMultiplier(stamina)) + Math.round(BALANCE.weeklyRecovery * staminaRecoveryMultiplier(stamina))));
   assert.equal(next.lastResult.moneyDelta, next.lastResult.finances.totalIncome - next.lastResult.finances.totalExpenses);
@@ -565,8 +565,8 @@ test('single production budget controls cost and release trust and popularity', 
   const ids = game.members.map((member) => member.id);
   const low = startSingleProduction(game, ids[0], 'Thu', ids, null, null, '', 'low');
   const high = startSingleProduction(game, ids[0], 'Thu', ids, null, null, '', 'high');
-  assert.equal(low.money, game.money - 50_000_000);
-  assert.equal(high.money, game.money - 150_000_000);
+  assert.equal(low.money, game.money - 75_000_000);
+  assert.equal(high.money, game.money - 225_000_000);
   assert.equal(low.singles[0].budgetId, 'low');
   assert.equal(high.singles[0].budgetId, 'high');
   let lowReleased = low;
@@ -696,7 +696,7 @@ test('concert tickets sell through D-2 and the target week locks every member', 
   const startingMoney = game.money;
   game = announceConcert(game, 'Sat', 1, 2);
   assert.equal(game.concerts[0].status, 'selling');
-  assert.equal(game.money, startingMoney - 120_000_000);
+  assert.equal(game.money, startingMoney - 180_000_000);
   assert.equal(game.concerts[0].sold, 0);
   for (let index = 0; index < 6; index += 1) game = resolveWeek(game);
   assert.equal(game.week, 7);
@@ -725,7 +725,7 @@ test('concert venue offers are seeded and venue perks alter choices and costs', 
   assert.equal(perked.concertVenueOffers.length, 4);
   const venue = perked.concertVenueOffers[0];
   const announced = announceConcert(perked, 'Sat', 1, 2, '', 'standard', venue.id);
-  assert.ok(announced.concerts[0].productionCost < 200_000_000);
+  assert.ok(announced.concerts[0].productionCost < 300_000_000);
   assert.ok(announced.concerts[0].venueCost < venue.cost);
 });
 
@@ -766,8 +766,8 @@ test('concert announcement persists selected budget and venue size', () => {
   assert.equal(announced.concerts[0].budgetId, 'standard');
   assert.equal(announced.concerts[0].venueId, 'arena');
   assert.equal(announced.concerts[0].capacity, 4_500);
-  assert.equal(announced.concerts[0].upfrontCost, 280_000_000);
-  assert.equal(announced.money, game.money - 280_000_000);
+  assert.equal(announced.concerts[0].upfrontCost, 420_000_000);
+  assert.equal(announced.money, game.money - 420_000_000);
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
@@ -784,7 +784,7 @@ test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
 
 test('Q4 audition requires available funds', () => {
   const draft = createGame('poor-audition-test');
-  const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37, money: 64_999_999 };
+  const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37, money: 97_499_999 };
   assert.equal(runAudition(game), game);
 });
 
@@ -984,7 +984,7 @@ test('management opportunities can be accepted or declined with persistent outco
   assert.equal(accepted.pendingOpportunity, null);
   assert.equal(accepted.opportunityHistory.at(-1).accepted, true);
   assert.equal(accepted.money, game.money + 5_000_000);
-  assert.equal(accepted.group.fanbase, game.group.fanbase + 540);
+  assert.equal(accepted.group.fanbase, game.group.fanbase + 270);
   const declined = respondToOpportunity({ ...game, pendingOpportunity: offer }, false);
   assert.equal(declined.opportunityHistory.at(-1).accepted, false);
   assert.equal(declined.money, game.money);
@@ -1005,7 +1005,7 @@ test('graduation preparation charges once and applies final-event and successor 
   const completed = resolved.graduations[0];
   const promotedSuccessor = resolved.members.find((member) => member.id === successor.id);
   assert.equal(completed.completed, true);
-  assert.equal(completed.outcome.fanGain, 3_300);
+  assert.equal(completed.outcome.fanGain, 1_650);
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
@@ -1111,10 +1111,10 @@ test('overperforming creates the next target from the previous target, not actua
 test('fan soft-cap bands and resistance follow the configured boundaries', () => {
   const target = 100_000;
   assert.deepEqual([99_999, 100_000, 110_000, 120_000, 130_000].map((fans) => getFanGrowthMultiplier(fans, target)), [1, 0.75, 0.4, 0.15, 0.05]);
-  assert.equal(FAN_BALANCE.generationMultiplier, 0.6);
-  assert.equal(applyFanSoftCap(6_000, 0.4, 0), 1_440);
-  assert.equal(applyFanSoftCap(6_000, 0.4, 0.5), 2_520);
-  assert.equal(applyFanSoftCap(6_000, 0.4, 0.8), 3_168);
+  assert.equal(FAN_BALANCE.generationMultiplier, 0.3);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0), 720);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0.5), 1_260);
+  assert.equal(applyFanSoftCap(6_000, 0.4, 0.8), 1_584);
   assert.equal(applyFanSoftCap(-6_000, 0.05, 0), -6_000);
 });
 
@@ -1129,8 +1129,8 @@ test('media opportunities use soft-cap resistance after the target is exceeded',
   const saturated = { ...game, group: { ...game.group, fanbase: 180_000 }, pendingOpportunity: offer };
   const next = respondToOpportunity(saturated, true);
   assert.equal(next.opportunityHistory.at(-1).baseFans, 1_000);
-  assert.equal(next.opportunityHistory.at(-1).fansGained, 312);
-  assert.equal(next.group.fanbase, 180_312);
+  assert.equal(next.opportunityHistory.at(-1).fansGained, 156);
+  assert.equal(next.group.fanbase, 180_156);
 });
 
 test('annual fan performance rewards contribute to final Management Token payout', () => {
