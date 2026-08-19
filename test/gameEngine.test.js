@@ -1082,17 +1082,17 @@ test('single selection raises selected oshi sentiment and lowers excluded sentim
 });
 
 test('annual fan target curve adds the Year 2+ bonus and caps acceleration', () => {
-  const expected = [120_000, 144_000, 172_800, 207_360, 248_832, 298_598];
+  const expected = [220_000, 484_000, 1_064_800, 2_342_560, 5_153_632, 11_337_990];
   let previous = 100_000;
   expected.forEach((target, index) => {
     previous = calculateNextFanTarget(previous, index + 1);
     assert.equal(previous, target);
   });
   // Year 1 is deliberately exempt from the bonus; every later year carries it.
-  assert.equal(calculateNextFanTarget(100_000, 1), 120_000);
-  assert.equal(calculateNextFanTarget(100_000, 2), 120_000);
-  assert.equal(calculateNextFanTarget(100_000, 9), 120_000);
-  assert.equal(FAN_BALANCE.target.startingRunningGrowthPercent, 20);
+  assert.equal(calculateNextFanTarget(100_000, 1), 220_000);
+  assert.equal(calculateNextFanTarget(100_000, 2), 220_000);
+  assert.equal(calculateNextFanTarget(100_000, 9), 220_000);
+  assert.equal(FAN_BALANCE.target.startingRunningGrowthPercent, 120);
 });
 
 test('missing the annual fan target applies review penalties without ending the run', () => {
@@ -1118,7 +1118,7 @@ test('overperforming creates the next target from the previous target, not actua
   assert.equal(next.week, 1);
   assert.equal(next.fanTarget.year, 2);
   assert.equal(next.fanTarget.baseTarget, 100_000);
-  assert.equal(next.fanTarget.targetFanbase, 120_000);
+  assert.equal(next.fanTarget.targetFanbase, 220_000);
   assert.equal(next.fanTargetHistory.at(-1).id, 'exceptional');
   assert.equal(next.fanTargetMetaReward, 2);
 });

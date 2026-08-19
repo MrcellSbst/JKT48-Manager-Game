@@ -113,9 +113,9 @@ export const FAN_BALANCE = {
   generationMultiplier: 0.3,
   target: {
     fixedGrowthPercent: 0,
-    startingRunningGrowthPercent: 20,
+    startingRunningGrowthPercent: 120,
     runningGrowthIncreasePerYear: 0,
-    maxRunningGrowthPercent: 20,
+    maxRunningGrowthPercent: 120,
     year2PlusBonusPercent: 0,
   },
   softCap: [
