@@ -65,12 +65,21 @@ export const loadActiveRun = () => loadSave(1);
 export const saveActiveRun = (state) => writeSave(1, state);
 export const deleteActiveRun = () => deleteSave(1);
 
-export const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'], completedRuns: 0, runHistory: [] };
+const DEFAULT_UNLOCKED_BONUSES = ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'];
+export const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: DEFAULT_UNLOCKED_BONUSES, bonusLevels: Object.fromEntries(DEFAULT_UNLOCKED_BONUSES.map((id) => [id, 1])), completedRuns: 0, runHistory: [] };
+
+export function normalizeMetaProfile(profile = {}) {
+  const unlockedBonusIds = profile.unlockedBonusIds ?? DEFAULT_META.unlockedBonusIds;
+  const storedLevels = profile.bonusLevels ?? {};
+  const bonusLevels = Object.fromEntries(unlockedBonusIds.map((id) => [id, Math.max(1, Math.min(5, Math.floor(Number(storedLevels[id]) || 1)))]));
+  return { ...DEFAULT_META, ...profile, unlockedBonusIds, bonusLevels, runHistory: profile.runHistory ?? [] };
+}
+
 export async function getMetaProfile() {
   const profile = await transactStore(META_STORE, 'readonly', (store) => store.get('profile'));
-  return profile ? { ...DEFAULT_META, ...profile, unlockedBonusIds: profile.unlockedBonusIds ?? DEFAULT_META.unlockedBonusIds, runHistory: profile.runHistory ?? [] } : { ...DEFAULT_META };
+  return normalizeMetaProfile(profile);
 }
-export const saveMetaProfile = (profile) => transactStore(META_STORE, 'readwrite', (store) => store.put({ ...profile, id: 'profile' }));
+export const saveMetaProfile = (profile) => transactStore(META_STORE, 'readwrite', (store) => store.put({ ...normalizeMetaProfile(profile), id: 'profile' }));
 
 export function createRunHistoryEntry(game, completedAt = Date.now()) {
   if (!game?.runSummary || game.runStatus !== 'ended') return null;
@@ -98,7 +107,7 @@ export async function replaceLocalSnapshot(snapshot) {
   }
   await Promise.all([
     snapshot.activeRun?.state ? saveActiveRun(snapshot.activeRun.state) : deleteActiveRun(),
-    saveMetaProfile({ ...DEFAULT_META, ...snapshot.metaProfile, id: 'profile' }),
+    saveMetaProfile(normalizeMetaProfile(snapshot.metaProfile)),
   ]);
 }
 

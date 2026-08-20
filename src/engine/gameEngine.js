@@ -2,7 +2,7 @@ import { memberData } from '../data/newmemberdata.js';
 import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, SINGLE_BUDGETS } from '../data/balance.js';
 import dreamSetlistSongs from '../data/DreamSetlist_Songs.js';
 import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
-import { BONUS_BY_ID } from '../data/bonusTemplates.js';
+import { BONUS_BY_ID, getBonusValueAtLevel, normalizeBonusLevel } from '../data/bonusTemplates.js';
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 
 const ARCHETYPES = ['Performer', 'Vocalist', 'Entertainer', 'All-Rounder', 'Specialist', 'Raw Prospect', 'Prodigy', 'Late Bloomer'];
@@ -17,6 +17,8 @@ const ALL_NINETY_STATS = Object.fromEntries([
   'potential',
   'development',
 ].map((key) => [key, 100]));
+const AUDITION_CANDIDATE_COUNT = 12;
+const AUDITION_MAX_INTAKE = 6;
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 const isAllNinetySeed = (seed) => String(seed ?? '').replace(/[-_\s]/g, '').toUpperCase() === 'ALL90';
@@ -25,7 +27,9 @@ const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 const moneyText = (value) => `Rp ${value.toLocaleString('id-ID')}`;
 const hasBonus = (state, id) => (state.bonusLoadout ?? []).includes(id);
-const bonusValue = (state, id) => hasBonus(state, id) ? BONUS_BY_ID[id].value : 0;
+const bonusLevel = (state, id) => hasBonus(state, id) ? normalizeBonusLevel(state.bonusLevels?.[id] ?? 1) : 0;
+const bonusValue = (state, id) => getBonusValueAtLevel(BONUS_BY_ID[id], bonusLevel(state, id));
+const protectNormalTrustLoss = (state, delta) => delta < 0 ? Math.ceil(delta * (1 + bonusValue(state, 'B023'))) : delta;
 const applyRate = (value, rate) => Math.round(value * (1 + rate));
 const chemistryPairKey = (firstId, secondId) => [firstId, secondId].sort().join('::');
 const chemistryDimensions = ['stage', 'performance', 'mc', 'unit'];
@@ -426,6 +430,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     schedule: {},
     history: [{ id: 'start', type: 'system', title: 'Alternate timeline begins', detail: `${members.length} members enter the founding pool for Year 1.`, year: 1, week: 1 }],
     notifications: [],
+    bonusLoadout: [], bonusLevels: {}, graduationTargets: {},
     singles: [], concerts: [], yearEndMeetGreets: [], auditions: [], auditionCampaign: null, graduations: [], renovations: [], annualReviews: [], scheduleTemplates: [], fanNarratives: [], theaterShows: {}, theaterHistory: [],
     // Chemistry is prebuilt for current members only. Ex-member pairs are filled in lazily by
     // ensureChemistry/getMemberChemistry, which are deterministic from the seed, so the full identity
@@ -481,9 +486,11 @@ export function finalizeGameSetup(state, theaterId, memberIds, managementName = 
   const normalizedManagementName = managementName.trim();
   if (!normalizedManagementName || normalizedManagementName.length > 40) throw new Error('Enter a management name up to 40 characters.');
   if (bonusLoadout.length > BALANCE.bonusSlots || new Set(bonusLoadout).size !== bonusLoadout.length || bonusLoadout.some((id) => !BONUS_BY_ID[id])) throw new Error(`Choose up to ${BALANCE.bonusSlots} unique bonuses.`);
+  const selectedBonusLevels = Object.fromEntries(bonusLoadout.map((id) => [id, Math.max(1, normalizeBonusLevel(options.bonusLevels?.[id] ?? 1))]));
+  const selectedBonusValue = (id) => bonusLoadout.includes(id) ? getBonusValueAtLevel(BONUS_BY_ID[id], selectedBonusLevels[id]) : 0;
   if (!theater) throw new Error('Choose a theater.');
   if (uniqueIds.size !== BALANCE.foundingRosterSize) throw new Error(`Choose exactly ${BALANCE.foundingRosterSize} founding members.`);
-  const purchasePrice = applyRate(theater.price, bonusLoadout.includes('B001') ? BONUS_BY_ID.B001.value : 0);
+  const purchasePrice = applyRate(theater.price, selectedBonusValue('B001'));
   if (state.money < purchasePrice) throw new Error('Not enough money for this theater.');
   const members = state.members.filter((member) => uniqueIds.has(member.id));
   if (members.length !== BALANCE.foundingRosterSize) throw new Error('Founding lineup contains an unknown member.');
@@ -493,12 +500,13 @@ export function finalizeGameSetup(state, theaterId, memberIds, managementName = 
     ...state,
     managementName: normalizedManagementName,
     bonusLoadout: [...bonusLoadout],
+    bonusLevels: selectedBonusLevels,
     hardMode,
     rosterScope: options.rosterScope ?? state.rosterScope ?? 'active',
     runStatus: 'active',
     money: state.money - purchasePrice,
-    theater: { ...theater, price: purchasePrice, weeklyUpkeep: applyRate(theater.weeklyUpkeep, bonusLoadout.includes('B002') ? BONUS_BY_ID.B002.value : 0), renovationLevel: 0 },
-    concertVenueOffers: generateConcertVenueOffers(state.seed, state.year, bonusLoadout.includes('B007') ? BONUS_BY_ID.B007.value : 0),
+    theater: { ...theater, price: purchasePrice, weeklyUpkeep: applyRate(theater.weeklyUpkeep, selectedBonusValue('B002')), renovationLevel: 0 },
+    concertVenueOffers: generateConcertVenueOffers(state.seed, state.year, selectedBonusValue('B007')),
     members,
     unsignedMembers,
     // Founding members drawn from the ex-member pool have no prebuilt chemistry; fill it in now so the
@@ -524,7 +532,7 @@ export function fireMember(state, memberId) {
     members: state.members.filter((item) => item.id !== memberId),
     departures: [...(state.departures ?? []), departure],
     money: state.money - severance,
-    group: { ...state.group, fanTrust: clamp(state.group.fanTrust - BALANCE.fire.fanTrustPenalty), reputation: clamp(state.group.reputation - BALANCE.fire.reputationPenalty) },
+    group: { ...state.group, fanTrust: clamp(state.group.fanTrust + protectNormalTrustLoss(state, -BALANCE.fire.fanTrustPenalty)), reputation: clamp(state.group.reputation - BALANCE.fire.reputationPenalty) },
     notifications: [{ type: 'critical', text: `${name} is released. Severance: ${moneyText(severance)}.` }, ...(state.notifications ?? [])].slice(0, 20),
     history: [{ id: departure.id, type: 'member', title: `${name} released`, detail: `${name} leaves the roster after a ${moneyText(severance)} severance payment.`, year: state.year, week: state.week }, ...(state.history ?? [])],
   };
@@ -709,7 +717,8 @@ export function getTheaterRenovationOffer(state) {
 
 export function startSingleProduction(state, centerId, productionDay, selectedMemberIds = null, releaseYear = null, releaseMonth = null, requestedTitle = '', budgetId = 'medium') {
   const budget = SINGLE_BUDGETS.find((option) => option.id === budgetId);
-  if (!budget || state.runStatus === 'ended' || state.money < budget.cost || state.singles.some((single) => single.status !== 'released')) return state;
+  const productionCost = applyRate(budget?.cost ?? 0, bonusValue(state, 'B005'));
+  if (!budget || state.runStatus === 'ended' || state.money < productionCost || state.singles.some((single) => single.status !== 'released')) return state;
   if (!DAYS.includes(productionDay)) return state;
   const eligible = getSchedulableMembers(state, 'mvProduction');
   const center = eligible.find((member) => member.id === centerId);
@@ -732,8 +741,14 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const productionStart = fromAbsoluteWeek(productionStartAbsolute);
   const customTitle = requestedTitle.trim();
   if (customTitle.length > 60) return state;
-  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: customTitle || `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, budgetId: budget.id, budgetName: budget.name, productionCost: budget.cost, popularityGain: budget.popularityGain, fanTrustGain: budget.fanTrustGain, week: state.week, year: state.year, status: startsNow ? 'production' : 'planned', progressWeeks: 0, durationWeeks: 4, ...(scheduledRelease ? { releaseYear, releaseMonth, releaseWeek, productionStartYear: productionStart.year, productionStartWeek: productionStart.week } : {}) };
-  return { ...state, money: state.money - budget.cost, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
+  const lineup = memberIds.map((memberId) => eligible.find((member) => member.id === memberId));
+  const lineupQuality = lineup.reduce((sum, member) => sum + (member.vocal + member.dance + member.performance) / 3, 0) / lineup.length;
+  const qualityFloorBonus = bonusValue(state, 'B029');
+  const qualityRng = createRng(hashSeed(`${state.seed}:mv-quality:${state.year}:${state.singles.length + 1}`));
+  const qualityRoll = randomInt(qualityRng, -10 + qualityFloorBonus, 10);
+  const productionQuality = clamp(Math.round(lineupQuality * 0.45 + budget.quality * 0.55 + qualityRoll));
+  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: customTitle || `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, budgetId: budget.id, budgetName: budget.name, productionCost, productionQuality, qualityRoll, qualityFloorBonus, popularityGain: budget.popularityGain, fanTrustGain: budget.fanTrustGain, week: state.week, year: state.year, status: startsNow ? 'production' : 'planned', progressWeeks: 0, durationWeeks: 4, ...(scheduledRelease ? { releaseYear, releaseMonth, releaseWeek, productionStartYear: productionStart.year, productionStartWeek: productionStart.week } : {}) };
+  return { ...state, money: state.money - productionCost, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
 export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '', budgetId = 'lean', venueId = 'hall') {
@@ -832,7 +847,8 @@ function createConcertSummary(rng, members, day, concert = null, state = null) {
 }
 
 function mvViewGain(single, group, viewWeek) {
-  const launchViews = single.launchViews ?? Math.max(1, Math.round(group.fanbase * (0.12 + group.publicAwareness / 500)));
+  const qualityMultiplier = Number.isFinite(single.productionQuality) ? 0.7 + single.productionQuality / 250 : 1;
+  const launchViews = single.launchViews ?? Math.max(1, Math.round(group.fanbase * (0.12 + group.publicAwareness / 500) * qualityMultiplier));
   if (viewWeek === 1) return { gain: launchViews, launchViews };
   if (viewWeek === 2) return { gain: Math.round(launchViews * 0.55), launchViews };
   if (viewWeek === 3) return { gain: Math.round(launchViews * 0.25), launchViews };
@@ -958,10 +974,13 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
   let fanGain = 0;
   let baseFanGain = 0;
   const capMultiplier = getFanGrowthMultiplier(state.group.fanbase, state.fanTarget?.targetFanbase ?? Infinity);
-  const addFans = (baseGain, resistance) => {
+  const addFans = (baseGain, resistance, acquisitionRate = 0) => {
     const normalizedBase = Math.round(baseGain);
-    baseFanGain += normalizedBase;
-    fanGain += applyFanSoftCap(normalizedBase, capMultiplier, resistance);
+    const appliedGain = applyFanSoftCap(normalizedBase, capMultiplier, resistance);
+    const baseBonus = acquisitionRate > 0 ? Math.max(1, Math.round(normalizedBase * acquisitionRate)) : 0;
+    const appliedBonus = acquisitionRate > 0 ? Math.max(1, Math.round(appliedGain * acquisitionRate)) : 0;
+    baseFanGain += normalizedBase + baseBonus;
+    fanGain += appliedGain + appliedBonus;
   };
   let popularity = member.popularity;
   let momentum = member.momentum * 0.7;
@@ -988,7 +1007,9 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     const recovery = Math.round((activity.energyRecovery ?? 0) * staminaRecoveryMultiplier(member.stamina));
     const performanceBand = energy >= 60 ? 1 : energy >= 40 ? 0.95 : energy >= 20 ? 0.85 : 0.7;
     const familiarity = theaterShow ? member.setlistFamiliarity?.[theaterShow.setlistId] ?? 0 : 0;
-    const familiarityMultiplier = activityId === 'theater' ? 0.85 + familiarity * 0.0015 : 1;
+    const baseFamiliarityMultiplier = 0.85 + familiarity * 0.0015;
+    const unfamiliarityPenaltyRate = activityId === 'theater' ? Math.max(0, 1 + bonusValue(state, 'B030')) : 1;
+    const familiarityMultiplier = activityId === 'theater' ? 1 - (1 - baseFamiliarityMultiplier) * unfamiliarityPenaltyRate : 1;
     const theaterTraitMultiplier = activityId === 'theater' && member.traits.includes('Theater Specialist') ? 1.15 : 1;
     const peers = activityDay && ['theater', 'concert'].includes(activityId)
       ? state.members.filter((item) => item.id !== member.id && state.schedule?.[`${item.id}:${activityDay}`] === activityId).map((item) => item.id)
@@ -1060,7 +1081,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       const streamFans = Math.round(member.popularity * activity.fansPerPopularity);
       money += streamRevenue;
       finances.liveStream += streamRevenue;
-      addFans(streamFans, activitySoftCapResistance(activityId, state));
+      addFans(streamFans, activitySoftCapResistance(activityId, state), bonusValue(state, 'B026'));
       momentum += 1;
     }
     if (activity.capacity && activityId !== 'yearEndMeetGreet') {
@@ -1071,12 +1092,13 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       if (activityId.startsWith('vc')) finances.videoCall += ticketRevenue;
       else if (activityId.startsWith('mg')) finances.meetGreet += ticketRevenue;
       else finances.otherIncome += ticketRevenue;
-      addFans(sold * 0.12, activitySoftCapResistance(activityId, state));
+      const eventFans = sold * 0.12;
+      addFans(eventFans, activitySoftCapResistance(activityId, state), activityId.startsWith('vc') ? bonusValue(state, 'B026') : 0);
       momentum += sold / activity.capacity > 0.9 ? 2 : -1;
       demandRecords.push({ id: `demand-${state.year}-${state.week}-${member.id}-${activityId}-${activityDay}`, memberId: member.id, memberName: member.nickname || member.name, type: activityId.startsWith('vc') ? 'videoCall' : activityId.startsWith('mg') ? 'meetGreet' : activityId, activityId, year: state.year, week: state.week, day: activityDay, capacity: activity.capacity, demand, sold, unmetDemand: Math.max(0, demand - sold), sellThrough: Math.round(sold / activity.capacity * 1000) / 10, revenue: ticketRevenue });
     }
     if (activityId.startsWith('mv')) {
-      addFans(score * 12, activitySoftCapResistance(activityId, state));
+      addFans(score * 12, activitySoftCapResistance(activityId, state), bonusValue(state, 'B026'));
       popularity += activityId === 'mvCenter' ? 4 : 2;
     }
     if (activityId === 'concert') {
@@ -1124,28 +1146,39 @@ function rollInjury(member, assignments, rng, state) {
 function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
   const config = BALANCE.graduation;
   const existing = state.graduations ?? [];
-  if ((currentWeek - 1) % BALANCE.weeksPerMonth !== 0) return existing;
-  const eligible = members.filter((member) => {
+  const graduationTargets = { ...(state.graduationTargets ?? {}) };
+  if (targetYear < 2 || (currentWeek - 1) % BALANCE.weeksPerMonth !== 0) return { graduations: existing, graduationTargets };
+  if (!graduationTargets[targetYear]) {
+    const budgetRng = createRng(hashSeed(`${state.seed}:graduation-budget:${targetYear}`));
+    graduationTargets[targetYear] = { year: targetYear, targetCount: randomInt(budgetRng, BALANCE.graduation.normalMin, BALANCE.graduation.normalMax), scheduledCount: existing.filter((item) => item.planYear === targetYear).length };
+  }
+  const alreadyPlannedIds = new Set(existing.filter((item) => !item.completed).map((item) => item.memberId));
+  const eligible = members.map((member) => {
+    const joinedYear = Number.isFinite(member.joinedYear) ? member.joinedYear : 1;
+    const joinedWeek = Number.isFinite(member.joinedWeek) ? member.joinedWeek : 1;
+    return { member, tenureWeeks: toAbsoluteWeek(targetYear, currentWeek) - toAbsoluteWeek(joinedYear, joinedWeek) };
+  }).filter(({ member, tenureWeeks }) => {
     if (!['active', 'trainee'].includes(member.status) || member.graduationPending) return false;
-    const joinedYear = member.joinedYear ?? 1;
-    return targetYear - joinedYear >= config.minimumTenureYears;
+    if (alreadyPlannedIds.has(member.id)) return false;
+    return tenureWeeks >= config.minimumTenureYears * BALANCE.weeksPerYear;
   });
-  const budgetRng = createRng(hashSeed(`${state.seed}:graduation-budget:${targetYear}`));
-  const maximum = Math.min(config.extremeMax, randomInt(budgetRng, config.normalMin, config.normalMax));
+  const maximum = graduationTargets[targetYear].targetCount;
   const plannedThisYear = existing.filter((item) => item.planYear === targetYear).length;
-  if (plannedThisYear >= maximum) return existing;
-  const pendingCount = existing.filter((item) => !item.completed).length;
-  const safeMaximum = Math.max(0, getTheaterEligibleMembers({ members }).length - BALANCE.theaterMinimumMembers - pendingCount);
-  if (safeMaximum === 0 || eligible.length === 0) return existing;
+  if (plannedThisYear >= maximum) return { graduations: existing, graduationTargets };
+  // Pending graduates are already excluded by getTheaterEligibleMembers, so subtracting
+  // them again would stop a safe 18-member roster before its sixth planned departure.
+  const safeMaximum = Math.max(0, getTheaterEligibleMembers({ members }).length - BALANCE.theaterMinimumMembers);
+  if (safeMaximum === 0 || eligible.length === 0) return { graduations: existing, graduationTargets };
   const currentMonth = Math.ceil(currentWeek / BALANCE.weeksPerMonth);
   const remainingBudget = maximum - plannedThisYear;
   const remainingMonths = 13 - currentMonth;
-  if (rng() >= Math.min(1, remainingBudget / remainingMonths)) return existing;
-  const member = weightedPick(rng, eligible, (candidate) => 10 + (candidate.weeksWithoutEvent ?? 0) * config.idleWeightPerWeek);
+  if (remainingMonths > remainingBudget && rng() >= remainingBudget / remainingMonths) return { graduations: existing, graduationTargets };
+  const member = eligible.sort((first, second) => second.tenureWeeks - first.tenureWeeks || (second.member.weeksWithoutEvent ?? 0) - (first.member.weeksWithoutEvent ?? 0) || first.member.id.localeCompare(second.member.id))[0].member;
   const lead = randomInt(rng, config.minLead, config.maxLead);
   const departureTotal = currentWeek + lead;
-  const plan = { id: `graduation-${targetYear}-${currentMonth}-${member.id}`, memberId: member.id, memberName: member.nickname || member.name, planYear: targetYear, announcementYear: targetYear, announcementWeek: currentWeek, departureYear: departureTotal > BALANCE.weeksPerYear ? targetYear + 1 : targetYear, departureWeek: departureTotal > BALANCE.weeksPerYear ? departureTotal - BALANCE.weeksPerYear : departureTotal, announced: false, completed: false };
-  return [...existing, plan];
+  const plan = { id: `graduation-${targetYear}-${currentMonth}-${member.id}`, memberId: member.id, memberName: member.nickname || member.name, planYear: targetYear, annualTarget: maximum, announcementYear: targetYear, announcementWeek: currentWeek, departureYear: departureTotal > BALANCE.weeksPerYear ? targetYear + 1 : targetYear, departureWeek: departureTotal > BALANCE.weeksPerYear ? departureTotal - BALANCE.weeksPerYear : departureTotal, announced: false, completed: false };
+  graduationTargets[targetYear] = { ...graduationTargets[targetYear], scheduledCount: plannedThisYear + 1 };
+  return { graduations: [...existing, plan], graduationTargets };
 }
 
 function makeRunSummary(state, members, eligibleCount, records) {
@@ -1488,7 +1521,9 @@ export function resolveWeek(state) {
     notifications.push({ type: 'critical', text: `${replacement.nickname || replacement.name} joins an upcoming concert as an emergency replacement.` });
     return { ...concert, memberIds: concert.memberIds.map((memberId) => memberId === disruptedMemberId ? replacement.id : memberId), replacements: [...(concert.replacements ?? []), { outMemberId: disruptedMemberId, inMemberId: replacement.id, year: state.year, week: state.week }] };
   });
-  let graduations = scheduleGraduations(state, year, state.week, members, rng);
+  const graduationSchedule = scheduleGraduations(state, year, state.week, members, rng);
+  let graduations = graduationSchedule.graduations;
+  const graduationTargets = graduationSchedule.graduationTargets;
   graduations = graduations.map((graduation) => {
     if (!graduation.announced && graduation.announcementYear === year && graduation.announcementWeek === state.week) {
       notifications.push({ type: 'critical', text: `${graduation.memberName} announces graduation for Year ${graduation.departureYear}, Week ${graduation.departureWeek}.` });
@@ -1556,15 +1591,19 @@ export function resolveWeek(state) {
   if (auditionCampaign?.status === 'active') {
     const progressWeeks = auditionCampaign.progressWeeks + 1;
     if (progressWeeks >= auditionCampaign.durationWeeks) {
-      const selectedIds = (auditionCampaign.selectedCandidateIds?.length ? auditionCampaign.selectedCandidateIds : auditionCampaign.candidatePool.map((candidate) => candidate.id)).slice(0, auditionCampaign.maxIntake);
-      const selectedCandidates = auditionCampaign.candidatePool.filter((candidate) => selectedIds.includes(candidate.id));
-      const selectedPoolIds = new Set(selectedCandidates.map((candidate) => candidate.sourcePoolId ?? candidate.candidateId ?? candidate.id));
-      members = [...members, ...selectedCandidates.map(({ candidateId, sourcePoolId, ...candidate }) => ({ ...candidate, id: candidateId ?? candidate.id, status: 'trainee', joinedYear: year, joinedWeek: week, traineeWeeks: 0, trainingProgress: 0 }))];
-      unsignedMembers = unsignedMembers.filter((member) => !selectedPoolIds.has(member.id));
-      auditions = [...auditions, { year: auditionCampaign.year, size: selectedCandidates.length, finalistPoolSize: auditionCampaign.finalistPoolSize, startWeek: auditionCampaign.startWeek, durationWeeks: auditionCampaign.durationWeeks }];
-      auditionCampaign = null;
-      notifications.push({ type: 'success', text: `${selectedCandidates.length} trainees join after the five-week audition.` });
-      history.unshift({ id: `audition-${state.year}-${state.week}-complete`, type: 'audition', title: 'Audition finalized', detail: `${selectedCandidates.length} trainees join the roster after finalist selection.`, year: state.year, week: state.week });
+      if (!auditionCampaign.selectionConfirmed) {
+        auditionCampaign = { ...auditionCampaign, progressWeeks: auditionCampaign.durationWeeks - 1, phase: 'selection' };
+      } else {
+        const selectedIds = (auditionCampaign.selectedCandidateIds ?? []).slice(0, auditionCampaign.maxIntake);
+        const selectedCandidates = auditionCampaign.candidatePool.filter((candidate) => selectedIds.includes(candidate.id));
+        const selectedPoolIds = new Set(selectedCandidates.map((candidate) => candidate.sourcePoolId ?? candidate.candidateId ?? candidate.id));
+        members = [...members, ...selectedCandidates.map(({ candidateId, sourcePoolId, ...candidate }) => ({ ...candidate, id: candidateId ?? candidate.id, status: 'trainee', joinedYear: year, joinedWeek: week, traineeWeeks: 0, trainingProgress: 0 }))];
+        unsignedMembers = unsignedMembers.filter((member) => !selectedPoolIds.has(member.id));
+        auditions = [...auditions, { year: auditionCampaign.year, size: selectedCandidates.length, finalistPoolSize: auditionCampaign.finalistPoolSize, applicantPoolSize: auditionCampaign.applicantPoolSize, startWeek: auditionCampaign.startWeek, durationWeeks: auditionCampaign.durationWeeks }];
+        auditionCampaign = null;
+        notifications.push({ type: 'success', text: `${selectedCandidates.length} trainees join after the five-week audition.` });
+        history.unshift({ id: `audition-${state.year}-${state.week}-complete`, type: 'audition', title: 'Audition finalized', detail: `${selectedCandidates.length} trainees join the roster after candidate selection.`, year: state.year, week: state.week });
+      }
     } else {
       auditionCampaign = { ...auditionCampaign, progressWeeks, phase: ['applications', 'screening', 'evaluation', 'finalists', 'selection'][progressWeeks] ?? 'selection' };
     }
@@ -1664,7 +1703,7 @@ export function resolveWeek(state) {
   const yearEndMeetGreetSummary = currentYearEndMeetGreet ? { title: 'Year-end Meet & Greet', attendance: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.sold, 0), capacity: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.capacity, 0), revenue: currentYearEndMeetGreet.revenue, participatingMembers: currentYearEndMeetGreet.memberSessions.length } : null;
   if (currentYearEndMeetGreet) yearEndMeetGreets = yearEndMeetGreets.map((event) => event.id === currentYearEndMeetGreet.id ? { ...event, status: 'completed', summary: yearEndMeetGreetSummary } : event);
   const concertTrustDelta = concertSummary?.evaluation.fanTrustDelta ?? 0;
-  const protectedConcertTrustDelta = concertTrustDelta < 0 ? Math.ceil(concertTrustDelta * (1 + bonusValue(state, 'B023'))) : concertTrustDelta;
+  const protectedConcertTrustDelta = protectNormalTrustLoss(state, concertTrustDelta);
   if (concertSummary?.evaluation.overall >= 85) fanNarratives = appendNarrative(fanNarratives, { id: `concert-triumph-${state.year}-${state.week}`, type: 'concert', title: 'A defining stage', detail: `${concertSummary.title} exceeds fan expectations and strengthens management credibility.`, sentiment: 'positive', year: state.year, week: state.week, expiresAbsolute: currentAbsolute + 16 });
   if (concertSummary?.evaluation.occupancy < 50) fanNarratives = appendNarrative(fanNarratives, { id: `concert-risk-${state.year}-${state.week}`, type: 'concert', title: 'Venue ambition questioned', detail: `${concertSummary.title} finishes below 50% occupancy. Fans question the venue decision.`, sentiment: 'negative', year: state.year, week: state.week, expiresAbsolute: currentAbsolute + 16 });
   fanNarratives = derivePatternNarratives(fanNarratives, members, state.year, state.week, currentAbsolute);
@@ -1730,11 +1769,13 @@ export function resolveWeek(state) {
   }
   const currentFanTarget = state.fanTarget?.formulaVersion === 2 ? state.fanTarget : createFanTargetForYear(state.year, state.group.fanbase);
   const annualFanPerformance = state.week === BALANCE.weeksPerYear ? getFanTargetPerformance(state.group.fanbase + fanGain, currentFanTarget.targetFanbase) : null;
+  const protectedAnnualFanPerformance = annualFanPerformance ? { ...annualFanPerformance, trustDelta: protectNormalTrustLoss(state, annualFanPerformance.trustDelta) } : null;
+  const financialTrustDelta = moneyDelta > 0 ? 1 : moneyDelta < -60_000_000 ? -1 : 0;
   const group = {
     ...state.group,
     fanbase: state.group.fanbase + fanGain,
     popularity: clamp(state.group.popularity + (fanGain > 5000 ? 1 : 0) + singlePopularityGain + (concertSummary?.evaluation.popularityDelta ?? 0)),
-    fanTrust: clamp(state.group.fanTrust + (moneyDelta > 0 ? 1 : moneyDelta < -60_000_000 ? -1 : 0) + singleFanTrustGain + protectedConcertTrustDelta + dramaTrustDelta + graduationTrustDelta + seitansaiTrustDelta + (annualFanPerformance?.trustDelta ?? 0)),
+    fanTrust: clamp(state.group.fanTrust + protectNormalTrustLoss(state, financialTrustDelta) + protectNormalTrustLoss(state, singleFanTrustGain) + protectedConcertTrustDelta + dramaTrustDelta + graduationTrustDelta + protectNormalTrustLoss(state, seitansaiTrustDelta) + (protectedAnnualFanPerformance?.trustDelta ?? 0)),
     reputation: clamp(state.group.reputation + (concertSummary?.evaluation.reputationDelta ?? 0) + dramaReputationDelta + (annualFanPerformance?.reputationDelta ?? 0) - loanPenalty),
     publicAwareness: clamp(state.group.publicAwareness + (fanGain > 8000 ? 1 : 0) + completedSingles * 4),
     fanPools, fanSentiment,
@@ -1761,7 +1802,7 @@ export function resolveWeek(state) {
     fanGain,
     baseFanGain,
     fanGrowthMultiplier: weeklyFanCapMultiplier,
-    fanTargetPerformance: annualFanPerformance,
+    fanTargetPerformance: protectedAnnualFanPerformance,
     activities: Object.keys(weekSchedule).length,
     schedule: { ...weekSchedule },
     skillChanges,
@@ -1779,7 +1820,7 @@ export function resolveWeek(state) {
     },
     finances: { ...finances, totalIncome: finances.theater + finances.videoCall + finances.meetGreet + finances.media + finances.offAir + finances.liveStream + finances.concert + finances.twoShot + finances.otherIncome, totalExpenses: finances.activityCosts + finances.refunds + finances.generalOperations + finances.theaterUpkeep + finances.salary + finances.debtPayments + finances.loanPayment },
   };
-  const annualReviews = state.week === BALANCE.weeksPerYear ? [...(state.annualReviews ?? []).filter((review) => review.year !== state.year), createAnnualReview(state, { group, members, lastResult, concerts, auditions, fanTargetPerformance: annualFanPerformance, fanTarget: currentFanTarget })] : (state.annualReviews ?? []);
+  const annualReviews = state.week === BALANCE.weeksPerYear ? [...(state.annualReviews ?? []).filter((review) => review.year !== state.year), createAnnualReview(state, { group, members, lastResult, concerts, auditions, fanTargetPerformance: protectedAnnualFanPerformance, fanTarget: currentFanTarget })] : (state.annualReviews ?? []);
   const resolvedTheaterShows = [...validTheaterDays].map((day) => {
     const configured = state.theaterShows?.[day];
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
@@ -1791,7 +1832,7 @@ export function resolveWeek(state) {
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult];
   const nextConcertVenueOffers = year !== state.year ? generateConcertVenueOffers(state.seed, year, hasBonus(state, 'B007') ? bonusValue(state, 'B007') : 0) : state.concertVenueOffers;
   const chemistry = ensureChemistry(state, members);
-  const fanTargetHistory = state.week === BALANCE.weeksPerYear ? [...(state.fanTargetHistory ?? []), { ...currentFanTarget, actualFanbase: group.fanbase, ...annualFanPerformance }] : (state.fanTargetHistory ?? []);
+  const fanTargetHistory = state.week === BALANCE.weeksPerYear ? [...(state.fanTargetHistory ?? []), { ...currentFanTarget, actualFanbase: group.fanbase, ...protectedAnnualFanPerformance }] : (state.fanTargetHistory ?? []);
   const fanTarget = state.week === BALANCE.weeksPerYear ? createAnnualFanTarget(year, currentFanTarget.targetFanbase, group.fanbase) : currentFanTarget;
   const fanTargetMetaReward = (state.fanTargetMetaReward ?? 0) + (annualFanPerformance?.metaReward ?? 0);
   if (annualFanPerformance) {
@@ -1814,7 +1855,7 @@ export function resolveWeek(state) {
   }
   const next = {
     ...state, year, week, members, unsignedMembers, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
-    notifications, activeDrama, dramaMemory, dramaCooldown, fanNarratives, graduations, departures, seitansaiObligations, records, failureCounters, weeklyReports, concertVenueOffers: nextConcertVenueOffers, ledger: resolvedLedger, loans: resolvedLoans, loanOffers: year !== state.year ? generateLoanOffers(state.seed, year) : state.loanOffers, fanEventPlans: (state.fanEventPlans ?? []).filter((plan) => !activatedPlans.includes(plan)), runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
+    notifications, activeDrama, dramaMemory, dramaCooldown, fanNarratives, graduations, graduationTargets, departures, seitansaiObligations, records, failureCounters, weeklyReports, concertVenueOffers: nextConcertVenueOffers, ledger: resolvedLedger, loans: resolvedLoans, loanOffers: year !== state.year ? generateLoanOffers(state.seed, year) : state.loanOffers, fanEventPlans: (state.fanEventPlans ?? []).filter((plan) => !activatedPlans.includes(plan)), runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };
   return ended ? { ...next, runEndedAt: { year, week }, runSummary: { ...makeRunSummary(next, members, eligibleCount, records), cause: failureReason } } : next;
@@ -1827,17 +1868,19 @@ export function startAuditionCampaign(state, startWeek = state.week) {
   const rng = createRng(hashSeed(`${state.seed}:audition-campaign:${state.year}:${startWeek}`));
   const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));
   const availablePool = shuffleWithRng((state.unsignedMembers ?? []).filter((member) => !rosterIdentityIds.has(member.identityId ?? member.id)), rng);
-  if (!availablePool.length) return state;
+  if (availablePool.length < AUDITION_CANDIDATE_COUNT) return state;
   const managementScore = state.group.fanTrust * 0.55 + state.group.reputation * 0.45;
-  const intakeLimit = state.auditions.length === 0 ? 4 : Math.min(6, managementScore < 40 ? 3 : managementScore < 60 ? 4 : managementScore < 80 ? 5 : 6);
-  const maxIntake = Math.min(intakeLimit, availablePool.length);
+  const maxIntake = AUDITION_MAX_INTAKE;
   const finalistBonus = bonusValue(state, 'B019');
   const applicantBonus = bonusValue(state, 'B022');
-  const poolSize = Math.min(availablePool.length, Math.max(maxIntake, Math.ceil((maxIntake + 2 + finalistBonus) * (1 + applicantBonus))));
+  const applicantPoolSize = Math.min(availablePool.length, Math.max(AUDITION_CANDIDATE_COUNT, Math.ceil((AUDITION_CANDIDATE_COUNT + finalistBonus) * (1 + applicantBonus))));
   const scoutingBonus = bonusValue(state, 'B020');
-  const qualityBonus = Math.round((managementScore - 50) * 0.08);
-  const candidatePool = availablePool.slice(0, poolSize).map((member) => makePoolCandidate(member, poolSize, qualityBonus));
-  const campaign = { id: `audition-campaign-${state.year}-${startWeek}`, year: state.year, startYear: state.year, startWeek, phase: 'applications', progressWeeks: 0, durationWeeks: 5, maxIntake, finalistPoolSize: poolSize, candidatePool, selectedCandidateIds: [], cost: auditionCost, scoutingAccuracy: 1 + scoutingBonus, status: 'active' };
+  const qualityBonus = Math.round((managementScore - 50) * 0.08 + scoutingBonus * 10);
+  const candidatePool = availablePool.slice(0, applicantPoolSize)
+    .map((member) => makePoolCandidate(member, Math.min(AUDITION_CANDIDATE_COUNT, availablePool.length), qualityBonus))
+    .sort((first, second) => (second.potential + second.development + second.performance) - (first.potential + first.development + first.performance) || first.id.localeCompare(second.id))
+    .slice(0, AUDITION_CANDIDATE_COUNT);
+  const campaign = { id: `audition-campaign-${state.year}-${startWeek}`, year: state.year, startYear: state.year, startWeek, phase: 'applications', progressWeeks: 0, durationWeeks: 5, maxIntake, finalistPoolSize: candidatePool.length, applicantPoolSize, candidatePool, selectedCandidateIds: [], selectionConfirmed: false, cost: auditionCost, scoutingAccuracy: 1 + scoutingBonus, status: 'active' };
   return { ...state, money: state.money - auditionCost, auditionCampaign: campaign, history: [{ id: campaign.id, type: 'audition', title: 'Audition opens', detail: `Applications begin in Week ${startWeek}. Final selection completes after five weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
@@ -1845,20 +1888,19 @@ export function finalizeAudition(state, selectedCandidateIds = []) {
   const campaign = state.auditionCampaign;
   if (!campaign || campaign.status !== 'active' || campaign.progressWeeks < 4) return state;
   const validIds = [...new Set(selectedCandidateIds)].filter((id) => campaign.candidatePool.some((candidate) => candidate.id === id)).slice(0, campaign.maxIntake);
-  return { ...state, auditionCampaign: { ...campaign, selectedCandidateIds: validIds } };
+  return { ...state, auditionCampaign: { ...campaign, selectedCandidateIds: validIds, selectionConfirmed: true } };
 }
 
 export function runAudition(state) {
   if (state.runStatus === 'ended') return state;
-  const auditionCost = applyRate(97_500_000, bonusValue(state, 'B021'));
+  const auditionCost = applyRate(65_000_000, bonusValue(state, 'B021'));
   if (state.week < BALANCE.auditionStartWeek || state.money < auditionCost || state.auditions.some((item) => item.year === state.year)) return state;
   const rng = createRng(hashSeed(`${state.seed}:audition:${state.year}`));
   const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));
   const availablePool = shuffleWithRng((state.unsignedMembers ?? []).filter((member) => !rosterIdentityIds.has(member.identityId ?? member.id)), rng);
-  if (!availablePool.length) return state;
-  const cap = Math.min(availablePool.length, state.auditions.length === 0 ? 4 : Math.min(6, 3 + Math.floor((state.group.fanTrust * 0.55 + state.group.reputation * 0.45) / 20)));
-  const finalistBonus = bonusValue(state, 'B019');
-  const finalistPoolSize = Math.min(availablePool.length, cap + finalistBonus);
+  if (availablePool.length < AUDITION_CANDIDATE_COUNT) return state;
+  const cap = AUDITION_MAX_INTAKE;
+  const finalistPoolSize = AUDITION_CANDIDATE_COUNT;
   const candidates = availablePool.slice(0, cap).map((member) => ({ ...makePoolCandidate(member, finalistPoolSize), joinedYear: state.year, joinedWeek: state.week }));
   const selectedPoolIds = new Set(candidates.map((candidate) => candidate.sourcePoolId));
   return { ...state, members: [...state.members, ...candidates.map(({ candidateId, sourcePoolId, ...candidate }) => ({ ...candidate, id: candidateId }))], unsignedMembers: availablePool.filter((member) => !selectedPoolIds.has(member.id)), money: state.money - auditionCost, auditions: [...state.auditions, { year: state.year, size: candidates.length, finalistPoolSize }], history: [{ id: `audition-${state.year}`, type: 'audition', title: `Generation ${candidates[0]?.generation.replace('GEN ', '')} selected`, detail: `${candidates.length} trainees join from ${finalistPoolSize} finalists after the Q4 audition.`, year: state.year, week: state.week }, ...state.history] };

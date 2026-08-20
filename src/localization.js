@@ -147,7 +147,29 @@ Object.assign(ID, {
   'Reusable planning':'Perencanaan berulang','Weekly templates':'Templat mingguan','Apply saved member, day, and activity assignments to the current week.':'Terapkan penugasan anggota, hari, dan aktivitas yang tersimpan ke minggu ini.','No weekly templates':'Belum ada templat mingguan','Delete':'Hapus','Final money':'Uang akhir','Total members':'Total anggota','Graduated':'Lulus',
 });
 
+Object.assign(ID, {
+  'Unlock and level perks permanently from 1–5, then equip exactly 3. The loadout locks when the run begins.':'Buka dan tingkatkan perk secara permanen dari level 1–5, lalu pasang tepat 3. Susunan bonus terkunci saat permainan dimulai.',
+  'Perk levels are snapshotted when the run begins.':'Level perk disimpan saat permainan dimulai.',
+  'Review loadout':'Tinjau susunan bonus','Max level':'Level maksimum','Current effect':'Efek saat ini','Lock this Management Perk loadout?':'Kunci susunan Management Perk ini?','These three perk levels will be snapshotted into the new run and cannot be changed until the next timeline.':'Ketiga level perk ini akan disimpan ke permainan baru dan tidak dapat diubah hingga linimasa berikutnya.','Lock loadout':'Kunci susunan bonus','Perk upgrade could not be saved. Try again.':'Peningkatan perk gagal disimpan. Coba lagi.',
+  'The system chooses 12 candidates over five weeks. Review every exact stat, then confirm up to six recruits.':'Sistem memilih 12 kandidat selama lima minggu. Tinjau semua statistik pasti, lalu konfirmasi hingga enam rekrutan.','Select roster recruits':'Pilih rekrutan roster','View details':'Lihat detail','Recruit selection confirmed':'Pilihan rekrutan dikonfirmasi','12 candidates · up to 6 recruits':'12 kandidat · hingga 6 rekrutan','Confirm audition':'Konfirmasi audisi','Confirm audition recruits':'Konfirmasi rekrutan audisi','Confirm no recruits':'Konfirmasi tanpa rekrutan','No candidate will join the roster. Confirming an empty selection completes the audition without recruits.':'Tidak ada kandidat yang akan masuk roster. Mengonfirmasi pilihan kosong menyelesaikan audisi tanpa rekrutan.',
+  'Adds two applicants to the audition screening pool':'Menambah dua pelamar ke kumpulan penyaringan audisi',
+  'Audition candidate':'Kandidat audisi','Exact fictional ratings for this audition candidate.':'Nilai fiktif pasti untuk kandidat audisi ini.','Close candidate details':'Tutup detail kandidat','Close details':'Tutup detail','Selection confirmed':'Pilihan dikonfirmasi','Remove candidate':'Keluarkan kandidat','Six candidates selected':'Enam kandidat dipilih','Select candidate':'Pilih kandidat',
+  'Delete active run?':'Hapus permainan aktif?','Delete run':'Hapus permainan','End this run now?':'Akhiri permainan ini sekarang?','Load cloud save?':'Muat penyimpanan cloud?','Replace local data':'Ganti data lokal',
+  'A five-week Q4 audition presents exactly 12 system-selected candidates. Review every exact stat, then explicitly confirm zero to six recruits; only confirmed recruits leave the pool and join as trainees.':'Audisi Q4 selama lima minggu menampilkan tepat 12 kandidat pilihan sistem. Tinjau setiap statistik pasti, lalu konfirmasikan nol hingga enam rekrutan; hanya rekrutan yang dikonfirmasi keluar dari kumpulan dan bergabung sebagai trainee.',
+  'Year 1 is protected. From Year 2 onward, each season receives a seeded target of four to six graduations after tenure eligibility is calculated. The minimum roster floor, advance announcements, farewell preparation, and two-year audition-pool return remain active.':'Tahun 1 dilindungi. Mulai Tahun 2, setiap musim mendapat target berbasis seed sebanyak empat hingga enam kelulusan setelah kelayakan masa bergabung dihitung. Batas minimum roster, pengumuman awal, persiapan perpisahan, dan kembalinya anggota ke kumpulan audisi setelah dua tahun tetap berlaku.',
+  'Each perk has five permanent levels. Equip exactly three before a run; their current levels and effects are snapshotted and locked for that timeline.':'Setiap perk memiliki lima level permanen. Pasang tepat tiga sebelum permainan; level dan efek saat ini disimpan serta dikunci untuk linimasa tersebut.'
+});
+
 const patterns = [
+  [/^Level (\d+)\/5$/, 'Level $1/5'], [/^Level (\d+) · (.+)$/, 'Level $1 · $2'],
+  [/^Current effect (.+) · locked into equipped runs$/, 'Efek saat ini $1 · terkunci dalam permainan yang memasangnya'], [/^Unlock Level 1 effect (.+)$/, 'Buka efek Level 1 $1'],
+  [/^Review (\d+) recruits?$/, 'Tinjau $1 rekrutan'], [/^Confirm (\d+) recruits?$/, 'Konfirmasi $1 rekrutan'],
+  [/^Need 12 pool members · (\d+) available$/, 'Butuh 12 anggota kumpulan · $1 tersedia'],
+  [/^(\d+) selected candidates? will join as trainees when the audition resolves\. This selection cannot be edited afterward\.$/, '$1 kandidat terpilih akan bergabung sebagai trainee saat audisi selesai. Pilihan ini tidak dapat diubah setelahnya.'],
+  [/^(.+) · Audition candidate$/, '$1 · Kandidat audisi'],
+  [/^Upgrade (.+) to Level (\d+)\?$/, 'Tingkatkan $1 ke Level $2?'], [/^Unlock (.+)\?$/, 'Buka $1?'],
+  [/^Spend (\d+) Management Token\. Effect becomes (.+) and remains permanently available for future run loadouts\.$/, 'Bayar $1 Management Token. Efek menjadi $2 dan tetap tersedia permanen untuk susunan permainan berikutnya.'],
+  [/^Upgrade · (\d+)$/, 'Tingkatkan · $1'], [/^Unlock · (\d+)$/, 'Buka · $1'],
   [/^Year (\d+), Week (\d+)$/, 'Tahun $1, Minggu $2'], [/^Year (\d+) begins$/, 'Tahun $1 dimulai'], [/^Week (\d+)$/, 'Minggu $1'], [/^Season (\d+)$/, 'Musim $1'],
   [/^Choose (\d+) more members?$/, 'Pilih $1 anggota lagi'], [/^(\d+) of (\d+) selected$/, '$1 dari $2 dipilih'], [/^(\d+) activities booked$/, '$1 aktivitas dijadwalkan'], [/^(\d+) weeks? remaining$/, '$1 minggu tersisa'],
   [/^Unlock (\d+)$/, 'Buka $1'], [/^Run saved just now\.$/, 'Permainan baru saja disimpan.'], [/^Save failed\. Try again\.$/, 'Gagal menyimpan. Coba lagi.'],

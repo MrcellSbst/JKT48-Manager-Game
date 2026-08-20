@@ -64,7 +64,7 @@ export const BALANCE = {
     developmentBonus: 0.2,
   },
   bonusSlots: 3,
-  graduation: { year1Max: 3, normalMin: 2, normalMax: 5, extremeMax: 7, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
+  graduation: { year1Max: 0, normalMin: 4, normalMax: 6, extremeMax: 6, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
   managementTokenMultiplier: 0.5,
   theaterTiers: [
     { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [60_000, 80_000] },
@@ -152,9 +152,9 @@ export const CONCERT_BUDGETS = [
 ];
 
 export const SINGLE_BUDGETS = [
-  { id: 'low', name: 'Low budget', cost: 75_000_000, popularityGain: 2, fanTrustGain: -1 },
-  { id: 'medium', name: 'Medium budget', cost: 127_500_000, popularityGain: 3, fanTrustGain: 1 },
-  { id: 'high', name: 'High budget', cost: 225_000_000, popularityGain: 5, fanTrustGain: 3 },
+  { id: 'low', name: 'Low budget', cost: 75_000_000, quality: 58, popularityGain: 2, fanTrustGain: -1 },
+  { id: 'medium', name: 'Medium budget', cost: 127_500_000, quality: 74, popularityGain: 3, fanTrustGain: 1 },
+  { id: 'high', name: 'High budget', cost: 225_000_000, quality: 90, popularityGain: 5, fanTrustGain: 3 },
 ];
 
 export const CONCERT_VENUES = [

@@ -17,7 +17,7 @@ export const BONUS_TEMPLATES = [
   ['B016','Youth Development Program','Member / Development','Trainee training EXP +15%','traineeTrainingExp',0.15],
   ['B017','Setlist Academy','Theater / Development','Setlist familiarity gain +20%','setlistGain',0.20],
   ['B018','Cross-Training Program','Member / Development','Lowest core skill training EXP +12%','lowestSkillExp',0.12],
-  ['B019','Talent Network','Audition','Adds two audition finalists','auditionFinalists',2],
+  ['B019','Talent Network','Audition','Adds two applicants to the audition screening pool','auditionFinalists',2],
   ['B020','Advanced Scouting','Audition','Candidate scouting accuracy +12%','scoutingAccuracy',0.12],
   ['B021','Recruitment Office','Finance / Audition','Audition operating cost -15%','auditionCost',-0.15],
   ['B022','Youth Outreach','Audition','Audition applicant pool +15%','applicantPool',0.15],
@@ -31,7 +31,34 @@ export const BONUS_TEMPLATES = [
   ['B030','Understudy Program','Theater / Risk','Emergency unfamiliarity penalty -50%','understudyPenalty',-0.50],
 ].map(([id,name,category,description,target,value], index) => ({
   id, name, category, description, effectType: Number.isInteger(value) && Math.abs(value) >= 1 ? 'flat_modifier' : 'percentage_modifier',
-  target, value, duration: 'entire_run', stackable: false, unlockCost: 8 + Math.floor(index / 6) * 4,
+  target, value, duration: 'entire_run', stackable: false, unlockCost: 8 + Math.floor(index / 6) * 4, maxLevel: 5,
 }));
 
 export const BONUS_BY_ID = Object.fromEntries(BONUS_TEMPLATES.map((bonus) => [bonus.id, bonus]));
+
+export const MAX_BONUS_LEVEL = 5;
+
+export function normalizeBonusLevel(level) {
+  return Math.max(0, Math.min(MAX_BONUS_LEVEL, Math.floor(Number(level) || 0)));
+}
+
+// Level 1 keeps the original balance. Each later level adds 25% of that base effect,
+// making Level 5 twice as strong without turning percentage discounts negative.
+export function getBonusValueAtLevel(bonus, level = 1) {
+  const normalizedLevel = normalizeBonusLevel(level);
+  if (!bonus || normalizedLevel === 0) return 0;
+  const scaled = bonus.value * (1 + (normalizedLevel - 1) * 0.25);
+  return bonus.effectType === 'flat_modifier' ? Math.round(scaled) : Math.max(-1, Math.min(1, scaled));
+}
+
+export function getBonusUpgradeCost(bonus, targetLevel) {
+  const normalizedLevel = normalizeBonusLevel(targetLevel);
+  if (!bonus || normalizedLevel === 0) return 0;
+  return Math.ceil(bonus.unlockCost * (1 + (normalizedLevel - 1) * 0.5));
+}
+
+export function formatBonusEffect(bonus, level = 1) {
+  const value = getBonusValueAtLevel(bonus, level);
+  if (bonus.effectType === 'percentage_modifier') return (value > 0 ? '+' : '') + Math.round(value * 100) + '%';
+  return (value > 0 ? '+' : '') + value;
+}

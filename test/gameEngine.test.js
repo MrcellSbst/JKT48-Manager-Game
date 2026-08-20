@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
+import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
-import { createRunHistoryEntry, mergeRunHistory } from '../src/state/saveDb.js';
+import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
 
 const finalizeGameSetup = (draft, theaterId, memberIds, ...args) => {
   const foundingIds = memberIds.length === 12 ? [...memberIds, ...draft.members.slice(12, BALANCE.foundingRosterSize).map((member) => member.id)] : memberIds;
@@ -863,8 +864,9 @@ test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
   const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37 };
   const poolIds = new Set(game.unsignedMembers.map((member) => member.id));
   const audition = runAudition(game);
-  assert.equal(audition.members.length, game.members.length + 4);
-  assert.equal(audition.unsignedMembers.length, game.unsignedMembers.length - 4);
+  assert.equal(audition.members.length, game.members.length + 6);
+  assert.equal(audition.unsignedMembers.length, game.unsignedMembers.length - 6);
+  assert.equal(audition.auditions[0].finalistPoolSize, 12);
   assert.ok(audition.members.filter((member) => member.status === 'trainee').every((member) => poolIds.has(member.id)));
   assert.equal(audition.auditions.length, 1);
   assert.equal(runAudition(audition), audition);
@@ -872,7 +874,7 @@ test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
 
 test('Q4 audition requires available funds', () => {
   const draft = createGame('poor-audition-test');
-  const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37, money: 97_499_999 };
+  const game = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id)), week: 37, money: 64_999_999 };
   assert.equal(runAudition(game), game);
 });
 
@@ -881,7 +883,8 @@ test('audition campaign progresses for five weeks and finalizes selected trainee
   game = startAuditionCampaign(game, 37);
   assert.equal(game.auditionCampaign.phase, 'applications');
   assert.equal(game.auditionCampaign.progressWeeks, 0);
-  assert.ok(game.auditionCampaign.candidatePool.length >= game.auditionCampaign.maxIntake);
+  assert.equal(game.auditionCampaign.candidatePool.length, 12);
+  assert.equal(game.auditionCampaign.maxIntake, 6);
   const originalPoolIds = new Set(game.unsignedMembers.map((member) => member.id));
   assert.ok(game.auditionCampaign.candidatePool.every((candidate) => originalPoolIds.has(candidate.sourcePoolId)));
   const selected = game.auditionCampaign.candidatePool.slice(0, 2).map((candidate) => candidate.id);
@@ -889,11 +892,163 @@ test('audition campaign progresses for five weeks and finalizes selected trainee
   assert.equal(game.auditionCampaign.progressWeeks, 4);
   game = finalizeAudition(game, selected);
   assert.deepEqual(game.auditionCampaign.selectedCandidateIds, selected);
+  assert.equal(game.auditionCampaign.selectionConfirmed, true);
   game = resolveWeek(game);
   assert.equal(game.auditionCampaign, null);
   assert.equal(game.auditions[0].size, 2);
   assert.equal(game.members.filter((member) => member.status === 'trainee').length, 2);
   assert.ok(selected.every((memberId) => !game.unsignedMembers.some((member) => member.id === memberId)));
+});
+
+test('audition waits for explicit confirmation and accepts an empty recruit selection', () => {
+  const draft = { ...createGame('audition-explicit-confirmation'), week: 37 };
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const originalRosterSize = game.members.length;
+  game = startAuditionCampaign(game, 37);
+  for (let index = 0; index < 5; index += 1) game = resolveWeek(game);
+  assert.equal(game.auditionCampaign.status, 'active');
+  assert.equal(game.auditionCampaign.phase, 'selection');
+  assert.equal(game.members.length, originalRosterSize);
+  game = finalizeAudition(game, []);
+  game = resolveWeek(game);
+  assert.equal(game.auditionCampaign, null);
+  assert.equal(game.auditions[0].size, 0);
+  assert.equal(game.members.length, originalRosterSize);
+});
+
+test('management perks scale through five levels and old unlocks migrate to level one', () => {
+  const perk = BONUS_BY_ID.B001;
+  assert.equal(getBonusValueAtLevel(perk, 1), -0.15);
+  assert.equal(getBonusValueAtLevel(perk, 5), -0.3);
+  assert.equal(getBonusUpgradeCost(perk, 1), perk.unlockCost);
+  assert.equal(getBonusUpgradeCost(perk, 5), perk.unlockCost * 3);
+  const migrated = normalizeMetaProfile({ currency: 9, unlockedBonusIds: ['B001'] });
+  assert.equal(migrated.bonusLevels.B001, 1);
+});
+
+test('founding setup snapshots equipped perk levels into the run', () => {
+  const draft = createGame('perk-level-snapshot');
+  const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const levelOne = finalizeGameSetupEngine(draft, 'community', memberIds, 'Level One', ['B001'], { bonusLevels: { B001: 1 } });
+  const levelFive = finalizeGameSetupEngine(draft, 'community', memberIds, 'Level Five', ['B001'], { bonusLevels: { B001: 5 } });
+  assert.equal(levelFive.bonusLevels.B001, 5);
+  assert.ok(levelFive.theater.price < levelOne.theater.price);
+});
+
+test('B005 discounts the actual MV charge and allows a production at the discounted balance', () => {
+  const draft = createGame('b005-mv-cost');
+  const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const createRun = (level) => finalizeGameSetupEngine(draft, 'community', memberIds, 'Production Test', level ? ['B005'] : [], { bonusLevels: { B005: level } });
+  const base = createRun(0);
+  const discounted = createRun(1);
+  const lineupIds = base.members.slice(1, 12).map((member) => member.id);
+  const baseStarted = startSingleProduction(base, base.members[0].id, 'Mon', lineupIds);
+  const discountedStarted = startSingleProduction(discounted, discounted.members[0].id, 'Mon', lineupIds);
+  const expectedCost = Math.round(baseStarted.singles[0].productionCost * (1 + getBonusValueAtLevel(BONUS_BY_ID.B005, 1)));
+
+  assert.equal(discountedStarted.singles[0].productionCost, expectedCost);
+  assert.equal(discountedStarted.money, discounted.money - expectedCost);
+
+  const exactBalance = { ...discounted, money: expectedCost };
+  assert.equal(startSingleProduction(exactBalance, exactBalance.members[0].id, 'Mon', lineupIds).money, 0);
+  assert.equal(startSingleProduction({ ...base, money: expectedCost }, base.members[0].id, 'Mon', lineupIds).singles.length, 0);
+});
+
+test('B023 protects ordinary Fan Trust losses from firing, cash pressure, low-budget MVs, Seitansai, and annual targets', () => {
+  const createRun = (seed, withPerk = false, options = {}) => {
+    const draft = createGame(seed);
+    const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+    return finalizeGameSetupEngine(draft, 'community', memberIds, 'Trust Test', withPerk ? ['B023'] : [], { ...options, bonusLevels: { B023: 1 } });
+  };
+  const compareTrust = (makeState) => {
+    const base = makeState(false);
+    const protectedState = makeState(true);
+    assert.ok(protectedState.group.fanTrust > base.group.fanTrust);
+  };
+
+  compareTrust((withPerk) => {
+    const game = createRun('b023-fire', withPerk);
+    return fireMember(game, game.members[0].id);
+  });
+
+  compareTrust((withPerk) => resolveWeek({ ...createRun('b023-cash', withPerk), theater: { ...createRun('b023-cash', withPerk).theater, weeklyUpkeep: 70_000_000 } }));
+
+  compareTrust((withPerk) => {
+    const game = createRun('b023-single', withPerk);
+    return resolveWeek({ ...game, singles: [{ id: 'low-budget-release', title: 'Lean MV', centerId: game.members[0].id, memberIds: game.members.slice(0, 12).map((member) => member.id), productionDay: 'Mon', budgetId: 'low', status: 'production', progressWeeks: 0, durationWeeks: 1, fanTrustGain: -1, popularityGain: 2 }] });
+  });
+
+  compareTrust((withPerk) => {
+    const game = createRun('b023-seitansai', withPerk, { hardMode: true });
+    return resolveWeek({ ...game, week: 2, seitansaiObligations: [{ id: 'missed-birthday', memberId: game.members[0].id, year: 1, month: 1, dueAbsolute: 0, status: 'open' }] });
+  });
+
+  compareTrust((withPerk) => {
+    const game = createRun('b023-annual', withPerk);
+    return resolveWeek({ ...game, week: BALANCE.weeksPerYear, fanTarget: { ...createAnnualFanTarget(1), targetFanbase: 1_000_000 } });
+  });
+});
+
+test('B023 does not reduce drama damage reserved for B024', () => {
+  const previousChance = BALANCE.dramaChance;
+  BALANCE.dramaChance = 1;
+  try {
+    const resolveDrama = (withPerk) => {
+      const draft = { ...createGame('b023-drama-isolation'), year: 2, dramaCooldown: 0 };
+      const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+      const game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Drama Test', withPerk ? ['B023'] : [], { bonusLevels: { B023: 1 } });
+      return resolveWeek(game);
+    };
+    assert.equal(resolveDrama(true).group.fanTrust, resolveDrama(false).group.fanTrust);
+  } finally {
+    BALANCE.dramaChance = previousChance;
+  }
+});
+
+test('B026 boosts fan acquisition from Live Stream, Video Call, and MV work', () => {
+  const runActivity = (activity, withPerk) => {
+    const draft = createGame(`b026-${activity}`);
+    const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+    let game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Digital Test', withPerk ? ['B026'] : [], { bonusLevels: { B026: 1 } });
+    if (activity === 'mvProduction') game = startSingleProduction(game, game.members[0].id, 'Mon', game.members.slice(1, 12).map((member) => member.id));
+    else game = assignActivity(game, game.members[0].id, 'Mon', activity);
+    return resolveWeek(game).lastResult.fanGain;
+  };
+  for (const activity of ['liveStream', 'vc1', 'mvProduction']) {
+    assert.ok(runActivity(activity, true) > runActivity(activity, false), `${activity} should gain more fans with B026`);
+  }
+});
+
+test('B029 raises the seeded MV quality floor and release views', () => {
+  const draft = createGame('b029-0');
+  const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const produce = (withPerk) => {
+    let game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Creative Test', withPerk ? ['B029'] : [], { bonusLevels: { B029: 1 } });
+    game = startSingleProduction(game, game.members[0].id, 'Mon', game.members.slice(1, 12).map((member) => member.id));
+    const created = game.singles[0];
+    for (let index = 0; index < created.durationWeeks; index += 1) game = resolveWeek(game);
+    return { created, released: game.singles[0] };
+  };
+  const base = produce(false);
+  const boosted = produce(true);
+  assert.equal(base.created.qualityFloorBonus, 0);
+  assert.equal(boosted.created.qualityFloorBonus, 5);
+  assert.ok(boosted.created.qualityRoll > base.created.qualityRoll);
+  assert.ok(boosted.created.productionQuality > base.created.productionQuality);
+  assert.ok(boosted.released.views > base.released.views);
+});
+
+test('B030 reduces theater unfamiliarity penalty for emergency lineups', () => {
+  const perform = (withPerk) => {
+    const draft = createGame('b030-theater');
+    const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+    let game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Understudy Test', withPerk ? ['B030'] : [], { bonusLevels: { B030: 1 } });
+    game = { ...game, members: game.members.map((member) => ({ ...member, setlistFamiliarity: { [SETLISTS[0].id]: 0 } })) };
+    for (const member of game.members.slice(0, 12)) game = assignActivity(game, member.id, 'Mon', 'theater');
+    game = configureTheaterShow(game, 'Mon', SETLISTS[0].id, game.members[0].id);
+    return resolveWeek(game).lastResult.fanGain;
+  };
+  assert.ok(perform(true) > perform(false));
 });
 
 test('audition campaign rejects duplicate or non-Q4 starts', () => {
@@ -902,6 +1057,7 @@ test('audition campaign rejects duplicate or non-Q4 starts', () => {
   assert.equal(startAuditionCampaign(game, 36), game);
   const started = startAuditionCampaign({ ...game, week: 37 }, 37);
   assert.equal(startAuditionCampaign(started, 38), started);
+  assert.equal(startAuditionCampaign({ ...game, week: 37, unsignedMembers: game.unsignedMembers.slice(0, 11) }, 37).auditionCampaign, null);
   let ready = started;
   for (let index = 0; index < 4; index += 1) ready = resolveWeek(ready);
   assert.equal(finalizeAudition(ready, ready.auditionCampaign.candidatePool.map((candidate) => candidate.id)).auditionCampaign.selectedCandidateIds.length, ready.auditionCampaign.maxIntake);
@@ -1098,6 +1254,24 @@ test('graduation preparation charges once and applies final-event and successor 
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
+});
+
+test('graduation planning protects Year 1 and budgets four to six eligible departures per later year', () => {
+  const draft = createGame('annual-graduation-budget-test');
+  const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
+  const protectedYear = resolveWeek({ ...base, year: 1, week: 1 });
+  assert.equal(protectedYear.graduationTargets[1], undefined);
+
+  const support = base.unsignedMembers.slice(0, 2).map((member) => ({ ...member, status: 'active', team: member.team || 'J', joinedYear: 0, joinedWeek: 1 }));
+  let game = { ...base, year: 3, week: 1, money: 9_000_000_000_000, group: { ...base.group, fanbase: 100_000 }, members: [...base.members, ...support], unsignedMembers: base.unsignedMembers.slice(2) };
+  for (let index = 0; index < BALANCE.weeksPerYear; index += 1) game = resolveWeek(game);
+  const target = game.graduationTargets[3];
+  const planned = game.graduations.filter((graduation) => graduation.planYear === 3);
+  assert.ok(target.targetCount >= 4 && target.targetCount <= 6);
+  assert.equal(planned.length, target.targetCount);
+  assert.equal(target.scheduledCount, target.targetCount);
+  assert.ok(planned.every((graduation) => graduation.annualTarget === target.targetCount));
 });
 
 test('graduated member returns to the audition pool after exactly two years with reset stats', () => {
