@@ -8,7 +8,8 @@ import {
 import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, SINGLE_BUDGETS } from './data/balance.js';
 import { BONUS_BY_ID, BONUS_TEMPLATES, MAX_BONUS_LEVEL, formatBonusEffect, getBonusUpgradeCost, getBonusValueAtLevel } from './data/bonusTemplates.js';
 import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
- import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, assignActivity, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, endRun, finalizeAudition, finalizeGameSetup, fireMember, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberSalary, getRosterDanger, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, punishMember, payDebt, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
+import dreamSetlistSongs from './data/DreamSetlist_Songs.js';
+import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, assignActivity, configureMajorCampaign, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, endRun, finalizeAudition, finalizeGameSetup, fireMember, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberSalary, getRosterDanger, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, punishMember, payDebt, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { localizeDocument, translateIndonesian } from './localization.js';
 import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
@@ -25,7 +26,7 @@ const portraitModules = import.meta.glob([
 const portraits = Object.fromEntries(Object.entries(portraitModules).map(([path, url]) => [path.replace('./Asset/member_active/', '').replace('./Asset/exmember/', ''), url]));
 const setlistCoverModules = import.meta.glob('./Asset/Setlist/*', { eager: true, query: '?url', import: 'default' });
 const setlistCovers = Object.fromEntries(Object.entries(setlistCoverModules).map(([path, url]) => [path.split('/').at(-1), url]));
-const AUTOMATIC_ACTIVITY_LOCKS = ['mvProduction', 'concert', 'concertRehearsal', 'yearEndMeetGreet'];
+const AUTOMATIC_ACTIVITY_LOCKS = ['mvProduction', 'concert', 'concertRehearsal', 'yearEndMeetGreet', 'mg1', 'vc1'];
 
 const NAV = [
   ['dashboard', 'Command', LayoutDashboard], ['schedule', 'Schedule', CalendarDays],
@@ -63,14 +64,23 @@ const calendarParts = (week) => ({ month: MONTHS[Math.min(11, Math.floor((week -
 const activityEnergyLabel = (activity) => activity.energyRecovery ? `+${activity.energyRecovery}` : activity.energy ? `-${activity.energy}` : '0';
 const calendarLabel = (year, week) => { const date = calendarParts(week); return `Year ${year} · ${date.month} · Week ${date.weekOfMonth}`; };
 const absoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
+const campaignPriority = (activityId) => {
+  if (typeof activityId !== 'string') return 0;
+  if (activityId === 'concert' || activityId === 'concertRehearsal') return 5;
+  if (activityId === 'yearEndMeetGreet' || activityId.startsWith('mg')) return 4;
+  if (activityId === 'mvProduction' || activityId.startsWith('mv')) return 3;
+  if (activityId.startsWith('vc')) return 2;
+  return 1;
+};
 const eventConflictsForWeek = (game, week, eventType = 'meetGreet') => {
   const absolute = absoluteWeek(game.year, week);
+  const requestedPriority = eventType === 'videoCall' ? campaignPriority('vc1') : campaignPriority('mg1');
   const conflicts = [];
   if ((game.concerts ?? []).some((event) => absoluteWeek(event.targetYear, event.targetWeek) === absolute)) conflicts.push('Concert');
   if ((game.yearEndMeetGreets ?? []).some((event) => absoluteWeek(event.year, event.targetWeek) === absolute)) conflicts.push('Year-end Meet & Greet');
-  if ((game.fanEventPlans ?? []).some((event) => absoluteWeek(event.year, event.targetWeek) === absolute && (eventType !== 'videoCall' || event.type !== 'videoCall'))) conflicts.push('Fan event campaign');
+  if ((game.fanEventPlans ?? []).some((event) => absoluteWeek(event.year, event.targetWeek) === absolute && campaignPriority(event.type === 'videoCall' ? 'vc1' : 'mg1') >= requestedPriority && (eventType !== 'videoCall' || event.type !== 'videoCall'))) conflicts.push('Fan event campaign');
   if ((game.activityEvents ?? []).some((event) => absoluteWeek(event.year, event.week) === absolute && (eventType !== 'videoCall' || event.type !== 'videoCall'))) conflicts.push('Resolved event');
-  if (week === game.week && Object.values(game.schedule ?? {}).some((activity) => activity === 'concert' || activity === 'yearEndMeetGreet' || activity?.startsWith('mg') || (eventType !== 'videoCall' && activity?.startsWith('vc')))) conflicts.push('Scheduled fan event');
+  if (week === game.week && Object.values(game.schedule ?? {}).some((activity) => campaignPriority(activity) >= requestedPriority && campaignPriority(activity) >= 2 && !(eventType === 'videoCall' && activity?.startsWith?.('vc')))) conflicts.push('Scheduled fan event');
   return [...new Set(conflicts)];
 };
 const EventConflictNotice = ({ game, week, eventType = 'meetGreet' }) => {
@@ -121,7 +131,7 @@ const normalizeSessionActivities = (state) => {
     week: convertWeek(state.week),
     bonusLoadout, bonusLevels, graduationTargets: state.graduationTargets ?? {},
     schedule, singles, scheduleTemplates: state.scheduleTemplates ?? [], theaterShows: state.theaterShows ?? {}, theaterHistory: state.theaterHistory ?? [], concertVenueOffers: state.concertVenueOffers?.length ? state.concertVenueOffers : undefined, auditionCampaign, annualReviews: state.annualReviews ?? [], fanTarget: state.fanTarget?.formulaVersion === 2 ? state.fanTarget : createFanTargetForYear(state.year, inferredYearStartFans), fanTargetHistory: (state.fanTargetHistory ?? []).filter((target) => target.formulaVersion === 2), fanTargetMetaReward: state.fanTargetMetaReward ?? 0, mentorships: state.mentorships ?? [], mentorshipHistory: state.mentorshipHistory ?? [], promotions: state.promotions ?? [], chemistry: state.chemistry ?? {}, demandHistory: state.demandHistory ?? [], opportunityHistory: state.opportunityHistory ?? [], pendingOpportunity: state.pendingOpportunity ?? null, fanEventPlans: state.fanEventPlans ?? [], departures: state.departures ?? [], ledger: state.ledger ?? { pendingUpkeep: 0, pendingOperations: 0, debt: { salary: 0, upkeep: 0, operations: 0 }, unpaidSalaryMonths: 0, settlements: [] }, loans: state.loans ?? [], loanOffers: state.loanOffers ?? [], seitansaiObligations: state.seitansaiObligations ?? [],
-    financialEvents: convertEntries(state.financialEvents), hardMode: state.hardMode ?? false, rosterScope: state.rosterScope ?? 'active',
+    financialEvents: convertEntries(state.financialEvents), activeDrama: state.activeDrama ? { ...state.activeDrama, dramaSource: state.activeDrama.dramaSource ?? 'member' } : null, activeManagementDrama: state.activeManagementDrama ? { ...state.activeManagementDrama, dramaSource: 'management' } : null, dramaCooldown: state.dramaCooldown ?? 0, memberDramaCooldown: state.memberDramaCooldown ?? state.dramaCooldown ?? 0, managementDramaCooldown: state.managementDramaCooldown ?? 0, campaign: state.campaign ?? null, firstCampaignYear: state.firstCampaignYear ?? 2, nextCampaignConfig: state.nextCampaignConfig ?? null, campaignHistory: state.campaignHistory ?? [], hardMode: state.hardMode ?? false, rosterScope: state.rosterScope ?? 'active',
     members: (state.members ?? []).map((member) => ({ ...member, joinedYear: Number.isFinite(member.joinedYear) ? member.joinedYear : 1, joinedWeek: Number.isFinite(member.joinedWeek) ? convertWeek(member.joinedWeek) : 1, consistency: member.consistency ?? 60, adaptability: member.adaptability ?? 60, developmentCurve: member.developmentCurve ?? 'steady', fanComposition: member.fanComposition ?? { core: 25, casual: 25, digital: 25, event: 25 }, oshiSentiment: member.oshiSentiment ?? 0, salary: member.salary ?? null, setlistFamiliarity: member.setlistFamiliarity ?? {}, injury: member.injury ?? null, weeksWithoutEvent: member.weeksWithoutEvent ?? 0, rosterScope: member.rosterScope ?? (member.graduated ? 'ex' : 'active'), ...backfillBirthday(state.seed, member) })), unsignedMembers: (state.unsignedMembers ?? []).map((member) => ({ ...member, salary: member.salary ?? null, injury: member.injury ?? null, weeksWithoutEvent: member.weeksWithoutEvent ?? 0, rosterScope: member.rosterScope ?? (member.graduated ? 'ex' : 'active'), ...backfillBirthday(state.seed, member) })), fanNarratives: state.fanNarratives ?? [], dramaMemory: state.dramaMemory ?? [], failureCounters: state.failureCounters ?? { negativeCashWeeks: 0, lowTrustWeeks: 0, lowReputationWeeks: 0, lowFanbaseWeeks: 0 },
     history: convertEntries(state.history), activityEvents: convertEntries(state.activityEvents), weeklyReports: convertEntries(state.weeklyReports), concerts: convertEntries(state.concerts), yearEndMeetGreets: convertEntries(state.yearEndMeetGreets), renovations: convertEntries(state.renovations), graduations: convertEntries(state.graduations),
     lastResult: state.lastResult ? { ...state.lastResult, week: convertWeek(state.lastResult.week) } : state.lastResult,
@@ -141,12 +151,24 @@ function TheaterPlanner({ game, setGame, theaterCounts }) {
   const activeDays = DAYS.filter((day) => theaterCounts[day] > 0);
   if (!activeDays.length) return null;
   const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
-  // Members with birthday this month
   const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+  const currentAbsoluteWeek = (game.year - 1) * BALANCE.weeksPerYear + game.week;
+  const fulfilledSeitansaiKeys = new Set((game.seitansaiObligations ?? [])
+    .filter((obligation) => obligation.status === 'fulfilled')
+    .map((obligation) => `${obligation.memberId}:${obligation.year}:${obligation.month}`));
+  const recentlyHeldSeitansaiIds = new Set((game.theaterHistory ?? [])
+    .filter((show) => {
+      const showAbsoluteWeek = (show.year - 1) * BALANCE.weeksPerYear + show.week;
+      return show.isSeitansai && currentAbsoluteWeek - showAbsoluteWeek >= 0 && currentAbsoluteWeek - showAbsoluteWeek <= 8;
+    })
+    .map((show) => show.seitansaiMemberId));
   const birthdayMembers = game.members.filter((member) =>
     ['active', 'trainee'].includes(member.status) &&
     (member.birthMonth === currentMonth || member.birthMonth === prevMonth)
-  ).map(member => ({ ...member, isActualBirthday: member.birthMonth === currentMonth }));
+  ).filter((member) => {
+    const birthdayYear = currentMonth === 1 && member.birthMonth === 12 ? game.year - 1 : game.year;
+    return !fulfilledSeitansaiKeys.has(`${member.id}:${birthdayYear}:${member.birthMonth}`) && !recentlyHeldSeitansaiIds.has(member.id);
+  }).map(member => ({ ...member, isActualBirthday: member.birthMonth === currentMonth }));
   // Graduations this month
   const graduatingMembers = (game.graduations ?? [])
     .filter((grad) => grad.year === game.year && Math.ceil(grad.week / BALANCE.weeksPerMonth) === currentMonth)
@@ -258,6 +280,7 @@ function Wiki({ game, language = 'en' }) {
     [text('2Shot Last Show', '2Shot Pertunjukan Terakhir'), text('Sold tickets × Rp 200k.', 'Tiket terjual × Rp 200 ribu.'), text('Only during a marked final theater show; 100 slots.', 'Hanya saat pertunjukan teater terakhir yang ditandai; 100 slot.')],
     [text('Year-end Meet & Greet', 'Meet & Greet Akhir Tahun'), text('Sold tickets × ' + money(BALANCE.activities.yearEndMeetGreet.ticket) + '.', 'Tiket terjual × ' + money(BALANCE.activities.yearEndMeetGreet.ticket) + '.'), text('Q4 event; sales begin before the target week and use 300 slots per member.', 'Acara Q4; penjualan dimulai sebelum minggu target dan memakai 300 slot per anggota.')],
     [text('Concert', 'Konser'), text('Campaign ticket sales before the event; demand and venue capacity cap sales.', 'Penjualan tiket kampanye sebelum acara; permintaan dan kapasitas venue membatasi penjualan.'), text('Production starts at ' + money(CONCERT_BUDGETS[0].cost) + ' and adds venue cost.', 'Produksi mulai dari ' + money(CONCERT_BUDGETS[0].cost) + ' ditambah biaya venue.')],
+    [text('Annual campaign voting', 'Voting kampanye tahunan'), text('Sousenkyo, Request Hour, and Janken support generates weekly votes and fan revenue at Rp 5k–10k per vote based on Fan Trust and Reputation.', 'Dukungan Sousenkyo, Request Hour, dan Janken menghasilkan suara mingguan serta pendapatan penggemar Rp 5k–10k per suara berdasarkan Kepercayaan Penggemar dan Reputasi.'), text('One rotating campaign per year; duration is 8–16 weeks. Request Hour winner receives exactly four MV production weeks.', 'Satu kampanye bergilir per tahun; durasi 8–16 minggu. Pemenang Request Hour mendapat tepat empat minggu produksi MV.')],
     [text('Management opportunity', 'Peluang manajemen'), text('Offer revenue after any category-specific Management Perk.', 'Pendapatan tawaran setelah bonus manajemen khusus kategori.'), text('Accept before the deadline; offer cost is paid immediately and revenue is recorded in Statistics.', 'Terima sebelum tenggat; biaya tawaran dibayar langsung dan pendapatan dicatat di Statistik.')],
     [text('Graduation merchandise', 'Merchandise kelulusan'), text('Rp 18m when prepared farewell merchandise completes.', 'Rp 18 juta saat merchandise perpisahan yang disiapkan selesai.'), text('Requires a prepared graduation plan; recorded under Other income.', 'Membutuhkan rencana kelulusan yang disiapkan; dicatat sebagai Pendapatan lain.')],
   ];
@@ -431,7 +454,7 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
       </div>
       <div className="panel last-result">
         <div className="panel-heading"><div><span className="eyebrow">Latest report</span><h2>{game.lastResult ? calendarLabel(game.week === 1 ? game.year - 1 : game.year, game.week === 1 ? BALANCE.weeksPerYear : game.week - 1) : 'Timeline opened'}</h2></div></div>
-        {game.lastResult ? <><div className="result-score"><div><span>Net cash</span><strong className={game.lastResult.moneyDelta >= 0 ? 'positive' : 'negative'}>{game.lastResult.moneyDelta >= 0 ? '+' : ''}{money(game.lastResult.moneyDelta)}</strong></div><div><span>New fans</span><strong>+{number.format(game.lastResult.fanGain)}</strong></div><div><span>Activities</span><strong>{game.lastResult.activities}</strong></div></div>{game.lastResult.finances ? <div className="finance-breakdown"><div className="finance-column income"><h3>Income</h3><dl><div><dt>Theater tickets</dt><dd>{money(game.lastResult.finances.theater)}</dd></div><div><dt>Video Call</dt><dd>{money(game.lastResult.finances.videoCall)}</dd></div><div><dt>Meet & Greet</dt><dd>{money(game.lastResult.finances.meetGreet)}</dd></div><div><dt>Concerts</dt><dd>{money(game.lastResult.finances.concert)}</dd></div><div><dt>Other income</dt><dd>{money(game.lastResult.finances.otherIncome)}</dd></div><div className="finance-total"><dt>Total income</dt><dd>{money(game.lastResult.finances.totalIncome)}</dd></div></dl></div><div className="finance-column expenses"><h3>Expenses</h3><dl><div><dt>Activity costs</dt><dd>{money(game.lastResult.finances.activityCosts)}</dd></div><div><dt>General operations</dt><dd>{money(game.lastResult.finances.generalOperations)}</dd></div><div><dt>Theater upkeep</dt><dd>{money(game.lastResult.finances.theaterUpkeep)}</dd></div><div className="finance-total"><dt>Total expenses</dt><dd>{money(game.lastResult.finances.totalExpenses)}</dd></div></dl></div></div> : <p className="finance-legacy-note">Resolve another week to generate the detailed income report.</p>}</> : <p className="empty-copy">Schedule first week to establish form and fan response.</p>}
+        {game.lastResult ? <><div className="result-score"><div><span>Net cash</span><strong className={game.lastResult.moneyDelta >= 0 ? 'positive' : 'negative'}>{game.lastResult.moneyDelta >= 0 ? '+' : ''}{money(game.lastResult.moneyDelta)}</strong></div><div><span>New fans</span><strong>+{number.format(game.lastResult.fanGain)}</strong></div><div><span>Activities</span><strong>{game.lastResult.activities}</strong></div></div>{game.lastResult.finances ? <div className="finance-breakdown"><div className="finance-column income"><h3>Income</h3><dl><div><dt>Theater tickets</dt><dd>{money(game.lastResult.finances.theater)}</dd></div><div><dt>Video Call</dt><dd>{money(game.lastResult.finances.videoCall)}</dd></div><div><dt>Meet & Greet</dt><dd>{money(game.lastResult.finances.meetGreet)}</dd></div><div><dt>Concerts</dt><dd>{money(game.lastResult.finances.concert)}</dd></div><div><dt>Annual campaigns</dt><dd>{money(game.lastResult.finances.campaign)}</dd></div><div><dt>Other income</dt><dd>{money(game.lastResult.finances.otherIncome)}</dd></div><div className="finance-total"><dt>Total income</dt><dd>{money(game.lastResult.finances.totalIncome)}</dd></div></dl></div><div className="finance-column expenses"><h3>Expenses</h3><dl><div><dt>Activity costs</dt><dd>{money(game.lastResult.finances.activityCosts)}</dd></div><div><dt>General operations</dt><dd>{money(game.lastResult.finances.generalOperations)}</dd></div><div><dt>Theater upkeep</dt><dd>{money(game.lastResult.finances.theaterUpkeep)}</dd></div><div className="finance-total"><dt>Total expenses</dt><dd>{money(game.lastResult.finances.totalExpenses)}</dd></div></dl></div></div> : <p className="finance-legacy-note">Resolve another week to generate the detailed income report.</p>}</> : <p className="empty-copy">Schedule first week to establish form and fan response.</p>}
         {game.lastResult?.baseFanGain > game.lastResult?.fanGain ? <p className="fan-cap-note">Base fan potential: {number.format(game.lastResult.baseFanGain)} · soft cap applied</p> : null}
       </div>
       <div className="panel roster-health">
@@ -665,7 +688,38 @@ function FanEventCampaigns({ game, setGame }) {
   return <div className="fan-event-box"><FanEventCampaignsCore game={game} setGame={setGame} /></div>;
 }
 
-function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate }) {
+function MajorCampaignPanel({ game, setGame, language = 'en' }) {
+  const current = game.campaign;
+  const next = game.nextCampaignConfig;
+  const [duration, setDuration] = useState(next?.durationWeeks ?? 12);
+  const [startWeek, setStartWeek] = useState(next?.startWeek ?? 1);
+  useEffect(() => { setDuration(next?.durationWeeks ?? 12); setStartWeek(next?.startWeek ?? 1); }, [next?.id, next?.durationWeeks, next?.startWeek]);
+  const text = (en, id) => language === 'id' ? id : en;
+  const standings = current?.liveStandings ?? current?.result?.standings ?? [];
+  const memberName = (memberId) => game.members.find((member) => member.id === memberId)?.nickname || game.members.find((member) => member.id === memberId)?.name || memberId;
+  const songName = (songId) => dreamSetlistSongs.find((song) => song.id === songId)?.title || songId;
+  const configure = () => setGame((state) => configureMajorCampaign(state, { startWeek, durationWeeks: duration }));
+  return <section className="major-campaign-panel"><div className="major-campaign-head"><div><span className="eyebrow">{text('Annual campaign', 'Kampanye tahunan')}</span><h2>{current ? current.type.replace('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) : text('Campaign rotation', 'Rotasi kampanye')}</h2><p>{text('One major campaign per year: Sousenkyo, Request Hour, then Janken.', 'Satu kampanye besar per tahun: Sousenkyo, Request Hour, lalu Janken.')}</p></div>{current ? <span className={`campaign-status campaign-status-${current.status}`}>{current.status}</span> : <span className="campaign-status">{text('Year 1 preparation', 'Persiapan Tahun 1')}</span>}</div>{current ? <div className="major-campaign-metrics"><div><span>{text('Week progress', 'Progres minggu')}</span><strong>{Math.min(current.durationWeeks, Math.max(0, game.week - current.startWeek + 1))}/{current.durationWeeks}</strong></div><div><span>{text('Votes / support', 'Suara / dukungan')}</span><strong>{number.format(current.totalVotes ?? 0)}</strong></div><div><span>{text('Revenue / vote', 'Pendapatan / suara')}</span><strong>{money(current.totalVotes ? Math.round((current.votingRevenue ?? 0) / current.totalVotes) : 0)}</strong></div><div><span>{text('Total revenue', 'Total pendapatan')}</span><strong>{money(current.votingRevenue ?? 0)}</strong></div></div> : null}{next ? <div className="major-campaign-config"><div><strong>{text('Next year', 'Tahun depan')}: {next.type.replace('-', ' ')}</strong><span>{text('Configure duration (8–16 weeks)', 'Atur durasi (8–16 minggu)')}</span></div><label><span>{text('Duration', 'Durasi')}</span><input type="number" min="8" max="16" value={duration} onChange={(event) => setDuration(Math.max(8, Math.min(16, Number(event.target.value) || 12)))} /></label><button type="button" className="secondary-button" onClick={configure}>{text('Save configuration', 'Simpan konfigurasi')}</button></div> : null}{current && standings.length ? <div className="major-campaign-standings"><div><strong>{text('Live standings', 'Peringkat langsung')}</strong><span>{current.type === 'janken' ? text('Support does not affect seeded matches.', 'Dukungan tidak memengaruhi pertandingan ber-seed.') : text('Rankings update weekly.', 'Peringkat diperbarui tiap minggu.')}</span></div><ol>{standings.slice(0, 12).map((entry) => <li key={entry.memberId ?? entry.songId}><span>{entry.rank ?? ''}</span><strong>{entry.name ?? entry.title ?? memberName(entry.memberId ?? '')}</strong><small>{number.format(entry.votes ?? entry.supports ?? 0)}</small></li>)}</ol></div> : null}{current?.result ? <div className="major-campaign-result"><Trophy size={18} /><span><strong>{text('Result', 'Hasil')}</strong><small>{current.type === 'sousenkyo' ? `${text('Center', 'Center')}: ${memberName(current.result.winnerMemberId)}` : current.type === 'request-hour' ? `${text('Winning song', 'Lagu pemenang')}: ${songName(current.result.winnerSongId)}` : `${text('Winner', 'Pemenang')}: ${memberName(current.result.winnerMemberId)}`}</small>{current.type === 'janken' && current.result.rounds ? <small>{text(`${current.result.rounds.length} seeded rounds · ${current.result.bracketSize}-slot bracket`, `${current.result.rounds.length} ronde seed · bracket ${current.result.bracketSize} slot`)}</small> : null}</span></div> : null}{(game.campaignHistory ?? []).length ? <div className="major-campaign-history"><strong>{text('Campaign history', 'Riwayat kampanye')}</strong>{game.campaignHistory.slice(-3).reverse().map((entry) => <span key={`${entry.id}-${entry.archivedAt?.week ?? 0}`}>{entry.campaignYear} · {entry.type} · {entry.status}</span>)}</div> : null}</section>;
+}
+
+function CampaignBracketPreview({ game, language = 'en' }) {
+  const campaign = game.campaign;
+  if (campaign?.type !== 'janken' || !campaign.bracket?.rounds?.length || campaign.result) return null;
+  const label = language === 'id' ? 'Bracket Janken awal' : 'Seeded Janken bracket';
+  const names = (id) => id ? game.members.find((member) => member.id === id)?.nickname || game.members.find((member) => member.id === id)?.name || id : (language === 'id' ? 'Bye' : 'Bye');
+  return <section className="major-campaign-panel campaign-bracket-preview"><div className="major-campaign-head"><div><span className="eyebrow">{label}</span><h2>{campaign.bracket.bracketSize}-slot bracket</h2><p>{language === 'id' ? 'Seed dan bye ditentukan saat kampanye dibuka.' : 'Seeds and byes are fixed when the campaign opens.'}</p></div></div><div className="major-campaign-standings"><ol>{campaign.bracket.rounds[0].map((match) => <li key={match.match}><span>#{match.match}</span><strong>{names(match.memberAId)} vs {names(match.memberBId)}</strong><small>{match.bye ? (language === 'id' ? 'bye' : 'bye') : (language === 'id' ? 'menunggu' : 'pending')}</small></li>)}</ol></div></section>;
+}
+
+function CampaignTimingEditor({ game, setGame, language = 'en' }) {
+  const next = game.nextCampaignConfig;
+  const [startWeek, setStartWeek] = useState(next?.startWeek ?? 1);
+  useEffect(() => { setStartWeek(next?.startWeek ?? 1); }, [next?.id, next?.startWeek]);
+  if (!next) return null;
+  const text = (en, id) => language === 'id' ? id : en;
+  return <div className="major-campaign-config campaign-timing-editor"><label><span>{text('Start week', 'Minggu mulai')}</span><input type="number" min="1" max="40" value={startWeek} onChange={(event) => setStartWeek(Math.max(1, Math.min(40, Number(event.target.value) || 1)))} /></label><button type="button" className="secondary-button" onClick={() => setGame((state) => configureMajorCampaign(state, { startWeek, durationWeeks: next.durationWeeks }))}>{text('Save start week', 'Simpan minggu mulai')}</button></div>;
+}
+
+function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate, language = 'en' }) {
   const [confirmSingle, setConfirmSingle] = useState(false);
   const [productionDay, setProductionDay] = useState(DAYS[0]);
   const [mvLineupIds, setMvLineupIds] = useState([]);
@@ -738,6 +792,9 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
   const holdConcert = () => setGame((current) => announceConcert(current, concertDay, selectedConcert.year, selectedConcert.month, concertTitle, concertBudgetId, concertVenueId));
   return <div className="page campaigns-page">
     <section className="page-heading"><div><span className="eyebrow">Group projects</span><h1>Campaigns</h1><p>Commit budget, choose spotlight, and create fan-facing moments.</p></div></section>
+    <MajorCampaignPanel game={game} setGame={setGame} language={language} />
+    <CampaignTimingEditor game={game} setGame={setGame} language={language} />
+    <CampaignBracketPreview game={game} language={language} />
     <FanEventCampaigns game={game} setGame={setGame} />
     <AnnualEvents game={game} setGame={setGame} />
     <section className="campaign-grid">
@@ -839,7 +896,7 @@ function FinanceDashboard({ game }) {
   const filtered = reports.filter((report) => period === 'all' || (report.year === game.year && (period === 'year' || Math.ceil(report.week / BALANCE.weeksPerMonth) === currentMonth)));
   const financialEvents = (game.financialEvents ?? []).filter((event) => period === 'all' || (event.year === game.year && (period === 'year' || Math.ceil(event.week / BALANCE.weeksPerMonth) === currentMonth)));
   const totals = sumReports(filtered, financialEvents);
-  const incomeRows = [['Theater', totals.finances.theater], ['Video Call', totals.finances.videoCall], ['Meet & Greet', totals.finances.meetGreet], ['2Shot', totals.finances.twoShot], ['Media', totals.finances.media], ['Off-air', totals.finances.offAir], ['Live Stream', totals.finances.liveStream], ['Concert', totals.finances.concert], ['Opportunities', totals.finances.opportunity], ['Other', totals.finances.otherIncome]];
+  const incomeRows = [['Theater', totals.finances.theater], ['Video Call', totals.finances.videoCall], ['Meet & Greet', totals.finances.meetGreet], ['2Shot', totals.finances.twoShot], ['Media', totals.finances.media], ['Off-air', totals.finances.offAir], ['Live Stream', totals.finances.liveStream], ['Concert', totals.finances.concert], ['Annual campaigns', totals.finances.campaign], ['Opportunities', totals.finances.opportunity], ['Other', totals.finances.otherIncome]];
   const expenseRows = [['Activities', totals.finances.activityCosts], ['Refunds', totals.finances.refunds], ['Salary', totals.finances.salary], ['Debt payments', totals.finances.debtPayments + totals.finances.loanPayment], ['Opportunity costs', totals.finances.opportunityCosts], ['Operations', totals.finances.generalOperations], ['Theater upkeep', totals.finances.theaterUpkeep]];
   const largestCategory = Math.max(1, ...incomeRows.map(([, value]) => value), ...expenseRows.map(([, value]) => value));
   const trend = filtered.slice(-12);
@@ -869,7 +926,7 @@ function StatisticsDashboard({ game, language = 'en' }) {
     if (delta === null) return 'No period baseline';
     return `${delta >= 0 ? '+' : ''}${number.format(delta)} this period`;
   };
-  const incomeRows = [[text('Theater', 'Teater'), totals.finances.theater], [text('Video Call', 'Panggilan Video'), totals.finances.videoCall], [text('Meet & Greet', 'Meet & Greet'), totals.finances.meetGreet], [text('2Shot', '2Shot'), totals.finances.twoShot], [text('Media', 'Media'), totals.finances.media], [text('Off-air', 'Off-air'), totals.finances.offAir], [text('Live Stream', 'Live Stream'), totals.finances.liveStream], [text('Concert', 'Konser'), totals.finances.concert], [text('Opportunities', 'Peluang manajemen'), totals.finances.opportunity], [text('Other', 'Pendapatan lain'), totals.finances.otherIncome]];
+  const incomeRows = [[text('Theater', 'Teater'), totals.finances.theater], [text('Video Call', 'Panggilan Video'), totals.finances.videoCall], [text('Meet & Greet', 'Meet & Greet'), totals.finances.meetGreet], [text('2Shot', '2Shot'), totals.finances.twoShot], [text('Media', 'Media'), totals.finances.media], [text('Off-air', 'Off-air'), totals.finances.offAir], [text('Live Stream', 'Live Stream'), totals.finances.liveStream], [text('Concert', 'Konser'), totals.finances.concert], [text('Annual campaigns', 'Kampanye tahunan'), totals.finances.campaign], [text('Opportunities', 'Peluang manajemen'), totals.finances.opportunity], [text('Other', 'Pendapatan lain'), totals.finances.otherIncome]];
   const expenseRows = [[text('Activities', 'Aktivitas'), totals.finances.activityCosts], [text('Refunds', 'Pengembalian dana'), totals.finances.refunds], [text('Salary', 'Gaji'), totals.finances.salary], [text('Debt payments', 'Pembayaran utang'), totals.finances.debtPayments + totals.finances.loanPayment], [text('Opportunity costs', 'Biaya peluang'), totals.finances.opportunityCosts], [text('Operations', 'Operasional'), totals.finances.generalOperations], [text('Theater upkeep', 'Biaya teater'), totals.finances.theaterUpkeep]];
   const largestCategory = Math.max(1, ...incomeRows.map(([, value]) => value), ...expenseRows.map(([, value]) => value));
   const trend = filtered.slice(-12);
@@ -1034,7 +1091,7 @@ const sumReports = (reports, financialEvents = []) => {
     fanGain: summary.fanGain + (report.fanGain ?? 0),
     activities: summary.activities + (report.activities ?? 0),
     finances: Object.fromEntries(Object.keys(summary.finances).map((key) => [key, summary.finances[key] + (report.finances?.[key] ?? 0)])),
-  }), { moneyDelta: 0, fanGain: 0, activities: 0, finances: { theater: 0, videoCall: 0, meetGreet: 0, media: 0, offAir: 0, liveStream: 0, concert: 0, twoShot: 0, opportunity: 0, otherIncome: 0, activityCosts: 0, refunds: 0, salary: 0, debtPayments: 0, loanPayment: 0, opportunityCosts: 0, generalOperations: 0, theaterUpkeep: 0, totalIncome: 0, totalExpenses: 0 } });
+  }), { moneyDelta: 0, fanGain: 0, activities: 0, finances: { theater: 0, videoCall: 0, meetGreet: 0, media: 0, offAir: 0, liveStream: 0, concert: 0, twoShot: 0, campaign: 0, opportunity: 0, otherIncome: 0, activityCosts: 0, refunds: 0, salary: 0, debtPayments: 0, loanPayment: 0, opportunityCosts: 0, generalOperations: 0, theaterUpkeep: 0, totalIncome: 0, totalExpenses: 0 } });
   financialEvents.forEach((event) => {
     const income = Math.max(0, Number(event.income ?? event.revenue ?? 0));
     const expense = Math.max(0, Number(event.expense ?? event.cost ?? 0));
@@ -1054,7 +1111,7 @@ const applyFinancialEvents = (report, financialEvents = []) => {
 };
 
 function ReportSummary({ title, report }) {
-  const incomeRows = [['Theater tickets', 'theater'], ['Video Call', 'videoCall'], ['Meet & Greet', 'meetGreet'], ['2Shot', 'twoShot'], ['Media appearances', 'media'], ['Off-air performances', 'offAir'], ['Live Stream', 'liveStream'], ['Concerts', 'concert'], ['Opportunities', 'opportunity'], ['Other income', 'otherIncome']];
+  const incomeRows = [['Theater tickets', 'theater'], ['Video Call', 'videoCall'], ['Meet & Greet', 'meetGreet'], ['2Shot', 'twoShot'], ['Media appearances', 'media'], ['Off-air performances', 'offAir'], ['Live Stream', 'liveStream'], ['Concerts', 'concert'], ['Annual campaign voting', 'campaign'], ['Opportunities', 'opportunity'], ['Other income', 'otherIncome']];
   return <section className="report-summary"><h3>{title}</h3><div className="report-kpis"><div><span>Net cash</span><strong className={report.moneyDelta >= 0 ? 'positive' : 'negative'}>{report.moneyDelta >= 0 ? '+' : ''}{money(report.moneyDelta)}</strong></div><div><span>New fans</span><strong>+{number.format(report.fanGain)}</strong></div><div><span>Activities</span><strong>{report.activities}</strong></div></div><div className="report-ledger">{incomeRows.map(([label, key]) => <div key={key}><span>{label}</span><strong>{money(report.finances?.[key] ?? 0)}</strong></div>)}<div><span>Opportunity costs</span><strong>{money(report.finances?.opportunityCosts ?? 0)}</strong></div><div><span>Total income</span><strong className="positive">{money(report.finances?.totalIncome ?? 0)}</strong></div><div><span>Total expenses</span><strong className="negative">{money(report.finances?.totalExpenses ?? 0)}</strong></div></div></section>;
 }
 
@@ -1117,10 +1174,16 @@ function GraduationModal({ game, setGame, graduation, member, onClose }) {
   return <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="statistics-modal graduation-modal" role="dialog" aria-modal="true" aria-labelledby="graduation-title"><div className="statistics-head"><div><span className="eyebrow">Graduation announcement</span><h2 id="graduation-title">{graduation.memberName} will graduate</h2></div><IconButton label="Close graduation announcement" onClick={onClose}><X size={20} /></IconButton></div><div className="graduation-profile">{member ? <Portrait member={member} size="setup" /> : <div className="graduation-symbol"><CalendarDays size={30} /></div>}<div><span>Final theater departure</span><strong>{calendarLabel(graduation.departureYear, graduation.departureWeek)}</strong><p>The member remains available for scheduling until the announced departure date.</p></div></div>{graduation.preparation ? <div className="graduation-plan-saved"><Check size={18} /><span><strong>Preparation saved</strong><small>{money(graduation.preparation.cost)} committed to the farewell plan.</small></span></div> : <div className="graduation-options"><label><input type="checkbox" checked={options.finalShow} onChange={(event) => setOptions((current) => ({ ...current, finalShow: event.target.checked }))} /><span><strong>Final theater show</strong><small>Rp 8m · fan growth and trust</small></span></label><label><input type="checkbox" checked={options.specialSegment} onChange={(event) => setOptions((current) => ({ ...current, specialSegment: event.target.checked }))} /><span><strong>Special segment</strong><small>Rp 4m · extra fan response</small></span></label><label><input type="checkbox" checked={options.merchandise} onChange={(event) => setOptions((current) => ({ ...current, merchandise: event.target.checked }))} /><span><strong>Farewell merchandise</strong><small>Rp 10m · Rp 18m departure revenue</small></span></label><label className="successor-select"><span><strong>Train successor</strong><small>Rp 6m · Performance +2, Popularity +1</small></span><select value={options.successorId} onChange={(event) => setOptions((current) => ({ ...current, successorId: event.target.value }))}><option value="">No successor</option>{successors.map((candidate) => <option key={candidate.id} value={candidate.id}>{displayName(candidate)}</option>)}</select></label></div>}<div className="graduation-actions"><button className="secondary-button" type="button" onClick={onClose}>Acknowledge</button>{!graduation.preparation ? <button className="setup-primary" type="button" disabled={!cost || game.money < cost} onClick={confirm}>Save plan · {money(cost)} <ChevronRight size={18} /></button> : null}</div></section></div></ModalPortal>;
 }
 
-function DramaDecisionModal({ game, setGame, drama, onClose }) {
+function DramaDecisionModal({ game, setGame, drama, language = 'en', onClose }) {
   const member = game.members.find((item) => item.id === drama.memberId);
-  if (!member) return null;
-  return <ModalPortal><div className="setup-modal-backdrop" role="presentation"><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="drama-decision-title"><div className="confirm-week-icon"><ShieldAlert size={24} /></div><span className="eyebrow">Member drama</span><h2 id="drama-decision-title">{member.name} is involved in bad drama</h2><p>Choose management response. Punishment duration can be adjusted later from the member profile.</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={onClose}>Let it be</button><button type="button" className="secondary-button" onClick={() => { setGame((current) => punishMember(current, member.id, 4)); onClose(); }}>Punish 4 weeks</button><button type="button" className="setup-primary" onClick={() => { setGame((current) => fireMember(current, member.id)); onClose(); }}>Fire member</button></div></section></div></ModalPortal>;
+  const isManagement = drama.dramaSource === 'management' || drama.type === 'management';
+  if (!member && !isManagement) return null;
+  const title = language === 'id' ? drama.titleId : drama.title;
+  const detail = language === 'id' ? drama.detailId : drama.detail;
+  const category = language === 'id' ? drama.categoryId ?? drama.category ?? (isManagement ? 'Insiden manajemen' : 'Insiden anggota') : drama.category ?? (isManagement ? 'Management incident' : 'Member incident');
+  const directedAt = drama.directedTarget ? (language === 'id' ? drama.targetNameId ?? drama.targetName : drama.targetName) : null;
+  const subject = member?.name ?? drama.name ?? (language === 'id' ? 'kantor manajemen' : 'management office');
+  return <ModalPortal><div className="setup-modal-backdrop" role="presentation"><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="drama-decision-title"><div className="confirm-week-icon"><ShieldAlert size={24} /></div><span className="eyebrow">{isManagement ? (language === 'id' ? 'Drama manajemen' : 'Management drama') : (language === 'id' ? 'Drama anggota' : 'Member drama')} · {category}</span><h2 id="drama-decision-title">{title ?? `${subject} is involved in bad drama`}</h2><p>{detail ?? `${subject} is involved in bad drama.`}</p>{directedAt ? <small>{language === 'id' ? 'Ditujukan kepada' : 'Directed at'}: {directedAt}</small> : null}{isManagement ? <><p>Severity: {drama.severity}. This incident reflects recent office decisions and affects group trust and reputation.</p><div className="confirm-week-actions"><button type="button" className="setup-primary" onClick={onClose}>{language === 'id' ? 'Akui insiden' : 'Acknowledge incident'}</button></div></> : <><p>Severity: {drama.severity}. The member is unavailable for four weeks. Choose management response.</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={onClose}>Let it be</button><button type="button" className="secondary-button" onClick={() => { setGame((current) => punishMember(current, member.id, 4)); onClose(); }}>Punish 4 weeks</button><button type="button" className="setup-primary" onClick={() => { setGame((current) => fireMember(current, member.id)); onClose(); }}>Fire member</button></div></>}</section></div></ModalPortal>;
 }
 
 function RunEndScreen({ game, onNewRun }) {
@@ -1234,7 +1297,7 @@ export default function App() {
       }
       setGame(next);
        setGraduationAlert(newAnnouncement ?? null);
-       setDramaAlert(next.activeDrama && !game.activeDrama ? next.activeDrama : null);
+       setDramaAlert((next.activeDrama && !game.activeDrama ? next.activeDrama : null) ?? (next.activeManagementDrama && !game.activeManagementDrama ? next.activeManagementDrama : null));
        const monthlyReports = next.lastResult.week % 4 === 0 ? next.weeklyReports.filter((report) => report.year === next.lastResult.year && report.week > next.lastResult.week - 4 && report.week <= next.lastResult.week) : [];
        const monthlyEvents = next.lastResult.week % 4 === 0 ? (next.financialEvents ?? []).filter((event) => event.year === next.lastResult.year && event.week > next.lastResult.week - 4 && event.week <= next.lastResult.week) : [];
        setStatisticsReport({ weekly: next.lastResult, monthly: monthlyReports.length === 4 ? sumReports(monthlyReports, monthlyEvents) : null });
@@ -1373,7 +1436,7 @@ export default function App() {
     {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={setActiveView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'schedule' ? <Schedule game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} /> : null}
     {activeView === 'roster' ? <Roster game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
-    {activeView === 'campaigns' ? <Campaigns game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} onRenovate={renovate} /> : null}
+    {activeView === 'campaigns' ? <Campaigns game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} onRenovate={renovate} language={language} /> : null}
     {activeView === 'templates' ? <ScheduleTemplates game={game} setGame={setGame} language={language} /> : null}
     {activeView === 'statistics' ? <StatisticsDashboard game={game} language={language} /> : null}
     {activeView === 'history' ? <HistoryView game={game} /> : null}
@@ -1381,6 +1444,6 @@ export default function App() {
     {activeView === 'saves' ? <Saves game={game} activeSave={saves[0]} onLoad={load} onDelete={() => setConfirmDeleteRun(true)} user={user} syncState={syncState} onCloudSave={manualSave} onCloudLoad={() => setConfirmCloudLoad(true)} onOpenAccount={openAccount} /> : null}
     {statisticsReport ? <StatisticsModal report={statisticsReport.weekly} monthlyReport={statisticsReport.monthly} financialEvents={game.financialEvents ?? []} onClose={() => setStatisticsReport(null)} /> : null}
      {!statisticsReport && graduationAlert ? <GraduationModal game={game} setGame={setGame} graduation={game.graduations.find((item) => item.id === graduationAlert.id) ?? graduationAlert} member={game.members.find((member) => member.id === graduationAlert.memberId)} onClose={() => setGraduationAlert(null)} /> : null}
-     {!statisticsReport && !graduationAlert && dramaAlert ? <DramaDecisionModal game={game} setGame={setGame} drama={dramaAlert} onClose={() => setDramaAlert(null)} /> : null}
+     {!statisticsReport && !graduationAlert && dramaAlert ? <DramaDecisionModal game={game} setGame={setGame} drama={dramaAlert} language={language} onClose={() => setDramaAlert(null)} /> : null}
   </AppShell>{confirmDeleteRun ? <ConfirmationModal title="Delete active run?" description="This browser timeline will be permanently deleted and cannot be recovered." confirmLabel="Delete run" destructive onCancel={() => setConfirmDeleteRun(false)} onConfirm={remove} icon={<Trash2 size={24} />} /> : null}{confirmEndRun ? <ConfirmationModal title="End this run now?" description="The final summary and Management Token reward will be calculated immediately. This action cannot be undone." confirmLabel="End run" destructive onCancel={() => setConfirmEndRun(false)} onConfirm={finishRun} icon={<Square size={24} />} /> : null}{confirmCloudLoad ? <ConfirmationModal title="Load cloud save?" description="Cloud data will replace this browser's active run and Management Token profile." confirmLabel="Replace local data" destructive onCancel={() => setConfirmCloudLoad(false)} onConfirm={loadFromCloud} icon={<Download size={24} />} /> : null}{accountLayer}</>;
 }

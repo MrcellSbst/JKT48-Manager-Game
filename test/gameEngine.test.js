@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
+import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
 import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
@@ -513,6 +514,33 @@ test('schedule template assigns available members and skips unavailable members'
   assert.match(next.notifications[0].text, /1 template assignment\(s\) skipped/);
 });
 
+test('campaign priority keeps template assignments from replacing campaign work', () => {
+  const game = createGame('campaign-template-priority-test');
+  const memberId = game.members[0].id;
+  const template = { name: 'Training week', entries: [{ memberId, day: 'Mon', activityId: 'vocal' }] };
+  for (const campaignActivity of ['concert', 'mg1', 'mvProduction', 'vc1']) {
+    const staged = { ...game, schedule: { [`${memberId}:Mon`]: campaignActivity } };
+    const next = applyScheduleTemplate(staged, template);
+    assert.equal(next.schedule[`${memberId}:Mon`], campaignActivity, `${campaignActivity} must outrank template work`);
+  }
+});
+
+test('campaign schedule resolution follows Concert > MnG > MV > VC > template priority', () => {
+  const game = createGame('campaign-resolution-priority-test');
+  const memberId = game.members[0].id;
+  const plan = (type) => ({ id: `priority-${type}`, type, day: 'Mon', memberIds: [memberId], year: 1, targetWeek: 1, status: 'announced' });
+  const resolveWith = (existingActivity, plannedType) => resolveWeek({
+    ...game,
+    schedule: { [`${memberId}:Mon`]: existingActivity },
+    fanEventPlans: [plan(plannedType)],
+  }).lastResult.schedule[`${memberId}:Mon`];
+
+  assert.equal(resolveWith('vocal', 'videoCall'), 'vc1');
+  assert.equal(resolveWith('mvProduction', 'videoCall'), 'mvProduction');
+  assert.equal(resolveWith('mvProduction', 'meetGreet'), 'mg1');
+  assert.equal(resolveWith('concert', 'meetGreet'), 'concert');
+});
+
 test('Video Call is limited to one event per member per four-week month', () => {
   const draft = createGame('video-call-limit-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
@@ -537,7 +565,9 @@ test('fan campaigns schedule selected Video Call members and the full Meet & Gre
   assert.equal(Object.values(meetGreet.schedule).filter((activity) => activity === 'mg1').length, 12);
   assert.deepEqual(meetGreet, scheduleFanCampaign(meetGreet, 'meetGreet', 'Sat'));
   const campaignLocked = { ...game, schedule: { [`${game.members[5].id}:Thu`]: 'mvProduction' } };
-  assert.deepEqual(scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu'), campaignLocked);
+  const campaignWins = scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu');
+  assert.equal(Object.values(campaignWins.schedule).filter((activity) => activity === 'mg1').length, 12);
+  assert.equal(campaignWins.schedule[`${game.members[5].id}:Thu`], 'mg1');
 });
 
 test('Video Call cannot book the same member on different days in one week', () => {
@@ -1254,6 +1284,38 @@ test('graduation preparation charges once and applies final-event and successor 
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
+});
+
+test('member drama resolves from the dedicated fictional scenario catalog', () => {
+  const representedCategories = new Set(MEMBER_DRAMA_TEMPLATES.map((item) => item.category));
+  assert.deepEqual(MEMBER_DRAMA_CATEGORIES.filter((category) => !representedCategories.has(category)), []);
+  assert.ok(MEMBER_DRAMA_TEMPLATES.some((item) => item.id === 'unpolite-remark-member' && item.directedTarget === 'member' && item.detail.includes('{target}')));
+  assert.ok(MEMBER_DRAMA_TEMPLATES.some((item) => item.id === 'unpolite-remark-fans' && item.directedTarget === 'fans'));
+  assert.ok(MEMBER_DRAMA_TEMPLATES.some((item) => item.id === 'unpolite-remark-staff' && item.directedTarget === 'staff'));
+  assert.ok(MEMBER_DRAMA_TEMPLATES.some((item) => item.id === 'discriminatory-remark-member' && item.directedTarget === 'member' && item.detail.includes('{target}')));
+  const previousChance = BALANCE.dramaChance;
+  BALANCE.dramaChance = 1;
+  try {
+    const draft = { ...createGame('member-drama-data-test'), year: 2, week: 37, dramaCooldown: 0 };
+    const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+    const next = resolveWeek(game);
+    assert.ok(MEMBER_DRAMA_TEMPLATES.some((template) => template.id === next.activeDrama.dramaId));
+    assert.ok(next.activeDrama.title);
+    assert.ok(next.activeDrama.detail.includes(next.activeDrama.name));
+    assert.equal(next.history[0].title, next.activeDrama.title);
+
+    let targetedDrama = null;
+    for (let seedIndex = 0; seedIndex < 100 && !targetedDrama; seedIndex += 1) {
+      const targetedDraft = { ...createGame(`member-drama-target-${seedIndex}`), year: 2, week: 37, dramaCooldown: 0 };
+      const targetedGame = finalizeGameSetupEngine(targetedDraft, 'community', targetedDraft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id), 'Target Test');
+      const targetedNext = resolveWeek(targetedGame);
+      if (targetedNext.activeDrama?.directedTarget === 'member') targetedDrama = targetedNext.activeDrama;
+    }
+    assert.ok(targetedDrama?.targetMemberId);
+    assert.ok(targetedDrama.detail.includes(targetedDrama.targetName));
+  } finally {
+    BALANCE.dramaChance = previousChance;
+  }
 });
 
 test('graduation planning protects Year 1 and budgets four to six eligible departures per later year', () => {
