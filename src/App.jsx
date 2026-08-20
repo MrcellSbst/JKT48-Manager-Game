@@ -123,16 +123,41 @@ function IconButton({ label, children, className = '', ...props }) {
 function TheaterPlanner({ game, setGame, theaterCounts }) {
   const activeDays = DAYS.filter((day) => theaterCounts[day] > 0);
   if (!activeDays.length) return null;
+  // Helper: check if any active member has birthday this month
+  const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
+  const hasBirthdayThisMonth = game.members.some((member) =>
+    ['active', 'trainee'].includes(member.status) &&
+    member.birthMonth === currentMonth
+  );
+  // Helper: check if any member graduates this month
+  const hasGraduationThisMonth = (game.graduations ?? []).some((grad) =>
+    grad.year === game.year && Math.ceil(grad.week / BALANCE.weeksPerMonth) === currentMonth
+  );
+  // Helper: update theater flags for a day
+  const updateFlags = (day, flags) => {
+    const current = game.theaterShows?.[day] ?? { setlistId: SETLISTS[0].id, centerId: null };
+    setGame((g) => ({
+      ...g,
+      theaterShows: {
+        ...(g.theaterShows ?? {}),
+        [day]: { ...current, ...flags },
+      },
+    }));
+  };
   return <section className="theater-planner"><div className="theater-planner-head"><div><span className="eyebrow">Theater production</span><h3>Setlist and center</h3></div><small>Familiarity improves after every complete 12-member show. Repeating a setlist reduces its demand.</small></div><div className="theater-show-configs">{activeDays.map((day) => {
     const lineup = game.members.filter((member) => game.schedule[`${member.id}:${day}`] === 'theater');
     const fallbackCenter = lineup.toSorted((a, b) => b.performance - a.performance)[0];
-    const configured = game.theaterShows?.[day];
+    const configured = game.theaterShows?.[day] ?? {};
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
     const centerId = lineup.some((member) => member.id === configured?.centerId) ? configured.centerId : fallbackCenter?.id;
     const update = (setlistId, nextCenterId) => setGame((current) => configureTheaterShow(current, day, setlistId, nextCenterId));
     const averageFamiliarity = lineup.length ? Math.round(lineup.reduce((sum, member) => sum + (member.setlistFamiliarity?.[setlist.id] ?? 0), 0) / lineup.length) : 0;
     const boredom = getSetlistBoredom(game, setlist.id);
-     return <article key={day}><img src={setlistCovers[setlist.coverFile]} alt={`${setlist.title} cover`} /><div className="theater-show-copy"><strong>{day} · {theaterCounts[day]}/12</strong><span>{setlist.songs.length} songs · {averageFamiliarity}% lineup familiarity</span>{boredom.penalty > 0 ? <span className="setlist-boredom">Demand -{Math.round(boredom.penalty * 100)}% · played {boredom.plays}x in {boredom.windowWeeks} weeks</span> : <span className="setlist-boredom rested">Rested setlist · full demand</span>}<div><label>Setlist<select value={setlist.id} onChange={(event) => update(event.target.value, centerId)}>{SETLISTS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label><label>Center<select value={centerId ?? ''} disabled={!lineup.length} onChange={(event) => update(setlist.id, event.target.value)}>{lineup.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select></label></div></div></article>;
+    const isSeitansai = configured.isSeitansai || false;
+    const isLastShow = configured.isLastShow || false;
+    const handleSeitansaiToggle = () => updateFlags(day, { isSeitansai: !isSeitansai });
+    const handleLastShowToggle = () => updateFlags(day, { isLastShow: !isLastShow });
+    return <article key={day}><img src={setlistCovers[setlist.coverFile]} alt={`${setlist.title} cover`} /><div className="theater-show-copy"><strong>{day} · {theaterCounts[day]}/12</strong><span>{setlist.songs.length} songs · {averageFamiliarity}% lineup familiarity</span>{boredom.penalty > 0 ? <span className="setlist-boredom">Demand -{Math.round(boredom.penalty * 100)}% · played {boredom.plays}x in {boredom.windowWeeks} weeks</span> : <span className="setlist-boredom rested">Rested setlist · full demand</span>}<div><label>Setlist<select value={setlist.id} onChange={(event) => update(event.target.value, centerId)}>{SETLISTS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label><label>Center<select value={centerId ?? ''} disabled={!lineup.length} onChange={(event) => update(setlist.id, event.target.value)}>{lineup.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select></label></div>{hasBirthdayThisMonth ? <div className="theater-special-flags"><label><input type="checkbox" checked={isSeitansai} onChange={handleSeitansaiToggle} /> Seitansai (birthday show)</label>{isSeitansai ? <span className="two-shot-info">2-Shot Birthday · Rp 200k · 100 slots</span> : null}</div> : null}{hasGraduationThisMonth ? <div className="theater-special-flags"><label><input type="checkbox" checked={isLastShow} onChange={handleLastShowToggle} /> Last Show (graduation)</label>{isLastShow ? <span className="two-shot-info">2-Shot Last Show · Rp 200k · 100 slots</span> : null}</div> : null}</div></article>;
   })}</div></section>;
 }
 
@@ -589,8 +614,8 @@ function FanEventCampaignsCore({ game, setGame }) {
   const completedVcIds = new Set((game.activityEvents ?? []).filter((event) => event.type === 'videoCall' && event.year === game.year && event.month === targetMonth).map((event) => event.memberId));
   const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
   const scheduleToCheck = currentMonth === targetMonth ? game.schedule : {};
-   const scheduledVcIds = new Set(Object.entries(scheduleToCheck).filter(([key, activityId]) => activityId === 'vc1' && key === `${key.slice(0, key.lastIndexOf(':'))}:${eventDay}`).map(([key]) => key.slice(0, key.lastIndexOf(':'))));
-   const plannedVcIds = new Set((game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'videoCall' && !(plan.targetWeek === eventWeek && plan.day !== eventDay)).flatMap((plan) => plan.memberIds));
+    const scheduledVcIds = new Set(Object.entries(scheduleToCheck).filter(([key, activityId]) => activityId === 'vc1').map(([key]) => key.slice(0, key.lastIndexOf(':'))));
+    const plannedVcIds = new Set((game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'videoCall').flatMap((plan) => plan.memberIds));
   const vcMembers = eligibleMembers.filter((member) => !completedVcIds.has(member.id) && !scheduledVcIds.has(member.id) && !plannedVcIds.has(member.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(eventSchedule[`${member.id}:${eventDay}`]));
   const meetGreetUsed = (game.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === game.year && event.month === targetMonth) || Object.values(eventSchedule).some((activityId) => activityId === 'mg1') || (game.fanEventPlans ?? []).some((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'meetGreet');
   const chosenIds = selectedIds.filter((memberId) => vcMembers.some((member) => member.id === memberId));
@@ -694,18 +719,53 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
 
 function HistoryView({ game }) {
   const reviews = [...(game.annualReviews ?? [])].reverse();
-  const fanEventHistory = [...(game.activityEvents ?? []).filter((event) => event.type === 'videoCall' || event.type === 'meetGreet').reduce((groups, event) => {
-    const key = `${event.year}-${event.week}-${event.type}`;
-    const group = groups.get(key) ?? { ...event, id: `history-${key}`, memberIds: [], type: event.type, title: event.type === 'videoCall' ? 'Video Call completed' : 'Meet & Greet completed' };
+  const buildHistoryEntries = (events, status) => events.reduce((groups, event) => {
+    const year = event.year;
+    const week = event.week ?? event.targetWeek;
+    const key = `${year}-${week}-${event.type}`;
+    const group = groups.get(key) ?? {
+      ...event,
+      id: `history-${key}`,
+      memberIds: [],
+      type: event.type,
+      title: event.type === 'videoCall' ? `Video Call ${status}` : `Meet & Greet ${status}`,
+      year,
+      week,
+    };
     if (event.memberId) group.memberIds.push(event.memberId);
+    if (event.memberIds) group.memberIds.push(...event.memberIds);
     groups.set(key, group);
     return groups;
-  }, new Map()).values()].map((event) => {
+  }, new Map());
+  const completedMap = buildHistoryEntries((game.activityEvents ?? []).filter((e) => e.type === 'videoCall' || e.type === 'meetGreet'), 'completed');
+  const plannedMap = buildHistoryEntries((game.fanEventPlans ?? []).filter((e) => e.type === 'videoCall' || e.type === 'meetGreet'), 'scheduled');
+  const combinedMap = new Map([...completedMap, ...plannedMap]);
+  const fanEventHistory = [...combinedMap.values()].map((event) => {
     const report = (game.weeklyReports ?? []).find((item) => item.year === event.year && item.week === event.week);
-    const scheduledIds = Object.entries(report?.schedule ?? {}).filter(([, activityId]) => event.type === 'videoCall' ? activityId === 'vc1' : activityId === 'mg1').map(([key]) => key.slice(0, key.lastIndexOf(':')));
-    const memberIds = [...new Set([...event.memberIds, ...scheduledIds])];
-    const names = memberIds.map((memberId) => displayName(game.members.find((member) => member.id === memberId) ?? { name: 'Former member' }));
-    return { ...event, detail: names.length ? `Members: ${names.join(', ')}.` : 'Group fan event completed.' };
+    const scheduleEntries = Object.entries(report?.schedule ?? {}).filter(([, activityId]) => event.type === 'videoCall' ? activityId === 'vc1' : activityId === 'mg1');
+    const memberIdsFromSchedule = scheduleEntries.map(([key]) => key.slice(0, key.lastIndexOf(':')));
+    const memberIds = [...new Set([...event.memberIds, ...memberIdsFromSchedule])];
+    let detail;
+    if (scheduleEntries.length) {
+      const daysMap = new Map();
+      scheduleEntries.forEach(([key]) => {
+        const [memberId, day] = key.split(':');
+        if (!daysMap.has(day)) daysMap.set(day, []);
+        daysMap.get(day).push(memberId);
+      });
+      const parts = [];
+      for (const [day, ids] of daysMap) {
+        const names = ids.map((id) => displayName(game.members.find((m) => m.id === id) ?? { name: 'Former member' }));
+        parts.push(`${day}: ${names.join(', ')}`);
+      }
+      detail = parts.join('; ');
+    } else if (memberIds.length) {
+      const names = memberIds.map((id) => displayName(game.members.find((m) => m.id === id) ?? { name: 'Former member' }));
+      detail = `Members: ${names.join(', ')}.`;
+    } else {
+      detail = `Group fan event ${event.title.includes('scheduled') ? 'scheduled' : 'completed'}.`;
+    }
+    return { ...event, detail };
   });
   const historyEvents = [...game.history, ...fanEventHistory].sort((a, b) => absoluteWeek(b.year, b.week) - absoluteWeek(a.year, a.week));
    const formatEventDetail = (event) => event.detail

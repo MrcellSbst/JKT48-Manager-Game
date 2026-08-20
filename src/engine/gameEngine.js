@@ -607,7 +607,9 @@ export function assignActivity(state, memberId, day, activityId) {
   if (activityId.startsWith('vc')) {
     const resolvedThisMonth = events.some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === month);
     const scheduledVideoCall = schedule[key]?.startsWith?.('vc');
-    if (resolvedThisMonth || scheduledVideoCall) return state;
+    const hasVideoCallThisWeek = Object.entries(schedule).some(([k, v]) => k.startsWith(`${memberId}:`) && v?.startsWith?.('vc') && k !== key);
+    const plannedThisMonth = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && plan.year === state.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === month);
+    if (resolvedThisMonth || scheduledVideoCall || hasVideoCallThisWeek || plannedThisMonth) return state;
   }
   if (activityId === 'theater' && schedule[key] !== 'theater') {
     const lineupSize = state.members.reduce((count, item) => count + (schedule[`${item.id}:${day}`] === 'theater' ? 1 : 0), 0);
@@ -646,7 +648,8 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
           const [id] = key.split(':');
           return value.startsWith('vc') && id === memberId && key === `${memberId}:${day}`;
         });
-        return resolved || planned || scheduled;
+        const plannedSameWeek = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && plan.year === state.year && plan.targetWeek === targetWeek);
+        return resolved || planned || scheduled || plannedSameWeek;
       });
       if (hasExisting) return state;
     }
@@ -1320,6 +1323,29 @@ export function resolveWeek(state) {
     moneyDelta += revenue;
     finances.twoShot += revenue;
     twoShotRecords.push({ id: `2shot-roulette-${state.year}-${state.week}-${day}`, type: 'twoShotRoulette', year: state.year, week: state.week, day, capacity, demand, sold, unmetDemand: Math.max(0, demand - sold), revenue });
+    // 2-Shot Birthday (Seitansai)
+    const configured = state.theaterShows?.[day] ?? {};
+    if (configured.isSeitansai) {
+      const birthdayCapacity = 100;
+      const birthdayTicket = 200000;
+      const birthdayDemand = lineup.reduce((sum, member) => sum + Math.max(0, Math.round(getFanEventDemand(member, 'mg1', createRng(hashSeed(`${state.seed}:2shot:birthday:${state.year}:${state.week}:${day}:${member.id}`))) / 30)), 0);
+      const birthdaySold = Math.min(birthdayCapacity, birthdayDemand);
+      const birthdayRevenue = Math.round(birthdaySold * birthdayTicket);
+      moneyDelta += birthdayRevenue;
+      finances.twoShot += birthdayRevenue;
+      twoShotRecords.push({ id: `2shot-birthday-${state.year}-${state.week}-${day}`, type: 'twoShotBirthday', year: state.year, week: state.week, day, capacity: birthdayCapacity, demand: birthdayDemand, sold: birthdaySold, unmetDemand: Math.max(0, birthdayDemand - birthdaySold), revenue: birthdayRevenue });
+    }
+    // 2-Shot Last Show
+    if (configured.isLastShow) {
+      const lastShowCapacity = 100;
+      const lastShowTicket = 200000;
+      const lastShowDemand = lineup.reduce((sum, member) => sum + Math.max(0, Math.round(getFanEventDemand(member, 'mg1', createRng(hashSeed(`${state.seed}:2shot:lastshow:${state.year}:${state.week}:${day}:${member.id}`))) / 30)), 0);
+      const lastShowSold = Math.min(lastShowCapacity, lastShowDemand);
+      const lastShowRevenue = Math.round(lastShowSold * lastShowTicket);
+      moneyDelta += lastShowRevenue;
+      finances.twoShot += lastShowRevenue;
+      twoShotRecords.push({ id: `2shot-lastshow-${state.year}-${state.week}-${day}`, type: 'twoShotLastShow', year: state.year, week: state.week, day, capacity: lastShowCapacity, demand: lastShowDemand, sold: lastShowSold, unmetDemand: Math.max(0, lastShowDemand - lastShowSold), revenue: lastShowRevenue });
+    }
   });
   const meetGreetDays = [...new Set(scheduledEntries.filter(([, activity]) => activity === 'mg1').map(([key]) => key.slice(key.lastIndexOf(':') + 1)))];
   meetGreetDays.forEach((day) => {

@@ -498,8 +498,9 @@ test('fan campaigns schedule selected Video Call members and the full Meet & Gre
   const selectedIds = game.members.slice(0, 3).map((member) => member.id);
   const videoCall = scheduleFanCampaign(game, 'videoCall', 'Fri', selectedIds);
   assert.equal(Object.values(videoCall.schedule).filter((activity) => activity === 'vc1').length, 3);
+  // A member can only have one Video Call per week, so second call with same members is blocked.
   const secondVideoCall = scheduleFanCampaign(videoCall, 'videoCall', 'Sat', selectedIds);
-  assert.equal(Object.values(secondVideoCall.schedule).filter((activity) => activity === 'vc1').length, 6);
+  assert.equal(Object.values(secondVideoCall.schedule).filter((activity) => activity === 'vc1').length, 3);
   assert.deepEqual(secondVideoCall, scheduleFanCampaign(secondVideoCall, 'videoCall', 'Sat', selectedIds));
 
   const meetGreet = scheduleFanCampaign(game, 'meetGreet', 'Sun');
@@ -509,7 +510,7 @@ test('fan campaigns schedule selected Video Call members and the full Meet & Gre
   assert.deepEqual(scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu'), campaignLocked);
 });
 
-test('Video Call can book the same member on different days in one week', () => {
+test('Video Call cannot book the same member on different days in one week', () => {
   const draft = createGame('video-call-same-week-different-day-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const memberId = game.members[0].id;
@@ -517,7 +518,8 @@ test('Video Call can book the same member on different days in one week', () => 
   const saturday = scheduleFanCampaign(friday, 'videoCall', 'Sat', [memberId]);
 
   assert.equal(friday.schedule[`${memberId}:Fri`], 'vc1');
-  assert.equal(saturday.schedule[`${memberId}:Sat`], 'vc1');
+  // Second call should be blocked because member already has a Video Call this week.
+  assert.equal(saturday.schedule[`${memberId}:Sat`], undefined);
   assert.deepEqual(saturday, scheduleFanCampaign(saturday, 'videoCall', 'Sat', [memberId]));
 });
 
@@ -525,13 +527,17 @@ test('future fan campaigns occupy member schedules when their weeks begin', () =
   const draft = createGame('future-fan-campaign-schedule-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const selectedIds = game.members.slice(0, 3).map((member) => member.id);
+  // Schedule Video Call for Friday of week 2.
   const plannedVideoCall = scheduleFanCampaign(game, 'videoCall', 'Fri', selectedIds, 2);
+  // Second day for same members in same week is blocked (each member only once per week).
   const plannedVideoCallSecondDay = scheduleFanCampaign(plannedVideoCall, 'videoCall', 'Sat', selectedIds, 2);
   const plannedMeetGreet = scheduleFanCampaign(plannedVideoCallSecondDay, 'meetGreet', 'Sun', [], 3);
 
   const weekTwo = resolveWeek(plannedMeetGreet);
+  // Only Friday assignments should exist.
   assert.deepEqual(selectedIds.map((memberId) => weekTwo.schedule[`${memberId}:Fri`]), ['vc1', 'vc1', 'vc1']);
-  assert.deepEqual(selectedIds.map((memberId) => weekTwo.schedule[`${memberId}:Sat`]), ['vc1', 'vc1', 'vc1']);
+  // Saturday should have no Video Calls for these members.
+  assert.deepEqual(selectedIds.map((memberId) => weekTwo.schedule[`${memberId}:Sat`]), [undefined, undefined, undefined]);
   assert.equal(weekTwo.fanEventPlans.some((plan) => plan.targetWeek === 2), true);
 
   const weekThree = resolveWeek(weekTwo);
