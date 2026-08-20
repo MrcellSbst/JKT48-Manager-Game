@@ -967,7 +967,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     const energyBefore = energy;
     const energyRate = (['theater', 'concert'].includes(activityId) ? bonusValue(state, 'B012') : 0) + (/^(mg|vc)/.test(activityId) || activityId === 'yearEndMeetGreet' ? bonusValue(state, 'B013') : 0) + (activityId === 'concertRehearsal' ? bonusValue(state, 'B014') : 0);
     let fatigue = Math.round(activity.energy * staminaCostMultiplier(member.stamina) * (1 + energyRate));
-    if (activityId === 'theater' && theaterShow?.isSeitansai && theaterShow.seitansaiMemberId === member.id) {
+    if (activityId === 'theater' && theaterShow?.isSeitansai && theaterShow.seitansaiMemberId === member.id && member.birthMonth === Math.ceil(state.week / BALANCE.weeksPerMonth)) {
       fatigue += 5;
     }
     const recovery = Math.round((activity.energyRecovery ?? 0) * staminaRecoveryMultiplier(member.stamina));
