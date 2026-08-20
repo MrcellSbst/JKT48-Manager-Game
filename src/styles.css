@@ -301,4 +301,4 @@ main { min-width:0; }
 .theater-special-flags select,.theater-special-flags select option{font:500 12px/1.2 'Barlow',sans-serif!important;font-style:normal!important;letter-spacing:0!important;text-transform:none!important}
 
 .theater-show-copy>div label select,.theater-show-copy>div label select option{font:500 12px/1.2 'Barlow',sans-serif;text-transform:none}
-.auth-entry-brand{background:#0b1f37}.auth-entry-number{background:var(--ink)}.auth-entry-brand>div>p{color:rgba(255,255,255,.88)}
+.auth-entry-brand{background:#0b1f37}.auth-entry-number{background:#181817;color:#fff}.auth-entry-brand>div>p{color:rgba(255,255,255,.88)}
