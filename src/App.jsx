@@ -123,16 +123,17 @@ function IconButton({ label, children, className = '', ...props }) {
 function TheaterPlanner({ game, setGame, theaterCounts }) {
   const activeDays = DAYS.filter((day) => theaterCounts[day] > 0);
   if (!activeDays.length) return null;
-  // Helper: check if any active member has birthday this month
   const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
-  const hasBirthdayThisMonth = game.members.some((member) =>
+  // Members with birthday this month
+  const birthdayMembers = game.members.filter((member) =>
     ['active', 'trainee'].includes(member.status) &&
     member.birthMonth === currentMonth
   );
-  // Helper: check if any member graduates this month
-  const hasGraduationThisMonth = (game.graduations ?? []).some((grad) =>
-    grad.year === game.year && Math.ceil(grad.week / BALANCE.weeksPerMonth) === currentMonth
-  );
+  // Graduations this month
+  const graduatingMembers = (game.graduations ?? [])
+    .filter((grad) => grad.year === game.year && Math.ceil(grad.week / BALANCE.weeksPerMonth) === currentMonth)
+    .map((grad) => game.members.find((m) => m.id === grad.memberId))
+    .filter(Boolean);
   // Helper: update theater flags for a day
   const updateFlags = (day, flags) => {
     const current = game.theaterShows?.[day] ?? { setlistId: SETLISTS[0].id, centerId: null };
@@ -155,9 +156,13 @@ function TheaterPlanner({ game, setGame, theaterCounts }) {
     const boredom = getSetlistBoredom(game, setlist.id);
     const isSeitansai = configured.isSeitansai || false;
     const isLastShow = configured.isLastShow || false;
-    const handleSeitansaiToggle = () => updateFlags(day, { isSeitansai: !isSeitansai });
-    const handleLastShowToggle = () => updateFlags(day, { isLastShow: !isLastShow });
-    return <article key={day}><img src={setlistCovers[setlist.coverFile]} alt={`${setlist.title} cover`} /><div className="theater-show-copy"><strong>{day} · {theaterCounts[day]}/12</strong><span>{setlist.songs.length} songs · {averageFamiliarity}% lineup familiarity</span>{boredom.penalty > 0 ? <span className="setlist-boredom">Demand -{Math.round(boredom.penalty * 100)}% · played {boredom.plays}x in {boredom.windowWeeks} weeks</span> : <span className="setlist-boredom rested">Rested setlist · full demand</span>}<div><label>Setlist<select value={setlist.id} onChange={(event) => update(event.target.value, centerId)}>{SETLISTS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label><label>Center<select value={centerId ?? ''} disabled={!lineup.length} onChange={(event) => update(setlist.id, event.target.value)}>{lineup.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select></label></div>{hasBirthdayThisMonth ? <div className="theater-special-flags"><label><input type="checkbox" checked={isSeitansai} onChange={handleSeitansaiToggle} /> Seitansai (birthday show)</label>{isSeitansai ? <span className="two-shot-info">2-Shot Birthday · Rp 200k · 100 slots</span> : null}</div> : null}{hasGraduationThisMonth ? <div className="theater-special-flags"><label><input type="checkbox" checked={isLastShow} onChange={handleLastShowToggle} /> Last Show (graduation)</label>{isLastShow ? <span className="two-shot-info">2-Shot Last Show · Rp 200k · 100 slots</span> : null}</div> : null}</div></article>;
+    const seitansaiMemberId = configured.seitansaiMemberId ?? (birthdayMembers.length ? birthdayMembers[0].id : '');
+    const lastShowMemberId = configured.lastShowMemberId ?? (graduatingMembers.length ? graduatingMembers[0].id : '');
+    const handleSeitansaiToggle = () => updateFlags(day, { isSeitansai: !isSeitansai, seitansaiMemberId: isSeitansai ? '' : seitansaiMemberId });
+    const handleLastShowToggle = () => updateFlags(day, { isLastShow: !isLastShow, lastShowMemberId: isLastShow ? '' : lastShowMemberId });
+    const handleSeitansaiMemberChange = (e) => updateFlags(day, { seitansaiMemberId: e.target.value });
+    const handleLastShowMemberChange = (e) => updateFlags(day, { lastShowMemberId: e.target.value });
+    return <article key={day}><img src={setlistCovers[setlist.coverFile]} alt={`${setlist.title} cover`} /><div className="theater-show-copy"><strong>{day} · {theaterCounts[day]}/12</strong><span>{setlist.songs.length} songs · {averageFamiliarity}% lineup familiarity</span>{boredom.penalty > 0 ? <span className="setlist-boredom">Demand -{Math.round(boredom.penalty * 100)}% · played {boredom.plays}x in {boredom.windowWeeks} weeks</span> : <span className="setlist-boredom rested">Rested setlist · full demand</span>}<div><label>Setlist<select value={setlist.id} onChange={(event) => update(event.target.value, centerId)}>{SETLISTS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label><label>Center<select value={centerId ?? ''} disabled={!lineup.length} onChange={(event) => update(setlist.id, event.target.value)}>{lineup.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select></label></div>{birthdayMembers.length ? <div className="theater-special-flags"><label><input type="checkbox" checked={isSeitansai} onChange={handleSeitansaiToggle} /> Seitansai (birthday show)</label>{isSeitansai ? <><select value={seitansaiMemberId} onChange={handleSeitansaiMemberChange}>{birthdayMembers.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select><span className="two-shot-info">2-Shot Birthday · Rp 200k · 100 slots</span></> : null}</div> : null}{graduatingMembers.length ? <div className="theater-special-flags"><label><input type="checkbox" checked={isLastShow} onChange={handleLastShowToggle} /> Last Show (graduation)</label>{isLastShow ? <><select value={lastShowMemberId} onChange={handleLastShowMemberChange}>{graduatingMembers.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select><span className="two-shot-info">2-Shot Last Show · Rp 200k · 100 slots</span></> : null}</div> : null}</div></article>;
   })}</div></section>;
 }
 
