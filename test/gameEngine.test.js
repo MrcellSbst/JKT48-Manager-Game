@@ -408,6 +408,24 @@ test('complete theater shows persist setlist, center, and familiarity progress',
   assert.deepEqual(game.theaterShows, {});
 });
 
+test('a completed Seitansai show immediately fulfills its member obligation', () => {
+  const draft = createGame('seitansai-fulfillment-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id), 'Birthday Office', [], { hardMode: true });
+  const birthdayMemberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === birthdayMemberId ? { ...member, birthMonth: 1 } : member) };
+  game = resolveWeek(game);
+  assert.equal(game.seitansaiObligations.find((item) => item.memberId === birthdayMemberId)?.status, 'open');
+
+  game.members.forEach((member) => { game = assignActivity(game, member.id, 'Sat', 'theater'); });
+  game = configureTheaterShow(game, 'Sat', SETLISTS[0].id, birthdayMemberId);
+  game = { ...game, theaterShows: { ...game.theaterShows, Sat: { ...game.theaterShows.Sat, isSeitansai: true, seitansaiMemberId: birthdayMemberId } } };
+  game = resolveWeek(game);
+
+  assert.equal(game.seitansaiObligations.find((item) => item.memberId === birthdayMemberId)?.status, 'fulfilled');
+  assert.equal(game.theaterHistory.at(-1).isSeitansai, true);
+  assert.equal(game.theaterHistory.at(-1).seitansaiMemberId, birthdayMemberId);
+});
+
 test('theater show configuration rejects unknown setlists and non-lineup centers', () => {
   const draft = createGame('theater-setlist-validation-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));

@@ -966,13 +966,13 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     if (!activity || (energy <= 0 && !activity.energyRecovery)) continue;
     const energyBefore = energy;
     const energyRate = (['theater', 'concert'].includes(activityId) ? bonusValue(state, 'B012') : 0) + (/^(mg|vc)/.test(activityId) || activityId === 'yearEndMeetGreet' ? bonusValue(state, 'B013') : 0) + (activityId === 'concertRehearsal' ? bonusValue(state, 'B014') : 0);
+    const theaterShow = activityId === 'theater' ? state.theaterShows?.[activityDay] : null;
     let fatigue = Math.round(activity.energy * staminaCostMultiplier(member.stamina) * (1 + energyRate));
     if (activityId === 'theater' && theaterShow?.isSeitansai && theaterShow.seitansaiMemberId === member.id && member.birthMonth === Math.ceil(state.week / BALANCE.weeksPerMonth)) {
       fatigue += 5;
     }
     const recovery = Math.round((activity.energyRecovery ?? 0) * staminaRecoveryMultiplier(member.stamina));
     const performanceBand = energy >= 60 ? 1 : energy >= 40 ? 0.95 : energy >= 20 ? 0.85 : 0.7;
-    const theaterShow = activityId === 'theater' ? state.theaterShows?.[activityDay] : null;
     const familiarity = theaterShow ? member.setlistFamiliarity?.[theaterShow.setlistId] ?? 0 : 0;
     const familiarityMultiplier = activityId === 'theater' ? 0.85 + familiarity * 0.0015 : 1;
     const theaterTraitMultiplier = activityId === 'theater' && member.traits.includes('Theater Specialist') ? 1.15 : 1;
@@ -1673,13 +1673,17 @@ export function resolveWeek(state) {
     });
   }
   seitansaiObligations = seitansaiObligations.map((obligation) => {
-    if (obligation.status !== 'open' || currentAbsolute < obligation.dueAbsolute) return obligation;
-    const fulfilled = [...validTheaterDays].some((day) => weekSchedule[`${obligation.memberId}:${day}`] === 'theater') || (state.theaterHistory ?? []).some((show) => show.year === obligation.year && show.memberIds?.includes(obligation.memberId) && toAbsoluteWeek(show.year, show.week) >= obligation.dueAbsolute - 6);
+    if (obligation.status !== 'open') return obligation;
+    const fulfilled = [...validTheaterDays].some((day) => {
+      const show = state.theaterShows?.[day];
+      return show?.isSeitansai && show.seitansaiMemberId === obligation.memberId;
+    }) || (state.theaterHistory ?? []).some((show) => show.isSeitansai && show.seitansaiMemberId === obligation.memberId && show.year === obligation.year && toAbsoluteWeek(show.year, show.week) >= obligation.dueAbsolute - 6);
     if (fulfilled) {
       seitansaiTrustDelta += BALANCE.seitansai.trustGain;
       seitansaiOshiDelta.set(obligation.memberId, BALANCE.seitansai.oshiSentiment);
       return { ...obligation, status: 'fulfilled', fulfilledYear: state.year, fulfilledWeek: state.week };
     }
+    if (currentAbsolute < obligation.dueAbsolute) return obligation;
     seitansaiTrustDelta -= BALANCE.seitansai.missedTrustLoss;
     seitansaiOshiDelta.set(obligation.memberId, -BALANCE.seitansai.missedOshiLoss);
     notifications.push({ type: 'critical', text: `${members.find((member) => member.id === obligation.memberId)?.name ?? 'Birthday member'}'s Seitansai was missed.` });
@@ -1767,7 +1771,7 @@ export function resolveWeek(state) {
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
     const lineup = members.filter((member) => weekSchedule[`${member.id}:${day}`] === 'theater');
     const center = lineup.find((member) => member.id === configured?.centerId) ?? lineup.toSorted((a, b) => b.performance - a.performance)[0];
-    return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
+    return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, isSeitansai: Boolean(configured?.isSeitansai), seitansaiMemberId: configured?.seitansaiMemberId ?? null, isLastShow: Boolean(configured?.isLastShow), lastShowMemberId: configured?.lastShowMemberId ?? null, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
   });
   lastResult.theaterShows = resolvedTheaterShows;
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult];

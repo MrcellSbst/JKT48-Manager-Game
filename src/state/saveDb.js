@@ -65,7 +65,7 @@ export const loadActiveRun = () => loadSave(1);
 export const saveActiveRun = (state) => writeSave(1, state);
 export const deleteActiveRun = () => deleteSave(1);
 
-const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'], completedRuns: 0, runHistory: [] };
+export const DEFAULT_META = { id: 'profile', currency: 24, unlockedBonusIds: ['B001', 'B002', 'B011', 'B015', 'B019', 'B025'], completedRuns: 0, runHistory: [] };
 export async function getMetaProfile() {
   const profile = await transactStore(META_STORE, 'readonly', (store) => store.get('profile'));
   return profile ? { ...DEFAULT_META, ...profile, unlockedBonusIds: profile.unlockedBonusIds ?? DEFAULT_META.unlockedBonusIds, runHistory: profile.runHistory ?? [] } : { ...DEFAULT_META };
@@ -85,4 +85,23 @@ export function mergeRunHistory(profile, entry, limit = 50) {
   const existing = profile.runHistory ?? [];
   if (existing.some((item) => item.id === entry.id)) return profile;
   return { ...profile, runHistory: [entry, ...existing].slice(0, limit) };
+}
+
+export async function getLocalSnapshot() {
+  const [activeRun, metaProfile] = await Promise.all([getActiveRun(), getMetaProfile()]);
+  return { version: 1, savedAt: Date.now(), activeRun, metaProfile };
+}
+
+export async function replaceLocalSnapshot(snapshot) {
+  if (!snapshot || snapshot.version !== 1 || typeof snapshot.metaProfile !== 'object') {
+    throw new Error('Cloud save format is not supported.');
+  }
+  await Promise.all([
+    snapshot.activeRun?.state ? saveActiveRun(snapshot.activeRun.state) : deleteActiveRun(),
+    saveMetaProfile({ ...DEFAULT_META, ...snapshot.metaProfile, id: 'profile' }),
+  ]);
+}
+
+export async function clearLocalSnapshot() {
+  await Promise.all([deleteActiveRun(), saveMetaProfile({ ...DEFAULT_META })]);
 }

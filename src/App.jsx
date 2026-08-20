@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Activity, Archive, ArrowLeft, BookOpen, Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleDollarSign, Clapperboard,
-  Clock3, Disc3, History, Languages, LayoutDashboard, Menu, Moon, PhoneCall, Plus, Save, Search, ShieldAlert, Square,
+  Activity, Archive, ArrowLeft, BookOpen, Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleDollarSign, Clapperboard, Cloud,
+  Clock3, Disc3, Download, History, Languages, LayoutDashboard, LogOut, Menu, Moon, PhoneCall, Plus, Save, Search, ShieldAlert, Square,
   Sparkles, Sun, Target, Ticket, Trash2, TrendingUp, Trophy, UserRoundSearch, Users, Wrench, X,
 } from 'lucide-react';
 import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, SINGLE_BUDGETS } from './data/balance.js';
@@ -11,6 +11,8 @@ import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
  import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, assignActivity, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, endRun, finalizeAudition, finalizeGameSetup, fireMember, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberSalary, getRosterDanger, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, punishMember, payDebt, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { localizeDocument, translateIndonesian } from './localization.js';
+import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
+import { useAuth } from './context/AuthContext.jsx';
 import comingSoonImage from './Asset/Pics/Coming_SoonCOPY.png';
 
 const portraitModules = import.meta.glob([
@@ -283,7 +285,7 @@ function MetricDelta({ icon: Icon, label, value, previous, format = (numberValue
   return <div className="metric"><Icon size={18} /><div><span>{label}</span><strong>{format(value)}</strong><small className={delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}>{delta > 0 ? '+' : ''}{formatDelta(delta)} from last week</small></div></div>;
 }
 
-function PreGameMenu({ theme, onToggleTheme, language, onToggleLanguage }) {
+function PreGameMenu({ theme, onToggleTheme, language, onToggleLanguage, user, onOpenAccount, onLogout, accountBusy }) {
   const [open, setOpen] = useState(false);
   const [wikiOpen, setWikiOpen] = useState(false);
   useEffect(() => {
@@ -300,6 +302,7 @@ function PreGameMenu({ theme, onToggleTheme, language, onToggleLanguage }) {
       <button type="button" onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{translate(language, theme === 'dark' ? 'Light mode' : 'Dark mode')}</span></button>
       <button type="button" onClick={onToggleLanguage}><Languages size={18} /><span>{language === 'id' ? 'English' : 'Bahasa Indonesia'}</span></button>
       <button type="button" onClick={() => { setOpen(false); setWikiOpen(true); }}><BookOpen size={18} /><span>{translate(language, 'Wiki')}</span></button>
+      {user ? <><div className="pre-game-account"><Cloud aria-hidden="true" size={18} /><span><strong>{user.username}</strong><small>Cloud save enabled</small></span></div><button type="button" disabled={accountBusy} onClick={() => { setOpen(false); onLogout(); }}><LogOut aria-hidden="true" size={18} /><span>{accountBusy ? 'Saving…' : 'Save and logout'}</span></button></> : <button type="button" onClick={() => { setOpen(false); onOpenAccount(); }}><Cloud aria-hidden="true" size={18} /><span>Login / Register</span></button>}
       <p>{translate(language, 'Save controls become available after the founding lineup is confirmed.')}</p>
     </aside>
     {open ? <button className="pre-game-scrim" aria-label="Close menu" type="button" onClick={() => setOpen(false)} /> : null}
@@ -307,7 +310,7 @@ function PreGameMenu({ theme, onToggleTheme, language, onToggleLanguage }) {
   </>;
 }
 
-function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndRun, onManualSave, onToggleTheme, onToggleLanguage, advancing, manualSaving, saveMessage, theme, language, children }) {
+function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndRun, onManualSave, onToggleTheme, onToggleLanguage, onOpenAccount, onLogout, user, accountBusy, advancing, manualSaving, saveMessage, theme, language, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
@@ -337,7 +340,8 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
       <div className="sidebar-scroll">
         <nav aria-label="Main navigation">{NAV.map(([id, label, Icon]) => <button key={id} type="button" className={activeView === id ? 'active' : ''} onClick={() => { setActiveView(id); setMobileOpen(false); }}><Icon size={19} /><span>{translate(language, label)}</span></button>)}</nav>
         <div className="sidebar-footer">
-          <button type="button" onClick={onManualSave} disabled={manualSaving}><Save size={18} />{translate(language, manualSaving ? 'Saving...' : 'Save run')}</button>
+          {user ? <><div className="sidebar-account"><Cloud aria-hidden="true" size={17} /><span><strong>{user.username}</strong><small>Cloud sync on</small></span></div><button type="button" onClick={onLogout} disabled={accountBusy}><LogOut aria-hidden="true" size={18} />{accountBusy ? 'Saving…' : 'Save and logout'}</button></> : <button type="button" onClick={onOpenAccount}><Cloud aria-hidden="true" size={18} />Login / Register</button>}
+          <button type="button" onClick={onManualSave} disabled={manualSaving}><Save aria-hidden="true" size={18} />{translate(language, manualSaving ? 'Saving…' : 'Save run')}</button>
           <button type="button" onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}{translate(language, theme === 'dark' ? 'Light mode' : 'Dark mode')}</button>
           <button type="button" onClick={onToggleLanguage}><Languages size={18} />{language === 'id' ? 'English' : 'Bahasa Indonesia'}</button>
           <button type="button" onClick={onNewRun}><Plus size={18} />{translate(language, 'New timeline')}</button>
@@ -381,7 +385,7 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
   return <div className="page dashboard-page">
     <section className="page-heading"><div><span className="eyebrow">Management briefing</span><h1>Command center</h1><p>Balance this week’s exposure, development, energy, and financial risk.</p></div><div className="seed">Seed <code>{game.seed}</code></div></section>
      {game.notifications.length ? <section className="notice-strip">{game.notifications.map((item, index) => <div key={`${item.text}-${index}`} className={item.type}><Sparkles size={17} /><span>{item.text}</span></div>)}</section> : null}
-      {(() => { const hasTheaterThisWeek = (memberId) => DAYS.some((day) => game.schedule[`${memberId}:${day}`] === 'theater'); const obligations = (game.seitansaiObligations ?? []).filter((item) => (item.status === 'open' || (item.status === 'overdue' && item.year === game.year)) && !hasTheaterThisWeek(item.memberId)); return obligations.length ? <section className="notice-strip"><div className="critical"><CalendarDays size={17} /><span>Seitansai pending: {obligations.map((item) => game.members.find((member) => member.id === item.memberId)?.name ?? 'Member').join(', ')}. Schedule a theater appearance before due date.</span></div></section> : null; })()}
+      {(() => { const hasSeitansaiThisWeek = (memberId) => DAYS.some((day) => { const show = game.theaterShows?.[day]; return show?.isSeitansai && show.seitansaiMemberId === memberId; }); const hasCompletedSeitansai = (item) => (game.theaterHistory ?? []).some((show) => show.isSeitansai && show.seitansaiMemberId === item.memberId && show.year === item.year); const obligations = (game.seitansaiObligations ?? []).filter((item) => (item.status === 'open' || (item.status === 'overdue' && item.year === game.year)) && !hasSeitansaiThisWeek(item.memberId) && !hasCompletedSeitansai(item)); return obligations.length ? <section className="notice-strip"><div className="critical"><CalendarDays size={17} /><span>Seitansai pending: {obligations.map((item) => game.members.find((member) => member.id === item.memberId)?.name ?? 'Member').join(', ')}. Schedule that member's Seitansai theater show before the due date.</span></div></section> : null; })()}
     <section className={targetRemaining ? 'fan-target-strip' : 'fan-target-strip achieved'}><div className="fan-target-icon"><Target size={22} /></div><div className="fan-target-copy"><span><strong>Year {game.fanTarget.year} fan target</strong><small>{targetRemaining ? `${number.format(targetRemaining)} fans still needed` : targetPerformance.label}</small></span><progress max="130" value={Math.min(130, targetProgress)} aria-label="Annual fan target progress">{targetProgress}%</progress></div><div className="fan-target-score"><strong>{number.format(game.group.fanbase)}</strong><span>/ {number.format(game.fanTarget.targetFanbase)}</span><small>{targetProgress}% · Fan growth x{fanGrowthMultiplier.toFixed(2)} · {BALANCE.weeksPerYear - game.week + 1} weeks remaining</small></div></section>
     {game.pendingOpportunity ? <section className="opportunity-offer"><div className="opportunity-icon"><Sparkles size={22} /></div><div><span className="eyebrow">Limited opportunity</span><h2>{game.pendingOpportunity.title}</h2><p>{game.pendingOpportunity.memberIds.length} members · {money(game.pendingOpportunity.revenue)} gross revenue · {number.format(game.pendingOpportunity.fans)} projected fans</p></div><div className="opportunity-actions"><button type="button" className="secondary-button" onClick={() => setGame((current) => respondToOpportunity(current, false))}>Decline</button><button type="button" onClick={() => setGame((current) => respondToOpportunity(current, true))} disabled={game.money < game.pendingOpportunity.cost}>Accept · {money(game.pendingOpportunity.cost)}</button></div></section> : null}
     {game.week === BALANCE.weeksPerYear && !(game.renovations ?? []).some((item) => item.year === game.year) ? <section className="year-end-renovation"><Wrench size={22} /><div><strong>Year-end renovation window open</strong><span>Review permanent ticket and upkeep changes before advancing to next year.</span></div><button type="button" onClick={() => setView('campaigns')}>Review offer <ChevronRight size={17} /></button></section> : null}
@@ -856,8 +860,15 @@ function StatisticsDashboard({ game }) {
   </div>;
 }
 
-function Saves({ game, activeSave, onLoad, onDelete }) {
-  return <div className="page saves-page"><section className="page-heading"><div><span className="eyebrow">Browser storage</span><h1>Active run</h1><p>Only one timeline can remain active. Progress saves after founding lineup and every resolved week.</p></div></section><section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>{calendarLabel(game.year, game.week)}</span><h2>{game.seed}</h2><p>{number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${new Date(activeSave.updatedAt).toLocaleString()}` : 'Waiting for next weekly autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload saved run</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section><p className="storage-note">Starting another timeline replaces this run only after new founding setup is complete.</p></div>;
+function Saves({ game, activeSave, onLoad, onDelete, user, syncState, onCloudSave, onCloudLoad, onOpenAccount }) {
+  return <div className="page saves-page">
+    <section className="page-heading"><div><span className="eyebrow">Save operations</span><h1>Save and load</h1><p>Weekly autosaves stay in IndexedDB. Cloud checkpoints run monthly, on manual save, and before logout.</p></div></section>
+    <div className="save-operation-grid">
+      <section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>Local browser save</span><h2>{calendarLabel(game.year, game.week)}</h2><p>{game.seed} · {number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${new Date(activeSave.updatedAt).toLocaleString()}` : 'Waiting for next weekly autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload local save</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section>
+      <section className={user ? 'cloud-save-panel connected' : 'cloud-save-panel'}><div className="cloud-save-icon"><Cloud size={26} /></div><div><span>Cloud account</span><h2>{user ? user.username : 'Guest mode'}</h2><p>{user ? 'Encrypted snapshot ready for cross-device recovery.' : 'This run exists only in this browser until you register.'}</p>{syncState.updatedAt ? <small>Last cloud confirmation {new Date(syncState.updatedAt).toLocaleString()}</small> : <small>{user ? 'No cloud confirmation this session.' : 'IndexedDB remains active.'}</small>}</div><div className="cloud-save-actions">{user ? <><button type="button" onClick={onCloudSave}><Cloud size={17} />Save to cloud</button><button type="button" className="secondary-button" onClick={onCloudLoad}><Download size={17} />Load cloud save</button></> : <button type="button" onClick={onOpenAccount}>Register and upload this run</button>}</div></section>
+    </div>
+    <p className="storage-note">Loading cloud data replaces this browser's active run and Management Token profile.</p>
+  </div>;
 }
 
 function StartScreen({ saves, onStart, onLoad, metaProfile }) {
@@ -1036,6 +1047,7 @@ function RunEndScreen({ game, onNewRun }) {
 }
 
 export default function App() {
+  const { user, authLoading, storageRevision, syncState, pushSave, loadCloudSave, logout } = useAuth();
   const [game, setGame] = useState(null);
   const [setupDraft, setSetupDraft] = useState(null);
   const [saves, setSaves] = useState([]);
@@ -1049,6 +1061,8 @@ export default function App() {
   const [dramaAlert, setDramaAlert] = useState(null);
   const [metaProfile, setMetaProfile] = useState({ id: 'profile', currency: 0, unlockedBonusIds: [], completedRuns: 0, runHistory: [] });
   const [metaLoaded, setMetaLoaded] = useState(false);
+  const [guestMode, setGuestMode] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem('jkt48-manager-theme') === 'dark' ? 'dark' : 'light'; }
     catch { return 'light'; }
@@ -1061,9 +1075,25 @@ export default function App() {
   const rewardingRef = useRef(false);
   const rewardingPromiseRef = useRef(null);
 
-  const refreshSaves = useCallback(async () => { const active = await getActiveRun(); setSaves(active ? [{ ...active, state: normalizeSessionActivities(active.state) }] : []); }, []);
-  useEffect(() => { refreshSaves().catch(console.error); }, [refreshSaves]);
-  useEffect(() => { getMetaProfile().then(setMetaProfile).catch(console.error).finally(() => setMetaLoaded(true)); }, []);
+  const refreshSaves = useCallback(async () => { const active = await getActiveRun(); setSaves(active ? [{ ...active, state: normalizeSessionActivities(active.state) }] : []); return active; }, []);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getActiveRun(), getMetaProfile()])
+      .then(([active, profile]) => {
+        if (cancelled) return;
+        const normalized = active ? { ...active, state: normalizeSessionActivities(active.state) } : null;
+        setSaves(normalized ? [normalized] : []);
+        setMetaProfile(profile);
+        if (storageRevision > 0) {
+          setGame(normalized?.state ?? null);
+          setSetupDraft(null);
+          setActiveView('dashboard');
+        }
+      })
+      .catch(console.error)
+      .finally(() => { if (!cancelled) setMetaLoaded(true); });
+    return () => { cancelled = true; };
+  }, [storageRevision]);
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#11110f' : '#11509c');
@@ -1105,12 +1135,22 @@ export default function App() {
       const next = resolveWeek(game);
       const newAnnouncement = (next.graduations ?? []).find((graduation) => graduation.announced && !(game.graduations ?? []).some((previous) => previous.id === graduation.id && previous.announced));
       await saveActiveRun(next);
+      let cloudMessage = '';
+      if (user && next.lastResult.week % BALANCE.weeksPerMonth === 0) {
+        try {
+          await pushSave('month');
+          cloudMessage = 'Month resolved and cloud checkpoint saved.';
+        } catch {
+          cloudMessage = 'Month resolved locally, but cloud sync failed. Use Save run to retry.';
+        }
+      }
       setGame(next);
        setGraduationAlert(newAnnouncement ?? null);
        setDramaAlert(next.activeDrama && !game.activeDrama ? next.activeDrama : null);
       const monthlyReports = next.lastResult.week % 4 === 0 ? next.weeklyReports.filter((report) => report.year === next.lastResult.year && report.week > next.lastResult.week - 4 && report.week <= next.lastResult.week) : [];
       setStatisticsReport({ weekly: next.lastResult, monthly: monthlyReports.length === 4 ? sumReports(monthlyReports) : null });
       await refreshSaves();
+      setSaveMessage(cloudMessage);
       setActiveView('dashboard');
     } catch (error) {
       console.error(error);
@@ -1138,8 +1178,9 @@ export default function App() {
     setSaveMessage('');
     try {
       await saveActiveRun(game);
+      if (user) await pushSave('manual');
       await refreshSaves();
-      setSaveMessage('Run saved just now.');
+      setSaveMessage(user ? 'Run saved locally and to cloud.' : 'Guest run saved locally.');
     } catch (error) {
       console.error(error);
       setSaveMessage('Save failed. Try again.');
@@ -1196,17 +1237,52 @@ export default function App() {
     setGame(null);
   };
 
+  const accountBusy = ['authenticating', 'loading', 'saving', 'logging-out'].includes(syncState.phase);
+  const openAccount = async () => {
+    if (game) await saveActiveRun(game);
+    setAccountOpen(true);
+  };
+  const handleLogout = async () => {
+    setSaveMessage('');
+    try {
+      if (game) await saveActiveRun(game);
+      await logout();
+      setGuestMode(false);
+      setAccountOpen(false);
+      setSetupDraft(null);
+      setGame(null);
+      setSaves([]);
+    } catch (error) {
+      console.error(error);
+      setSaveMessage('Logout stopped because cloud save was not confirmed. Try again.');
+    }
+  };
+  const loadFromCloud = async () => {
+    const prompt = 'Load the cloud save? This replaces the active browser run and Management Token profile.';
+    if (!window.confirm(prompt)) return;
+    try {
+      await loadCloudSave();
+      setSaveMessage('Cloud save loaded into this browser.');
+    } catch (error) {
+      console.error(error);
+      setSaveMessage(error.message || 'Cloud load failed.');
+    }
+  };
+
   const toggleLanguage = () => setLanguage((value) => value === 'id' ? 'en' : 'id');
   const navigateView = (view) => {
     if (view === 'roster') setSelectedMember(null);
     setActiveView(view);
   };
-  const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} />;
-  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUnlockBonus={unlockBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} /></>;
-  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} /></>;
-  if (game.runStatus === 'ended') return <><PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} /><RunEndScreen game={game} onNewRun={beginAnotherRun} /></>;
+  const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} user={user} onOpenAccount={openAccount} onLogout={handleLogout} accountBusy={accountBusy} />;
+  const accountLayer = <><SyncOverlay />{accountOpen ? <AuthScreen onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
+  if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>Checking account…</strong><span>Loading browser save status.</span></main><SyncOverlay /></>;
+  if (!user && !guestMode) return <><AuthScreen allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
+  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUnlockBonus={unlockBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}</>;
+  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{accountLayer}</>;
+  if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}</>;
 
-  return <AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => setGame(null)} onEndRun={finishRun} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language}>
+  return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => setGame(null)} onEndRun={finishRun} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language}>
     {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={setActiveView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'schedule' ? <Schedule game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} /> : null}
     {activeView === 'roster' ? <Roster game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
@@ -1215,9 +1291,9 @@ export default function App() {
     {activeView === 'statistics' ? <StatisticsDashboard game={game} /> : null}
     {activeView === 'history' ? <HistoryView game={game} /> : null}
     {activeView === 'wiki' ? <Wiki game={game} language={language} /> : null}
-    {activeView === 'saves' ? <Saves game={game} activeSave={saves[0]} onLoad={load} onDelete={remove} /> : null}
+    {activeView === 'saves' ? <Saves game={game} activeSave={saves[0]} onLoad={load} onDelete={remove} user={user} syncState={syncState} onCloudSave={manualSave} onCloudLoad={loadFromCloud} onOpenAccount={openAccount} /> : null}
     {statisticsReport ? <StatisticsModal report={statisticsReport.weekly} monthlyReport={statisticsReport.monthly} onClose={() => setStatisticsReport(null)} /> : null}
      {!statisticsReport && graduationAlert ? <GraduationModal game={game} setGame={setGame} graduation={game.graduations.find((item) => item.id === graduationAlert.id) ?? graduationAlert} member={game.members.find((member) => member.id === graduationAlert.memberId)} onClose={() => setGraduationAlert(null)} /> : null}
      {!statisticsReport && !graduationAlert && dramaAlert ? <DramaDecisionModal game={game} setGame={setGame} drama={dramaAlert} onClose={() => setDramaAlert(null)} /> : null}
-  </AppShell>;
+  </AppShell>{accountLayer}</>;
 }
