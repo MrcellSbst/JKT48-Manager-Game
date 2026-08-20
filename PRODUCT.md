@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-React with Vite. Browser save data persists in IndexedDB.
+React with Vite. Browser save data persists in IndexedDB; optional accounts add encrypted D1 cloud checkpoints.
 
 ## Users
 
@@ -33,7 +33,7 @@ Play happens in weekly turns across a seven-day calendar. Players repeatedly com
 - Real names and images provide identity only. Skills, potential, ego, chemistry, performance, and story outcomes are fictional per-run values.
 - One game year contains 52 weekly turns.
 - Energy is capped at 100 and recovers by 40 at the start of a new week.
-- Save slots must remain local to the browser in IndexedDB.
+- Guest saves remain local to browser IndexedDB. Signed-in saves retain IndexedDB as the local source and add monthly, manual, and logout cloud checkpoints.
 - Features are implemented in modular stages following `plan.md`, with balance values stored outside UI components.
 
 ## Brand Commitments

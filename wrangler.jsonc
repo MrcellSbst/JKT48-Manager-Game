@@ -2,5 +2,12 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "jkt48-manager-game",
   "compatibility_date": "2026-08-17",
-  "pages_build_output_dir": "./dist"
+  "pages_build_output_dir": "./dist",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gacha-jkt48",
+      "database_id": "7c6116c6-9fe1-417a-856c-e0fb99a08352"
+    }
+  ]
 }

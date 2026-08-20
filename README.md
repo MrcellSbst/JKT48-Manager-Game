@@ -23,6 +23,7 @@ All member ratings, traits, archetypes, and simulation outcomes are fictional ga
 - In-game rules and economy Wiki
 - One active run stored locally in browser IndexedDB
 - Manual saves and weekly autosaves
+- Optional account login with encrypted D1 cloud checkpoints
 
 ## Requirements
 
@@ -65,7 +66,13 @@ npm test
 
 ## Cloudflare Pages
 
-The repository includes `wrangler.jsonc` and uses `dist` as the Pages build output directory.
+The repository includes `wrangler.jsonc`, uses `dist` as the Pages build output directory, and shares the existing `gacha-jkt48` D1 binding for `user_h` authentication.
+
+Create the Manager-only cloud-save table before deployment:
+
+```bash
+npx wrangler d1 execute gacha-jkt48 --remote --file schema.sql
+```
 
 Run a local Cloudflare Pages preview:
 
@@ -89,13 +96,15 @@ The configured Pages project name is `jkt48-manager-game`. Change `name` in `wra
 
 ## Save Data
 
-Save data remains in the player's browser using IndexedDB. It is not uploaded to a server and is scoped to the site's browser origin.
+Guest saves remain in browser IndexedDB. Account saves use the same IndexedDB data locally and upload an encrypted snapshot to the Manager-only `jkt48_manager_data` D1 table.
 
 - Only one run can be active at a time.
-- Progress is saved after founding setup and each resolved week.
-- Manual saving is available from the game menu.
-- Clearing browser site data removes the active run and Management Token profile.
-- Saves from localhost and a deployed Pages domain are separate.
+- Local progress saves after founding setup and each resolved week.
+- Signed-in runs create cloud checkpoints every four resolved weeks, on manual Save run, and before logout.
+- Registering uploads existing guest progress.
+- Logging in loads existing account data; explicit Load cloud save is also available from Save and load.
+- Logout waits for successful cloud save and session deletion, then clears local run data from the device.
+- Clearing browser site data removes guest progress that has not been uploaded.
 
 ## Project Structure
 
@@ -105,12 +114,16 @@ src/
   data/                  Member, balance, and Management Perks data
   engine/                Seeded simulation and weekly resolution logic
   state/                 IndexedDB persistence
+  context/               Authentication and encrypted cloud synchronization
+  components/AuthScreen  Login, registration, guest entry, and sync status
   App.jsx                Main React application and views
   localization.js        English-to-Indonesian localization
   styles.css             Responsive light and dark theme styles
 test/                    Node test suite
 public/                  Cloudflare Pages static configuration
 wrangler.jsonc           Cloudflare Pages configuration
+schema.sql               Manager-only D1 cloud-save table
+functions/api/           Same-origin auth and save endpoints
 ```
 
 ## Game Calendar
