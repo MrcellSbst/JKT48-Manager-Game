@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Cloud, LogIn, ShieldCheck, UserPlus, WifiOff, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
+import comingSoonImage from '../Asset/Pics/Coming_SoonCOPY.png';
 
 const BUSY_PHASES = new Set(['authenticating', 'loading', 'saving', 'logging-out']);
 
@@ -78,8 +79,8 @@ export default function AuthScreen({ allowGuest = false, onGuest, onClose, onAut
     <section className="auth-entry-brand" aria-labelledby="auth-entry-title">
       <div className="auth-entry-number">48</div>
       <div>
-        <h1 id="auth-entry-title">Your theater office,<br />on every device.</h1>
-        <p>Sign in for encrypted monthly checkpoints. Guest runs stay only in this browser through IndexedDB.</p>
+        <h1 id="auth-entry-title" className="auth-entry-logo"><img src={comingSoonImage} width="3149" height="1399" alt="JKT48 Manager" /></h1>
+        <p>Login with you FouReality JKT48 Gacha Photocard Oshi Account or Register</p>
       </div>
       <div className="auth-entry-facts">
         <span><ShieldCheck aria-hidden="true" size={18} /><b>Encrypted saves</b><small>Game data is encrypted before upload.</small></span>

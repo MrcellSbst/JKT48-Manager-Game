@@ -294,3 +294,5 @@ main { min-width:0; }
 
 /* Account and cloud-save interaction polish. */
 .auth-entry-heading h2{text-wrap:balance}.auth-entry-close:hover,.auth-entry-guest button:hover{border-color:var(--ink);background:var(--soft)}.auth-entry-tabs button:not(.active):hover{background:var(--soft);color:var(--ink)}.auth-entry-overlay{overscroll-behavior:contain}.cloud-save-panel h2{overflow-wrap:anywhere}
+
+.auth-entry-brand .auth-entry-logo{width:min(660px,100%);margin:0;line-height:0}.auth-entry-logo img{display:block;width:100%;height:auto;object-fit:contain}
