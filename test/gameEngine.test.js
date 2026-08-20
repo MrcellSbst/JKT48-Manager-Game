@@ -1071,6 +1071,7 @@ test('management opportunities can be accepted or declined with persistent outco
   const accepted = respondToOpportunity({ ...game, pendingOpportunity: offer }, true);
   assert.equal(accepted.pendingOpportunity, null);
   assert.equal(accepted.opportunityHistory.at(-1).accepted, true);
+  assert.deepEqual(accepted.financialEvents.at(-1), { id: 'test-offer-accepted-1-1', type: 'opportunity', category: 'media', title: 'Test Broadcast', year: 1, week: 1, income: 7_000_000, expense: 2_000_000, net: 5_000_000 });
   assert.equal(accepted.money, game.money + 5_000_000);
   assert.equal(accepted.group.fanbase, game.group.fanbase + 270);
   const declined = respondToOpportunity({ ...game, pendingOpportunity: offer }, false);
