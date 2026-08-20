@@ -8,8 +8,18 @@ import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 const ARCHETYPES = ['Performer', 'Vocalist', 'Entertainer', 'All-Rounder', 'Specialist', 'Raw Prospect', 'Prodigy', 'Late Bloomer'];
 const TRAITS = ['Quick Learner', 'Big Stage Performer', 'Theater Specialist', 'Reliable Performer', 'Versatile', 'Crowd Magnet'];
 const SKILLS = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
+const ALL_NINETY_STATS = Object.fromEntries([
+  ...SKILLS,
+  'consistency',
+  'adaptability',
+  'popularity',
+  'energy',
+  'potential',
+  'development',
+].map((key) => [key, 100]));
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
+const isAllNinetySeed = (seed) => String(seed ?? '').replace(/[-_\s]/g, '').toUpperCase() === 'ALL90';
 const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -33,6 +43,7 @@ const eventConflict = (state, targetYear, targetWeek, ignoreVideoCalls = false) 
 };
 
 function createChemistry(seed, firstId, secondId) {
+  if (isAllNinetySeed(seed)) return Object.fromEntries(chemistryDimensions.map((dimension) => [dimension, 100]));
   const rng = createRng(hashSeed(`${seed}:chemistry:${chemistryPairKey(firstId, secondId)}`));
   return Object.fromEntries(chemistryDimensions.map((dimension) => [dimension, randomInt(rng, 35, 95)]));
 }
@@ -346,6 +357,7 @@ export function getActiveRoster() {
 
 export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 12).toUpperCase()}`, rosterScope = 'active', hardMode = false) {
   const scope = ROSTER_SCOPES.includes(rosterScope) ? rosterScope : 'active';
+  const allNinety = isAllNinetySeed(seed);
   const members = getRosterPool(scope).map((identity) => {
     const identityKey = `${identity.generation}:${identity.name}`;
     const memberId = slug(identityKey);
@@ -390,7 +402,8 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
       appearances: { theater: 0, center: 0, media: 0 },
       setlistFamiliarity: {},
     };
-    return { ...member, ...createBirthday(seed, member.identityId, member.careerStage) };
+    const seededMember = allNinety ? { ...member, ...ALL_NINETY_STATS } : member;
+    return { ...seededMember, ...createBirthday(seed, seededMember.identityId, seededMember.careerStage) };
   });
   return {
     version: 1,

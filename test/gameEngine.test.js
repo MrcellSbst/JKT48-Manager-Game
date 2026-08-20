@@ -150,6 +150,17 @@ test('same seed creates same fictional roster stats', () => {
   assert.deepEqual(first.members, second.members);
 });
 
+test('ALL90 seed maxes member ratings and team chemistry while leaving ego seeded', () => {
+  const game = createGame('ALL90');
+  const ratingKeys = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'consistency', 'adaptability', 'popularity', 'energy', 'potential', 'development'];
+  assert.ok(game.members.length > 0);
+  assert.ok(game.members.every((member) => ratingKeys.every((key) => member[key] === 100)));
+  assert.ok(game.members.some((member) => member.ego !== 100));
+
+  const chemistry = getMemberChemistry(game, game.members[0].id, game.members[1].id);
+  assert.ok(Object.values(chemistry).every((value) => value === 100));
+});
+
 test('initial fictional stats follow member identity instead of roster card position', () => {
   const allMembers = createGame('identity-stat-seed', 'all').members;
   const exMembers = createGame('identity-stat-seed', 'ex').members;
