@@ -305,3 +305,6 @@ main { min-width:0; }
 
 /* Keep load/save surfaces bound to active theme tokens. */
 .saves-page{color:var(--ink)}.saves-page .save-card,.saves-page .cloud-save-panel{background:var(--paper);color:var(--ink)}.saves-page .cloud-save-icon{background:var(--soft);color:var(--red)}
+
+/* Loading overlay follows theme surface, not inverse text color. */
+.sync-screen{background:color-mix(in srgb,var(--paper) 94%,transparent);color:var(--ink)}.sync-screen-mark span{border-color:color-mix(in srgb,var(--ink) 35%,transparent)}.sync-screen small{color:var(--muted)}
