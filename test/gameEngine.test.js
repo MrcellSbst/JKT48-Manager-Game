@@ -498,13 +498,48 @@ test('fan campaigns schedule selected Video Call members and the full Meet & Gre
   const selectedIds = game.members.slice(0, 3).map((member) => member.id);
   const videoCall = scheduleFanCampaign(game, 'videoCall', 'Fri', selectedIds);
   assert.equal(Object.values(videoCall.schedule).filter((activity) => activity === 'vc1').length, 3);
-  assert.deepEqual(videoCall, scheduleFanCampaign(videoCall, 'videoCall', 'Sat', selectedIds));
+  const secondVideoCall = scheduleFanCampaign(videoCall, 'videoCall', 'Sat', selectedIds);
+  assert.equal(Object.values(secondVideoCall.schedule).filter((activity) => activity === 'vc1').length, 6);
+  assert.deepEqual(secondVideoCall, scheduleFanCampaign(secondVideoCall, 'videoCall', 'Sat', selectedIds));
 
   const meetGreet = scheduleFanCampaign(game, 'meetGreet', 'Sun');
   assert.equal(Object.values(meetGreet.schedule).filter((activity) => activity === 'mg1').length, 12);
   assert.deepEqual(meetGreet, scheduleFanCampaign(meetGreet, 'meetGreet', 'Sat'));
   const campaignLocked = { ...game, schedule: { [`${game.members[5].id}:Thu`]: 'mvProduction' } };
   assert.deepEqual(scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu'), campaignLocked);
+});
+
+test('Video Call can book the same member on different days in one week', () => {
+  const draft = createGame('video-call-same-week-different-day-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  const friday = scheduleFanCampaign(game, 'videoCall', 'Fri', [memberId]);
+  const saturday = scheduleFanCampaign(friday, 'videoCall', 'Sat', [memberId]);
+
+  assert.equal(friday.schedule[`${memberId}:Fri`], 'vc1');
+  assert.equal(saturday.schedule[`${memberId}:Sat`], 'vc1');
+  assert.deepEqual(saturday, scheduleFanCampaign(saturday, 'videoCall', 'Sat', [memberId]));
+});
+
+test('future fan campaigns occupy member schedules when their weeks begin', () => {
+  const draft = createGame('future-fan-campaign-schedule-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const selectedIds = game.members.slice(0, 3).map((member) => member.id);
+  const plannedVideoCall = scheduleFanCampaign(game, 'videoCall', 'Fri', selectedIds, 2);
+  const plannedVideoCallSecondDay = scheduleFanCampaign(plannedVideoCall, 'videoCall', 'Sat', selectedIds, 2);
+  const plannedMeetGreet = scheduleFanCampaign(plannedVideoCallSecondDay, 'meetGreet', 'Sun', [], 3);
+
+  const weekTwo = resolveWeek(plannedMeetGreet);
+  assert.deepEqual(selectedIds.map((memberId) => weekTwo.schedule[`${memberId}:Fri`]), ['vc1', 'vc1', 'vc1']);
+  assert.deepEqual(selectedIds.map((memberId) => weekTwo.schedule[`${memberId}:Sat`]), ['vc1', 'vc1', 'vc1']);
+  assert.equal(weekTwo.fanEventPlans.some((plan) => plan.targetWeek === 2), true);
+
+  const weekThree = resolveWeek(weekTwo);
+  assert.equal(Object.values(weekThree.schedule).filter((activity) => activity === 'mg1').length, 12);
+  assert.equal(weekThree.fanEventPlans.some((plan) => plan.targetWeek === 3), true);
+
+  const weekFour = resolveWeek(weekThree);
+  assert.equal(weekFour.fanEventPlans.some((plan) => plan.targetWeek === 3), false);
 });
 
 test('legacy schedule templates cannot bypass fan campaign setup', () => {

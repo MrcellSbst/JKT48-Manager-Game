@@ -19,17 +19,17 @@ const bonusValue = (state, id) => hasBonus(state, id) ? BONUS_BY_ID[id].value : 
 const applyRate = (value, rate) => Math.round(value * (1 + rate));
 const chemistryPairKey = (firstId, secondId) => [firstId, secondId].sort().join('::');
 const chemistryDimensions = ['stage', 'performance', 'mc', 'unit'];
-const eventConflict = (state, targetYear, targetWeek) => {
+const eventConflict = (state, targetYear, targetWeek, ignoreVideoCalls = false) => {
   const absolute = toAbsoluteWeek(targetYear, targetWeek);
   const storedEvents = [
-    ...(state.concerts ?? []).map((event) => toAbsoluteWeek(event.targetYear, event.targetWeek)),
-    ...(state.yearEndMeetGreets ?? []).map((event) => toAbsoluteWeek(event.year, event.targetWeek)),
-    ...(state.fanEventPlans ?? []).map((event) => toAbsoluteWeek(event.year, event.targetWeek)),
-    ...(state.activityEvents ?? []).map((event) => toAbsoluteWeek(event.year, event.week)),
+    ...(state.concerts ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: event.eventType === 'anniversary' ? 'concert' : 'concert' })),
+    ...(state.yearEndMeetGreets ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: 'yearEndMeetGreet' })),
+    ...(state.fanEventPlans ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: event.type })),
+    ...(state.activityEvents ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.week), type: event.type })),
   ];
   const currentWeek = toAbsoluteWeek(state.year, state.week);
-  const currentScheduleHasEvent = absolute === currentWeek && Object.values(state.schedule ?? {}).some((activity) => ['concert', 'yearEndMeetGreet'].includes(activity) || activity?.startsWith('vc') || activity?.startsWith('mg'));
-  return storedEvents.some((eventAbsolute) => eventAbsolute === absolute) || currentScheduleHasEvent;
+  const currentScheduleHasEvent = absolute === currentWeek && Object.values(state.schedule ?? {}).some((activity) => ['concert', 'yearEndMeetGreet'].includes(activity) || activity?.startsWith('mg') || (!ignoreVideoCalls && activity?.startsWith('vc')));
+  return storedEvents.some(({ absolute: eventAbsolute, type }) => eventAbsolute === absolute && !(ignoreVideoCalls && type === 'videoCall')) || currentScheduleHasEvent;
 };
 
 function createChemistry(seed, firstId, secondId) {
@@ -107,7 +107,7 @@ export function canMemberPerform(member, activityId) {
 export function punishMember(state, memberId, weeks) {
   const duration = Math.max(1, Math.min(12, Math.round(Number(weeks) || 1)));
   const member = state.members?.find((item) => item.id === memberId);
-  if (state.runStatus === 'ended' || !member || !['active', 'trainee'].includes(member.status)) return state;
+  if (state.runStatus === 'ended' || !member || !['active', 'trainee'].includes(member.status) || state.activeDrama?.memberId !== memberId) return state;
   return { ...state, members: state.members.map((item) => item.id === memberId ? { ...item, status: 'suspended', suspensionWeeks: duration } : item), activeDrama: { memberId, name: member.nickname || member.name, punishmentWeeks: duration } };
 }
 
@@ -121,7 +121,7 @@ export function getRosterDanger(count) {
   if (count >= 18) return 'STABLE';
   if (count >= 15) return 'THIN';
   if (count >= 13) return 'DANGER';
-  if (count === 12) return 'CRITICAL';
+  if (count === 12) return 'MINIMUM THEATER ROSTER';
   return 'THEATER CANNOT OPERATE';
 }
 
@@ -606,7 +606,7 @@ export function assignActivity(state, memberId, day, activityId) {
   }
   if (activityId.startsWith('vc')) {
     const resolvedThisMonth = events.some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === month);
-    const scheduledVideoCall = Object.entries(schedule).some(([scheduleKey, value]) => scheduleKey.startsWith(`${memberId}:`) && value.startsWith?.('vc'));
+    const scheduledVideoCall = schedule[key]?.startsWith?.('vc');
     if (resolvedThisMonth || scheduledVideoCall) return state;
   }
   if (activityId === 'theater' && schedule[key] !== 'theater') {
@@ -628,28 +628,29 @@ export function assignActivity(state, memberId, day, activityId) {
 export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek = state.week) {
   if (state.runStatus === 'ended' || !DAYS.includes(day) || !['videoCall', 'meetGreet'].includes(type)) return state;
   if (!Number.isInteger(targetWeek) || targetWeek < state.week || targetWeek > BALANCE.weeksPerYear) return state;
-  if (eventConflict(state, state.year, targetWeek)) return state;
+  if (eventConflict(state, state.year, targetWeek, type === 'videoCall')) return state;
   const activityId = type === 'videoCall' ? 'vc1' : 'mg1';
   const eligibleIds = getSchedulableMembers(state, activityId).map((member) => member.id);
   if (!eligibleIds.length) return state;
   if (targetWeek > state.week) {
     const selectedIds = type === 'meetGreet' ? eligibleIds : [...new Set(memberIds)].filter((id) => eligibleIds.includes(id));
-    if (!selectedIds.length || (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type)) return state;
+    const sameDayPlanExists = (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.day === day && plan.type === type);
+    if (!selectedIds.length || sameDayPlanExists || (type === 'meetGreet' && (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type))) return state;
     if (type === 'videoCall') {
       const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
       const currentMonth = Math.ceil(state.week / BALANCE.weeksPerMonth);
       const hasExisting = selectedIds.some((memberId) => {
         const resolved = (state.activityEvents ?? []).some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === targetMonth);
-        const planned = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth);
+        const planned = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && !(plan.targetWeek === targetWeek && plan.day !== day));
         const scheduled = currentMonth === targetMonth && Object.entries(state.schedule).some(([key, value]) => {
           const [id] = key.split(':');
-          return value.startsWith('vc') && id === memberId;
+          return value.startsWith('vc') && id === memberId && key === `${memberId}:${day}`;
         });
         return resolved || planned || scheduled;
       });
       if (hasExisting) return state;
     }
-    return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: `fan-event-${type}-${state.year}-${targetWeek}`, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
+    return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: `fan-event-${type}-${state.year}-${targetWeek}-${day}`, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
   }
   if (type === 'meetGreet') {
     const hasLockedMember = eligibleIds.some((memberId) => ['mvProduction', 'concert', 'concertRehearsal', 'yearEndMeetGreet'].includes(state.schedule[`${memberId}:${day}`]));
@@ -744,7 +745,7 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
 }
 
 export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}) {
-  if (state.runStatus === 'ended' || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
+  if (state.runStatus === 'ended' || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
   if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year) || eventConflict(state, state.year, targetWeek)) return state;
   const cost = 40_000_000;
   if (state.money < cost) return state;
@@ -1609,6 +1610,11 @@ export function resolveWeek(state) {
   yearEndMeetGreets.forEach((event) => {
     if (nextAbsolute !== toAbsoluteWeek(event.year, event.targetWeek)) return;
     event.memberSessions.filter((session) => members.some((member) => member.id === session.memberId && ['active', 'trainee'].includes(member.status))).forEach((session) => { nextSchedule[`${session.memberId}:${event.day}`] = 'yearEndMeetGreet'; });
+  });
+  (state.fanEventPlans ?? []).filter((plan) => plan.year === year && plan.targetWeek === week).forEach((plan) => {
+    plan.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => {
+      nextSchedule[`${memberId}:${plan.day}`] = plan.type === 'videoCall' ? 'vc1' : 'mg1';
+    });
   });
   if (concertSummary) concerts = concerts.map((concert) => concert.targetYear === state.year && concert.targetWeek === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert);
   const currentYearEndMeetGreet = yearEndMeetGreets.find((event) => event.year === state.year && event.targetWeek === state.week);
