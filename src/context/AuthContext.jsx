@@ -66,14 +66,18 @@ export function AuthProvider({ children }) {
         const session = await request('/api/auth/me');
         const local = await getLocalSnapshot();
         let cloudUpdatedAt = null;
-        if (!local.activeRun) {
-          setProgress('loading', 'Loading cloud save…');
-          const cloud = await fetchCloudSnapshot();
-          if (cloud) {
+        setProgress('loading', 'Loading cloud save…');
+        const cloud = await fetchCloudSnapshot();
+        if (cloud) {
+          if (!local.activeRun) {
             await replaceLocalSnapshot(cloud.snapshot);
             cloudUpdatedAt = cloud.updatedAt;
             if (!cancelled) setStorageRevision((revision) => revision + 1);
           }
+        } else {
+          setProgress('saving', 'No cloud save found. Uploading local save…');
+          const uploaded = await uploadLocalSnapshot();
+          cloudUpdatedAt = uploaded.updated_at ?? null;
         }
         if (!cancelled) {
           setUser({ username: session.username, user_id: session.user_id });
@@ -104,6 +108,7 @@ export function AuthProvider({ children }) {
         await replaceLocalSnapshot(cloud.snapshot);
         updatedAt = cloud.updatedAt;
       } else {
+        setProgress('saving', 'No cloud save found. Uploading local save…');
         const uploaded = await uploadLocalSnapshot();
         updatedAt = uploaded.updated_at ?? null;
       }
