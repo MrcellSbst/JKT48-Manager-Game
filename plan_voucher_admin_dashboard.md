@@ -7,6 +7,7 @@ Create an administrator-only dashboard for creating, configuring, distributing, 
 The dashboard is the source of voucher issuance.
 
 Players do not access this dashboard.
+THE ONLY USER THAT CAN ACCESS THIS PAGE IS BY LOGIN AND USERID=1 FROM USER_H
 
 Flow:
 

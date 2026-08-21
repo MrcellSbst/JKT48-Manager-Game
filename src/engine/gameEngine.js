@@ -25,6 +25,25 @@ const AUDITION_MAX_INTAKE = 6;
 const ALL_NINETY_SEED = 'SEKAISEIN@1903@MARCELL';
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
+const voucherAdjustmentFor = (member, stat) => Number(member?.voucherAdjustments?.[stat] ?? 0);
+const voucherNaturalCap = (member, stat) => ({
+  min: -voucherAdjustmentFor(member, stat),
+  max: 100 - voucherAdjustmentFor(member, stat),
+});
+const voucherBaseFor = (member, stat) => {
+  const adjustment = voucherAdjustmentFor(member, stat);
+  return Number(member?.voucherBaseStats?.[stat] ?? ((member?.[stat] ?? 0) - adjustment));
+};
+const applyNaturalStatChange = (member, stat, delta) => {
+  const adjustment = voucherAdjustmentFor(member, stat);
+  const natural = voucherBaseFor(member, stat);
+  const nextNatural = clamp(natural + delta, -adjustment, 100 - adjustment);
+  return {
+    ...member,
+    [stat]: Math.round((nextNatural + adjustment) * 10) / 10,
+    voucherBaseStats: { ...(member.voucherBaseStats ?? {}), [stat]: Math.round(nextNatural * 10) / 10 },
+  };
+};
 const isAllNinetySeed = (seed) => String(seed ?? '').trim().toUpperCase() === ALL_NINETY_SEED;
 const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
@@ -1027,7 +1046,12 @@ export function respondToOpportunity(state, accept) {
   const fansGained = applyFanSoftCap(offer.fans, capMultiplier, resistance);
   opportunityHistory = opportunityHistory.map((item, index) => index === opportunityHistory.length - 1 ? { ...item, baseFans: offer.fans, fansGained, fanMultiplier: capMultiplier } : item);
   const participantSet = new Set(offer.memberIds);
-  const members = state.members.map((member) => participantSet.has(member.id) ? { ...member, energy: clamp(member.energy - Math.round(offer.energy * (1.15 - member.stamina * 0.003))), fanbase: member.fanbase + Math.round(fansGained / Math.max(1, offer.memberIds.length)), popularity: clamp(member.popularity + (offer.awareness >= 3 ? 1 : 0)), appearances: { ...member.appearances, media: (member.appearances?.media ?? 0) + (offer.category === 'media' ? 1 : 0), offAir: (member.appearances?.offAir ?? 0) + (offer.category === 'live' ? 1 : 0) } } : member);
+  const members = state.members.map((member) => {
+    if (!participantSet.has(member.id)) return member;
+    const naturalEnergy = clamp(voucherBaseFor(member, 'energy') - Math.round(offer.energy * (1.15 - member.stamina * 0.003)), -voucherAdjustmentFor(member, 'energy'), 100 - voucherAdjustmentFor(member, 'energy'));
+    const next = applyNaturalStatChange(member, 'popularity', offer.awareness >= 3 ? 1 : 0);
+    return { ...next, energy: naturalEnergy + voucherAdjustmentFor(member, 'energy'), voucherBaseStats: { ...(next.voucherBaseStats ?? {}), energy: naturalEnergy }, fanbase: member.fanbase + Math.round(fansGained / Math.max(1, offer.memberIds.length)), appearances: { ...member.appearances, media: (member.appearances?.media ?? 0) + (offer.category === 'media' ? 1 : 0), offAir: (member.appearances?.offAir ?? 0) + (offer.category === 'live' ? 1 : 0) } };
+  });
   const financialEvent = { id: `${offer.id}-accepted-${state.year}-${state.week}`, type: 'opportunity', category: offer.category, title: offer.title, year: state.year, week: state.week, income: revenue, expense: offer.cost, net: revenue - offer.cost };
   return { ...state, pendingOpportunity: null, opportunityHistory, financialEvents: [...(state.financialEvents ?? []), financialEvent], money: state.money - offer.cost + revenue, members, group: { ...state.group, fanbase: state.group.fanbase + fansGained, popularity: clamp(state.group.popularity + 1), publicAwareness: clamp(state.group.publicAwareness + offer.awareness), reputation: clamp(state.group.reputation + offer.reputation) }, notifications: [{ type: 'success', text: `${offer.title} completed: ${moneyText(revenue)} revenue and ${fansGained.toLocaleString()} new fans.` }, ...(state.notifications ?? [])].slice(0, 20), history: [{ id: `${offer.id}-accepted`, type: 'opportunity', title: offer.title, detail: `${offer.memberIds.length} members participate. Net cash ${moneyText(revenue - offer.cost)}; ${fansGained.toLocaleString()} of ${offer.fans.toLocaleString()} potential fans gained.`, year: state.year, week: state.week }, ...(state.history ?? [])] };
 }
@@ -1112,7 +1136,7 @@ function getFanEventDemand(member, activityId, rng) {
 }
 
 function resolveMemberWeek(member, assignments, rng, theater, state) {
-  let energy = member.energy;
+  let energy = voucherBaseFor(member, 'energy');
   let money = 0;
   let fanGain = 0;
   let baseFanGain = 0;
@@ -1125,10 +1149,15 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     baseFanGain += normalizedBase + baseBonus;
     fanGain += appliedGain + appliedBonus;
   };
-  let popularity = member.popularity;
+  let popularity = voucherBaseFor(member, 'popularity');
   let momentum = member.momentum * 0.7;
   const finances = { theater: 0, videoCall: 0, meetGreet: 0, media: 0, offAir: 0, liveStream: 0, concert: 0, otherIncome: 0, activityCosts: 0 };
   const stats = { ...member };
+  const voucherBaseStats = { ...(member.voucherBaseStats ?? {}) };
+  SKILLS.forEach((skill) => {
+    stats[skill] = voucherBaseFor(member, skill);
+    voucherBaseStats[skill] = stats[skill];
+  });
   const appearances = { ...member.appearances };
   let trainingProgress = member.trainingProgress ?? 0;
   let theaterAppearances = member.theaterAppearances ?? appearances.theater ?? 0;
@@ -1181,7 +1210,8 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       const crossTrainingRate = activity.skill === lowestSkill ? bonusValue(state, 'B018') : 0;
       const adaptabilityRate = activity.skill === lowestSkill ? 0.9 + (member.adaptability ?? 50) / 500 : member.traits.includes('Versatile') ? 1.08 : 1;
       const gain = ceiling * member.development / 100 * developmentCurveMultiplier(member, state.year) * adaptabilityRate * traitBonus * energyEffectiveness * (activity.intensity ?? 1) * (1 + trainingRate + crossTrainingRate);
-      stats[activity.skill] = clamp(stats[activity.skill] + Math.max(0.1, gain));
+      const statCap = voucherNaturalCap(member, activity.skill);
+      stats[activity.skill] = clamp(stats[activity.skill] + Math.max(0.1, gain), statCap.min, statCap.max);
       if (member.status === 'trainee') trainingProgress = clamp(trainingProgress + (activity.intensity ?? 1) * BALANCE.trainee.trainingProgressPerIntensity);
     }
     if (activityId === 'theater') {
@@ -1253,8 +1283,30 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       momentum += 2;
     }
   }
+  const naturalEnergy = clamp(energy, -voucherAdjustmentFor(member, 'energy'), 100 - voucherAdjustmentFor(member, 'energy'));
+  const naturalPopularity = clamp(popularity, -voucherAdjustmentFor(member, 'popularity'), 100 - voucherAdjustmentFor(member, 'popularity'));
+  const displayEnergy = naturalEnergy + voucherAdjustmentFor(member, 'energy');
+  const displayPopularity = naturalPopularity + voucherAdjustmentFor(member, 'popularity');
+  const naturalVoucherBaseStats = {
+    ...voucherBaseStats,
+    energy: naturalEnergy,
+    popularity: naturalPopularity,
+  };
   return {
-    member: { ...member, ...Object.fromEntries(SKILLS.map((key) => [key, Math.round(stats[key] * 10) / 10])), setlistFamiliarity: stats.setlistFamiliarity ?? member.setlistFamiliarity ?? {}, theaterExp: stats.theaterExp ?? member.theaterExp ?? 0, energy, popularity: clamp(popularity), momentum: clamp(momentum, -20, 20), fanbase: member.fanbase + fanGain, appearances, trainingProgress, theaterAppearances },
+    member: {
+      ...member,
+      ...Object.fromEntries(SKILLS.map((key) => [key, Math.round((stats[key] + voucherAdjustmentFor(member, key)) * 10) / 10])),
+      voucherBaseStats: { ...naturalVoucherBaseStats, ...Object.fromEntries(SKILLS.map((key) => [key, Math.round(stats[key] * 10) / 10])) },
+      setlistFamiliarity: stats.setlistFamiliarity ?? member.setlistFamiliarity ?? {},
+      theaterExp: stats.theaterExp ?? member.theaterExp ?? 0,
+      energy: displayEnergy,
+      popularity: displayPopularity,
+      momentum: clamp(momentum, -20, 20),
+      fanbase: member.fanbase + fanGain,
+      appearances,
+      trainingProgress,
+      theaterAppearances,
+    },
     money,
     fanGain,
     baseFanGain,
@@ -1728,7 +1780,11 @@ export function resolveWeek(state) {
       graduationTrustDelta += (preparation.finalShow ? 2 : 0) + (preparation.specialSegment ? 1 : 0);
       notifications.push({ type: 'critical', text: `${graduation.memberName} has graduated.` });
       history.unshift({ id: `${graduation.id}-departure`, type: 'member', title: `${graduation.memberName} graduates`, detail: preparation.finalShow ? `The final show closes the member's active career with ${appliedGraduationFans.toLocaleString()} fan growth.` : 'The member leaves the active theater roster.', year, week: state.week });
-      members = members.map((member) => member.id === graduation.memberId ? { ...member, status: 'graduated', theaterEligible: false, canPerformTheater: false, graduationPending: false } : member.id === preparation.successorId ? { ...member, performance: clamp(member.performance + 2), popularity: clamp(member.popularity + 1), successorOf: graduation.memberId } : member);
+      members = members.map((member) => {
+        if (member.id === graduation.memberId) return { ...member, status: 'graduated', theaterEligible: false, canPerformTheater: false, graduationPending: false };
+        if (member.id !== preparation.successorId) return member;
+        return { ...applyNaturalStatChange(applyNaturalStatChange(member, 'performance', 2), 'popularity', 1), successorOf: graduation.memberId };
+      });
       return { ...graduation, completed: true, outcome: { baseFanGain: graduationFans, fanGain: appliedGraduationFans, merchandiseRevenue, fanTrustGain: graduationTrustDelta } };
     }
     return graduation;
@@ -1762,7 +1818,7 @@ export function resolveWeek(state) {
     const selected = members[randomInt(rng, 0, members.length - 1)];
     const baseGain = randomInt(rng, 1200, 8000);
     const gain = addGroupFans(baseGain, FAN_BALANCE.activityResistance.extremeViral);
-    members = members.map((member) => member.id === selected.id ? { ...member, fanbase: member.fanbase + gain, popularity: clamp(member.popularity + randomInt(rng, 2, 7)), momentum: clamp(member.momentum + 5, -20, 20) } : member);
+    members = members.map((member) => member.id === selected.id ? { ...applyNaturalStatChange(member, 'popularity', randomInt(rng, 2, 7)), fanbase: member.fanbase + gain, momentum: clamp(member.momentum + 5, -20, 20) } : member);
     notifications.push({ type: 'success', text: `${selected.nickname || selected.name} gains momentum from a viral clip.` });
     history.unshift({ id: `viral-${state.rngStep}`, type: 'viral', title: 'Viral moment', detail: `${selected.nickname || selected.name} gained ${gain.toLocaleString()} new fans.`, year, week: state.week });
     fanNarratives = appendNarrative(fanNarratives, { id: `breakout-${selected.id}-${year}-${state.week}`, type: 'breakout', title: 'Breakout star', detail: `Fans are watching ${selected.nickname || selected.name} after a viral performance.`, memberId: selected.id, sentiment: 'positive', year, week: state.week, expiresAbsolute: currentAbsolute + 12 });

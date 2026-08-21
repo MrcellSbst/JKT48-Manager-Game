@@ -16,6 +16,8 @@ import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import comingSoonImage from './Asset/Pics/Coming_SoonCOPY.png';
 import { getMemberOverall, ROSTER_SORT_OPTIONS, SORT_DIRECTIONS, SQUAD_SORT_OPTIONS, sortMembers, VISIBLE_MEMBER_STAT_KEYS, visibleStatLabel } from './engine/memberSort.js';
+import { VoucherEditModal, VoucherInventory, VoucherStatButton } from './components/VoucherUI.jsx';
+import VoucherAdminDashboard from './components/VoucherAdminDashboard.jsx';
 
 const portraitModules = import.meta.glob([
   './Asset/member_active/*',
@@ -34,6 +36,9 @@ const NAV = [
   ['roster', 'Roster', Users], ['campaigns', 'Campaigns', Clapperboard], ['templates', 'Templates', Archive], ['statistics', 'Statistics', ChartNoAxesCombined],
   ['history', 'History', History], ['wiki', 'Wiki', BookOpen], ['saves', 'Saves', Archive],
 ];
+const ADMIN_VOUCHER_PATH = '/admin/vouchers';
+const isAdminVoucherPath = () => typeof window !== 'undefined'
+  && (window.location.pathname.replace(/\/+$/, '') || '/') === ADMIN_VOUCHER_PATH;
 const translate = (language, text) => language === 'id' ? translateIndonesian(text) : text;
 
 function ModalPortal({ children }) {
@@ -590,15 +595,17 @@ function Roster({ game, setGame, selectedMember, setSelectedMember, language = '
   const [sort, setSort] = useState('overall');
   const [sortDirection, setSortDirection] = useState('desc');
   const [confirmRelease, setConfirmRelease] = useState(false);
+  const [voucherStat, setVoucherStat] = useState(null);
   const visible = useMemo(() => sortMembers(game.members.filter((m) => m.name.toLowerCase().includes(query.toLowerCase())), { sortKey: sort, direction: sortDirection }), [game.members, query, sort, sortDirection]);
   const selected = game.members.find((m) => m.id === selectedMember);
   useEffect(() => {
     if (window.matchMedia('(max-width: 760px)').matches) setSelectedMember(null);
   }, [setSelectedMember]);
-  return <div className="page roster-page">
+  return <div className="page roster-page"><VoucherInventory />
     <section className="page-heading"><div><span className="eyebrow">Squad database</span><h1>Roster</h1><p>Every rating below is fictional and regenerated for this timeline.</p></div><div className="roster-controls"><input aria-label="Search members" placeholder="Search member" value={query} onChange={(e) => setQuery(e.target.value)} /><select aria-label="Sort roster" value={sort} onChange={(e) => setSort(e.target.value)}><optgroup label="Visible stat"><option value="overall">Overall</option><option value="energy">Energy</option><option value="popularity">Popularity</option></optgroup>{ROSTER_SORT_OPTIONS.map((key) => <option key={key} value={key}>{key === 'generation' ? 'Generation' : key[0].toUpperCase() + key.slice(1)}</option>)}</select><select aria-label="Roster sort order" value={sortDirection} onChange={(e) => setSortDirection(e.target.value)}>{SORT_DIRECTIONS.map((direction) => <option key={direction} value={direction}>{direction === 'asc' ? 'Ascending' : 'Descending'}</option>)}</select></div></section>
      <section className="member-grid">{visible.map((member) => <button type="button" key={member.id} className={selected?.id === member.id ? 'member-card selected' : 'member-card'} onClick={() => setSelectedMember(member.id)}><div className="photo-wrap"><Portrait member={member} size="card" /><span className={`availability ${member.status}`}>{member.status}</span><b>{overall(member)}</b></div><div className="card-body"><span>{member.generation}</span><h3>{member.name}</h3><p>{member.archetype}{member.captain ? ' · Captain' : ''}</p>{injuryLabel(member) ? <small className="injury-label">{injuryLabel(member)}</small> : null}<div className="card-bars"><div><span>Energy</span><i><b className={energyTone(member.energy)} style={{ width: `${member.energy}%` }} /></i><strong>{member.energy}</strong></div><div><span>POP</span><i><b style={{ width: `${member.popularity}%` }} /></i><strong>{member.popularity}</strong></div></div></div></button>)}</section>
-     {selected ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedMember(null); }}><aside className="member-drawer member-drawer-modal" role="dialog" aria-modal="true"><div className="drawer-head"><div><span>Player profile</span><h2>{displayName(selected)}</h2></div><IconButton label="Close profile" onClick={() => setSelectedMember(null)}><X size={20} /></IconButton></div><Portrait member={selected} size="drawer" /><h3>{selected.name}</h3><p>{selected.generation} · {selected.team || 'JKT48'} · {selected.archetype}</p><p className="member-birthday">Birthday {birthdayMeta(selected, game.year)}</p><p className="member-salary">Salary {money(getMemberSalary(selected, game.year, game.hardMode))} / month</p><div className="drawer-score"><strong>{overall(selected)}</strong><span>Overall</span></div><dl>{['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'popularity', 'energy', 'ego'].map((key) => <div key={key}><dt>{key}</dt><dd>{Math.round(selected[key])}</dd></div>)}</dl><MemberFanProfile game={game} member={selected} /><TraineeDevelopment key={selected.id} game={game} member={selected} setGame={setGame} /><div className="trait-list">{selected.traits.map((trait) => <span key={trait}>{trait}</span>)}</div><small>Potential, development curve, ego, and compatibility are fictional simulation values.</small><button type="button" className="captain-button" onClick={() => setGame((current) => ({ ...current, members: current.members.map((item) => ({ ...item, captain: item.id === selected.id })) }))}>{selected.captain ? 'Captain selected' : 'Select as captain'}</button><label className="punishment-control">Punishment weeks<select defaultValue="4" onChange={(event) => setGame((current) => punishMember(current, selected.id, event.target.value))}><option value="1">1 week</option><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select></label><button type="button" className="fire-member-button" disabled={getTheaterEligibleMembers(game).length <= BALANCE.theaterMinimumMembers && selected.status !== 'suspended'} onClick={() => setConfirmRelease(true)}>Release member</button></aside></div></ModalPortal> : null}
+     {selected ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedMember(null); }}><aside className="member-drawer member-drawer-modal" role="dialog" aria-modal="true"><div className="drawer-head"><div><span>Player profile</span><h2>{displayName(selected)}</h2></div><IconButton label="Close profile" onClick={() => setSelectedMember(null)}><X size={20} /></IconButton></div><Portrait member={selected} size="drawer" /><h3>{selected.name}</h3><p>{selected.generation} · {selected.team || 'JKT48'} · {selected.archetype}</p><p className="member-birthday">Birthday {birthdayMeta(selected, game.year)}</p><p className="member-salary">Salary {money(getMemberSalary(selected, game.year, game.hardMode))} / month</p><div className="drawer-score"><strong>{overall(selected)}</strong><span>Overall</span></div><button type="button" className="secondary-button voucher-open-button" onClick={() => setVoucherStat('vocal')}>Edit with voucher</button><dl>{['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'popularity', 'energy', 'ego'].map((key) => <div key={key}><dt>{key}</dt><dd><VoucherStatButton member={selected} stat={key} onEdit={(nextStat) => setVoucherStat(nextStat)} /></dd></div>)}</dl><MemberFanProfile game={game} member={selected} /><TraineeDevelopment key={selected.id} game={game} member={selected} setGame={setGame} /><div className="trait-list">{selected.traits.map((trait) => <span key={trait}>{trait}</span>)}</div><small>Potential, development curve, ego, and compatibility are fictional simulation values.</small><button type="button" className="captain-button" onClick={() => setGame((current) => ({ ...current, members: current.members.map((item) => ({ ...item, captain: item.id === selected.id })) }))}>{selected.captain ? 'Captain selected' : 'Select as captain'}</button><label className="punishment-control">Punishment weeks<select defaultValue="4" onChange={(event) => setGame((current) => punishMember(current, selected.id, event.target.value))}><option value="1">1 week</option><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select></label><button type="button" className="fire-member-button" disabled={getTheaterEligibleMembers(game).length <= BALANCE.theaterMinimumMembers && selected.status !== 'suspended'} onClick={() => setConfirmRelease(true)}>Release member</button></aside></div></ModalPortal> : null}
+     {selected && voucherStat ? <ModalPortal><VoucherEditModal member={selected} language={language} onClose={() => setVoucherStat(null)} /></ModalPortal> : null}
      {confirmRelease && selected ? <ConfirmationModal title={language === 'id' ? `Lepaskan ${displayName(selected)} dari daftar anggota?` : `Release ${displayName(selected)} from the roster?`} description="The member leaves immediately, applies the configured trust and reputation penalties, and cannot be restored for two in-game years." confirmLabel="Release member" destructive onCancel={() => setConfirmRelease(false)} onConfirm={() => { setGame((current) => fireMember(current, selected.id)); setConfirmRelease(false); setSelectedMember(null); }} icon={<UserRoundSearch size={24} />} /> : null}
   </div>;
 }
@@ -1272,6 +1279,7 @@ export default function App() {
   const [setupDraft, setSetupDraft] = useState(null);
   const [saves, setSaves] = useState([]);
   const [activeView, setActiveView] = useState('dashboard');
+  const [adminRoute, setAdminRoute] = useState(isAdminVoucherPath);
   const [selectedMember, setSelectedMember] = useState(null);
   const [advancing, setAdvancing] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
@@ -1329,6 +1337,11 @@ export default function App() {
     catch { /* Language still applies for this session when storage is unavailable. */ }
   }, [language]);
   useEffect(() => localizeDocument(language), [language, game, setupDraft, activeView]);
+  useEffect(() => {
+    if (!adminRoute || authLoading || (!user && !guestMode) || String(user?.user_id) === '1') return;
+    window.history.replaceState({}, '', '/');
+    setAdminRoute(false);
+  }, [adminRoute, authLoading, guestMode, user]);
 
   const start = (seed) => { setSetupDraft(createGame(seed.trim() || randomSeed())); };
   // Roster scope changes the identity pool, so the seeded draft is rebuilt from the same seed.
@@ -1503,6 +1516,14 @@ export default function App() {
   const accountLayer = <><SyncOverlay />{accountOpen ? <AuthScreen onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
   if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>Checking account…</strong><span>Loading browser save status.</span></main><SyncOverlay /></>;
   if (!user && !guestMode) return <><AuthScreen allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
+  if (adminRoute && String(user?.user_id) === '1') {
+    const leaveAdminRoute = () => {
+      window.history.replaceState({}, '', '/');
+      setAdminRoute(false);
+      setActiveView('dashboard');
+    };
+    return <><VoucherAdminDashboard onBack={leaveAdminRoute} />{accountLayer}</>;
+  }
   if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}</>;
   if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{accountLayer}</>;
   if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}</>;

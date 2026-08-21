@@ -68,7 +68,7 @@ npm test
 
 The repository includes `wrangler.jsonc`, uses `dist` as the Pages build output directory, and shares the existing `gacha-jkt48` D1 binding for `user_h` authentication.
 
-Create the Manager-only cloud-save table before deployment:
+Create the Manager save and voucher tables before deployment (the script is idempotent):
 
 ```bash
 npx wrangler d1 execute gacha-jkt48 --remote --file schema.sql
@@ -94,6 +94,8 @@ npm run pages:deploy
 
 The configured Pages project name is `jkt48-manager-game`. Change `name` in `wrangler.jsonc` if a different Cloudflare Pages project name is required.
 
+The voucher administration dashboard has no navigation link. Open `/admin/vouchers` directly while signed in with administrator account `user_id = 1`; other accounts are redirected away, and admin API endpoints enforce the same check server-side.
+
 ## Save Data
 
 Guest saves remain in browser IndexedDB. Account saves use the same IndexedDB data locally and upload an encrypted snapshot to the Manager-only `jkt48_manager_data` D1 table.
@@ -114,7 +116,7 @@ src/
   data/                  Member, balance, and Management Perks data
   engine/                Seeded simulation and weekly resolution logic
   state/                 IndexedDB persistence
-  context/               Authentication and encrypted cloud synchronization
+  context/               Authentication, encrypted cloud sync, and voucher inventory
   components/AuthScreen  Login, registration, guest entry, and sync status
   App.jsx                Main React application and views
   localization.js        English-to-Indonesian localization
@@ -122,8 +124,8 @@ src/
 test/                    Node test suite
 public/                  Cloudflare Pages static configuration
 wrangler.jsonc           Cloudflare Pages configuration
-schema.sql               Manager-only D1 cloud-save table
-functions/api/           Same-origin auth and save endpoints
+schema.sql               Manager save, voucher, redemption, and audit tables
+functions/api/           Same-origin auth, save, voucher, and admin endpoints
 ```
 
 ## Game Calendar
