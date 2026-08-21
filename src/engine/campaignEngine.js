@@ -35,7 +35,9 @@ function makeParticipants(type, members, rng) {
   if (type === 'sousenkyo') return { memberIds: eligible.map((member) => member.id), votes: Object.fromEntries(eligible.map((member) => [member.id, 0])) };
   if (type === 'request-hour') return { songIds: dreamSetlistSongs.map((song) => song.id), votes: Object.fromEntries(dreamSetlistSongs.map((song) => [song.id, 0])) };
   const shuffled = [...eligible].sort(() => rng() - 0.5);
-  return { memberIds: shuffled.map((member) => member.id), supports: Object.fromEntries(shuffled.map((member) => [member.id, 0])) };
+  // Janken is a pure luck bracket: there are no votes, support points, or
+  // member-stat modifiers. The shuffled entrant order is the only setup input.
+  return { memberIds: shuffled.map((member) => member.id) };
 }
 
 function makeJankenBracketPreview(memberIds = []) {
@@ -99,7 +101,7 @@ function initializeCampaign(config, members, rng) {
     id: config.id, type: config.type, campaignYear: config.campaignYear, configuredInYear: config.configuredInYear, held: config.held !== false,
     status: 'configured', currentYear: config.startYear, currentWeek: config.startWeek, progressWeeks: 0, startYear: config.startYear, startWeek: config.startWeek, startAbsoluteWeek: config.startAbsoluteWeek, durationWeeks: config.durationWeeks, endYear: config.endYear, endWeek: config.endWeek, endAbsoluteWeek: config.endAbsoluteWeek, resultYear: config.resultYear, resultWeek: config.resultWeek, resultAbsoluteWeek: config.resultAbsoluteWeek,
     budget: config.budget, spent: 0, totalVotes: 0, votingRevenue: 0, participants, liveStandings: [], result: null,
-    concertBudgetId: config.concertBudgetId, concertVenueId: config.concertVenueId, concertDay: config.concertDay, mvBudgetId: config.mvBudgetId, rewardConcertId: null, rewardConcertStatus: null, rewardConcertYear: null, rewardConcertWeek: null, rewardConcertMemberIds: [], rewardConcertPerformerCount: 0, rewardConcertCompletedWeek: null, rewardSongId: null, mvProjectId: null, mvProductionWeeks: 0, mvProductionDurationWeeks: CAMPAIGN_MV_PRODUCTION_WEEKS, bracket: config.type === 'janken' ? makeJankenBracketPreview(participants.memberIds) : null, lifecycle: [{ status: 'configured', year: config.campaignYear, week: config.startWeek }], history: [],
+    concertBudgetId: config.concertBudgetId, concertVenueId: config.concertVenueId, concertDay: config.concertDay, mvBudgetId: config.mvBudgetId, rewardConcertId: null, rewardConcertStatus: null, rewardConcertYear: null, rewardConcertWeek: null, rewardConcertMemberIds: [], rewardConcertPerformerCount: 0, rewardConcertCompletedWeek: null, rewardSongId: null, underGirlsSongId: null, mvProjectId: null, underGirlsMvProjectId: null, mvProductionWeeks: 0, mvProductionDurationWeeks: CAMPAIGN_MV_PRODUCTION_WEEKS, bracket: config.type === 'janken' ? makeJankenBracketPreview(participants.memberIds) : null, lifecycle: [{ status: 'configured', year: config.campaignYear, week: config.startWeek }], history: [],
   };
   return campaign;
 }
@@ -129,6 +131,7 @@ function updateSongStandings(campaign) {
 }
 
 function generateWeeklySupport(campaign, members, group, rng) {
+  if (campaign.type === 'janken') return { participants: campaign.participants, votes: 0, revenue: 0, perVote: 0 };
   const active = activeMembers(members);
   const perVote = campaignRevenuePerVote(group);
   let votes = 0;

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
+import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
 import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
@@ -152,8 +153,8 @@ test('same seed creates same fictional roster stats', () => {
   assert.deepEqual(first.members, second.members);
 });
 
-test('ALL90 seed maxes member ratings and team chemistry while leaving ego seeded', () => {
-  const game = createGame('ALL90');
+test('SekaiSein@1903@Marcell seed maxes member ratings and team chemistry while leaving ego seeded', () => {
+  const game = createGame('SekaiSein@1903@Marcell');
   const ratingKeys = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'consistency', 'adaptability', 'popularity', 'energy', 'potential', 'development'];
   assert.ok(game.members.length > 0);
   assert.ok(game.members.every((member) => ratingKeys.every((key) => member[key] === 100)));
@@ -541,6 +542,20 @@ test('campaign schedule resolution follows Concert > MnG > MV > VC > template pr
   assert.equal(resolveWith('concert', 'meetGreet'), 'concert');
 });
 
+test('Seitansai only resolves when the selected birthday member is in that theater lineup', () => {
+  const draft = createGame('seitansai-lineup-gate-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id), 'Birthday Office', [], { hardMode: true });
+  const birthdayMemberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === birthdayMemberId ? { ...member, birthMonth: 1 } : member) };
+  game.members.slice(1, 13).forEach((member) => { game = assignActivity(game, member.id, 'Sat', 'theater'); });
+  game = configureTheaterShow(game, 'Sat', SETLISTS[0].id, game.members[1].id);
+  game = { ...game, theaterShows: { ...game.theaterShows, Sat: { ...game.theaterShows.Sat, isSeitansai: true, seitansaiMemberId: birthdayMemberId } } };
+  game = resolveWeek(game);
+  assert.equal(game.theaterHistory.at(-1).isSeitansai, false);
+  assert.equal(game.theaterHistory.at(-1).seitansaiMemberId, null);
+  assert.equal(game.seitansaiObligations.find((item) => item.memberId === birthdayMemberId)?.status, 'open');
+});
+
 test('campaign rewards run result concert before the configured MV budget', () => {
   const draft = createGame('campaign-reward-pipeline-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
@@ -558,6 +573,30 @@ test('campaign rewards run result concert before the configured MV budget', () =
   assert.equal(rewardMv.budgetId, 'high');
   assert.equal(rewardMv.durationWeeks, 4);
   assert.ok(rewardMv.productionCost > 0);
+});
+
+test('SSK creates separate Senbatsu and Undergirls MV projects', () => {
+  const draft = createGame('ssk-separate-mv-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const members = [...base.members, ...draft.members.slice(12, 24)];
+  const senbatsu = members.slice(0, 12).map((member) => member.id);
+  const undergirls = members.slice(12, 24).map((member) => member.id);
+  const campaign = {
+    id: 'campaign-2-sousenkyo-mv-test', type: 'sousenkyo', campaignYear: 2, status: 'mv-pending', startWeek: 1, durationWeeks: 12,
+    resultWeek: 1, concertBudgetId: 'standard', concertVenueId: 'hall', mvBudgetId: 'medium', mvProductionDurationWeeks: 4,
+    rewardSongId: dreamSetlistSongs[0].id, underGirlsSongId: dreamSetlistSongs[1].id, rewardConcertId: 'already-complete', rewardConcertStatus: 'completed',
+    mvProjectId: null, underGirlsMvProjectId: null, mvProductionWeeks: 0, totalVotes: 0, votingRevenue: 0, liveStandings: [],
+    participants: { memberIds: members.map((member) => member.id), votes: Object.fromEntries(members.map((member) => [member.id, 1])) },
+    result: { winnerMemberId: senbatsu[0], centerMemberId: senbatsu[0], senbatsu, undergirls, underGirlsCenterMemberId: undergirls[0], rewardSongId: dreamSetlistSongs[0].id, underGirlsSongId: dreamSetlistSongs[1].id },
+    lifecycle: [],
+  };
+  const next = resolveWeek({ ...base, members, year: 2, week: 1, money: 2_000_000_000, campaign, concerts: [], nextCampaignConfig: null, managementDramaCooldown: 99, memberDramaCooldown: 99, dramaCooldown: 99 });
+  const campaignMvs = next.singles.filter((single) => single.campaignId === campaign.id);
+  assert.equal(campaignMvs.length, 2);
+  assert.deepEqual(new Set(campaignMvs.map((single) => single.memberIds.length)), new Set([12]));
+  assert.notEqual(campaignMvs[0].songId, campaignMvs[1].songId);
+  assert.ok(campaignMvs.some((single) => single.memberIds.every((memberId) => senbatsu.includes(memberId))));
+  assert.ok(campaignMvs.some((single) => single.memberIds.every((memberId) => undergirls.includes(memberId))));
 });
 
 test('Video Call is limited to one event per member per four-week month', () => {

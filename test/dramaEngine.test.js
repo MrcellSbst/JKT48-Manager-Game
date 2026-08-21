@@ -31,6 +31,27 @@ test('management drama records reflect an active management decision', () => {
   assert.ok(selection.context.evidence.includes('upcoming'));
 });
 
+test('management risk separates overwork from protective rest and does not invent finance risk', () => {
+  const members = [{ id: 'm1', name: 'A', status: 'active', energy: 25, popularity: 70 }];
+  const overloaded = { year: 3, week: 20, money: 100_000, members, schedule: { 'm1:Mon': 'theater', 'm1:Tue': 'media', 'm1:Wed': 'vocal', 'm1:Thu': 'dance', 'm1:Fri': 'performance' }, ledger: { debt: {} }, financialEvents: [], history: [], weeklyReports: [], singles: [], theaterHistory: [], fanEventPlans: [], concerts: [], yearEndMeetGreets: [], graduationTargets: {}, departures: [] };
+  const rested = { ...overloaded, money: 2_000_000, members: [{ ...members[0], energy: 80 }], schedule: { 'm1:Mon': 'rest', 'm1:Tue': 'rest' } };
+  const overloadedContext = getManagementDramaContext(overloaded, overloaded.members);
+  const restedContext = getManagementDramaContext(rested, rested.members);
+  assert.equal(overloadedContext.kind, 'overwork');
+  assert.ok(overloadedContext.risk.overwork > restedContext.risk.overwork);
+  assert.ok(overloadedContext.risk.financialMismanagement === 0);
+  assert.ok(restedContext.protective.restCoverage > 0);
+  assert.ok(overloadedContext.chanceMultiplier > restedContext.chanceMultiplier);
+});
+
+test('management template weights follow the active risk and protective factor', () => {
+  const members = [{ id: 'm1', name: 'A', status: 'active', energy: 20, popularity: 70 }];
+  const state = { year: 3, week: 20, money: 100_000, members, schedule: { 'm1:Mon': 'theater', 'm1:Tue': 'media', 'm1:Wed': 'vocal', 'm1:Thu': 'dance', 'm1:Fri': 'performance' }, ledger: { debt: {} }, financialEvents: [], history: [], weeklyReports: [], singles: [], theaterHistory: [], fanEventPlans: [], concerts: [], yearEndMeetGreets: [], graduationTargets: {}, departures: [] };
+  const selection = selectManagementDramaTemplate(state, members, createRng(hashSeed('weight-test')));
+  assert.ok(selection.weights['member-overwork'] > 0);
+  assert.ok(selection.context.risk.overwork > 0);
+});
+
 test('drama catalogs keep sources, IDs, localization, and placeholders explicit', () => {
   assert.equal(new Set(ALL_DRAMA_TEMPLATES.map((template) => template.id)).size, ALL_DRAMA_TEMPLATES.length);
   assert.equal(new Set([...MEMBER_DRAMA_TEMPLATES, ...MANAGEMENT_DRAMA_TEMPLATES].map((template) => template.id)).size, ALL_DRAMA_TEMPLATES.length);

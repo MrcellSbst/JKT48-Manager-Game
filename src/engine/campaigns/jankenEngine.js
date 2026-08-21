@@ -40,5 +40,5 @@ export function resolveJankenBracket(memberIds, seed, rng = createRng(hashSeed(s
 export function resolveJanken(campaign, rng) {
   const result = resolveJankenBracket(campaign.participants.memberIds ?? [], `${campaign.id}:${campaign.campaignYear}`, rng);
   const rewardSongId = dreamSetlistSongs[randomInt(rng, 0, dreamSetlistSongs.length - 1)]?.id ?? dreamSetlistSongs[0]?.id;
-  return { ...campaign, result: { ...result, centerMemberId: result.winnerMemberId, rewardSongId }, rewardSongId, liveStandings: (campaign.participants.memberIds ?? []).map((memberId) => ({ memberId, supports: campaign.participants.supports?.[memberId] ?? 0 })) };
+  return { ...campaign, result: { ...result, centerMemberId: result.winnerMemberId, rewardSongId }, rewardSongId, totalVotes: 0, votingRevenue: 0, liveStandings: [] };
 }

@@ -5,7 +5,7 @@ import dreamSetlistSongs from '../data/DreamSetlist_Songs.js';
 import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
 import { BONUS_BY_ID, getBonusValueAtLevel, normalizeBonusLevel } from '../data/bonusTemplates.js';
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
-import { appendManagementContext, personalizeDramaText, selectManagementDramaTemplate } from './dramaEngine.js';
+import { appendManagementContext, getManagementDramaChanceMultiplier, getManagementDramaContext, personalizeDramaText, selectManagementDramaTemplate } from './dramaEngine.js';
 import { advanceCampaign, CAMPAIGN_DEFAULT_CONCERT_DAY, configureNextCampaign, nextCampaignType, startCampaign } from './campaignEngine.js';
 
 const ARCHETYPES = ['Performer', 'Vocalist', 'Entertainer', 'All-Rounder', 'Specialist', 'Raw Prospect', 'Prodigy', 'Late Bloomer'];
@@ -22,9 +22,10 @@ const ALL_NINETY_STATS = Object.fromEntries([
 ].map((key) => [key, 100]));
 const AUDITION_CANDIDATE_COUNT = 12;
 const AUDITION_MAX_INTAKE = 6;
+const ALL_NINETY_SEED = 'SEKAISEIN@1903@MARCELL';
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
-const isAllNinetySeed = (seed) => String(seed ?? '').replace(/[-_\s]/g, '').toUpperCase() === 'ALL90';
+const isAllNinetySeed = (seed) => String(seed ?? '').trim().toUpperCase() === ALL_NINETY_SEED;
 const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -153,7 +154,8 @@ export function punishMember(state, memberId, weeks) {
   const duration = Math.max(1, Math.min(12, Math.round(Number(weeks) || 1)));
   const member = state.members?.find((item) => item.id === memberId);
   if (state.runStatus === 'ended' || !member || !['active', 'trainee'].includes(member.status) || state.activeDrama?.memberId !== memberId) return state;
-  return { ...state, members: state.members.map((item) => item.id === memberId ? { ...item, status: 'suspended', suspensionWeeks: duration } : item), activeDrama: { memberId, name: member.nickname || member.name, punishmentWeeks: duration } };
+  const name = member.nickname || member.name;
+  return { ...state, members: state.members.map((item) => item.id === memberId ? { ...item, status: 'suspended', suspensionWeeks: duration } : item), activeDrama: { memberId, name, punishmentWeeks: duration }, history: [{ id: `punishment-${memberId}-${state.year}-${state.week}`, type: 'punishment', memberId, memberName: name, weeks: duration, title: `${name} receives a suspension`, detail: `${duration} week(s) suspension recorded by management.`, year: state.year, week: state.week }, ...(state.history ?? [])] };
 }
 
 // Members who can actually be put to work this week.
@@ -1518,10 +1520,11 @@ export function resolveWeek(state) {
     twoShotRecords.push({ id: `2shot-roulette-${state.year}-${state.week}-${day}`, type: 'twoShotRoulette', year: state.year, week: state.week, day, capacity, demand, sold, unmetDemand: Math.max(0, demand - sold), revenue });
     // 2-Shot Birthday (Seitansai)
     const configured = state.theaterShows?.[day] ?? {};
-    if (configured.isSeitansai) {
+    const seitansaiMember = lineup.find((member) => member.id === configured.seitansaiMemberId);
+    if (configured.isSeitansai && seitansaiMember) {
       const birthdayCapacity = 100;
       const birthdayTicket = 200000;
-      const birthdayDemand = lineup.reduce((sum, member) => sum + Math.max(0, Math.round(getFanEventDemand(member, 'mg1', createRng(hashSeed(`${state.seed}:2shot:birthday:${state.year}:${state.week}:${day}:${member.id}`))) / 30)), 0);
+      const birthdayDemand = Math.max(0, Math.round(getFanEventDemand(seitansaiMember, 'mg1', createRng(hashSeed(`${state.seed}:2shot:birthday:${state.year}:${state.week}:${day}:${seitansaiMember.id}`))) / 30));
       const birthdaySold = Math.min(birthdayCapacity, birthdayDemand);
       const birthdayRevenue = Math.round(birthdaySold * birthdayTicket);
       moneyDelta += birthdayRevenue;
@@ -1668,8 +1671,9 @@ export function resolveWeek(state) {
       history.unshift({ id: `drama-${state.rngStep}`, type: 'drama', dramaSource: 'member', title: dramaTitle, titleId: dramaTitleId, detail: dramaDetail, detailId: dramaDetailId, category: dramaTemplate.category, categoryId: dramaTemplate.categoryId, year, week: state.week });
     }
   }
-  if (year >= 2 && !activeManagementDrama && managementDramaCooldown === 0 && rng() < BALANCE.dramaChance * 0.35) {
-    const selection = selectManagementDramaTemplate(state, members, rng);
+  const managementContext = getManagementDramaContext(state, members);
+  if (year >= 2 && !activeManagementDrama && managementDramaCooldown === 0 && rng() < BALANCE.dramaChance * 0.35 * getManagementDramaChanceMultiplier(managementContext)) {
+    const selection = selectManagementDramaTemplate(state, members, rng, managementContext);
     const selectedTemplate = appendManagementContext(selection.template, selection.context);
     const needsMember = /\{member\}/.test(`${selectedTemplate.title} ${selectedTemplate.detail} ${selectedTemplate.titleId} ${selectedTemplate.detailId}`);
     const contextMember = needsMember
@@ -1912,8 +1916,8 @@ export function resolveWeek(state) {
     if (obligation.status !== 'open') return obligation;
     const fulfilled = [...validTheaterDays].some((day) => {
       const show = state.theaterShows?.[day];
-      return show?.isSeitansai && show.seitansaiMemberId === obligation.memberId;
-    }) || (state.theaterHistory ?? []).some((show) => show.isSeitansai && show.seitansaiMemberId === obligation.memberId && show.year === obligation.year && toAbsoluteWeek(show.year, show.week) >= obligation.dueAbsolute - 6);
+      return show?.isSeitansai && show.seitansaiMemberId === obligation.memberId && weekSchedule[`${obligation.memberId}:${day}`] === 'theater';
+    }) || (state.theaterHistory ?? []).some((show) => show.isSeitansai && show.seitansaiMemberId === obligation.memberId && show.memberIds?.includes(obligation.memberId) && show.year === obligation.year && toAbsoluteWeek(show.year, show.week) >= obligation.dueAbsolute - 6);
     if (fulfilled) {
       seitansaiTrustDelta += BALANCE.seitansai.trustGain;
       seitansaiOshiDelta.set(obligation.memberId, BALANCE.seitansai.oshiSentiment);
@@ -1987,7 +1991,10 @@ export function resolveWeek(state) {
     notifications.push({ type: 'critical', text: 'Campaign result concert is waiting for the configured concert budget.' });
   }
   const mvBudget = campaignResult.campaign?.status === 'mv-production' ? SINGLE_BUDGETS.find((option) => option.id === campaignResult.campaign.mvBudgetId) ?? SINGLE_BUDGETS.find((option) => option.id === 'medium') : null;
-  const mvProductionCost = mvBudget ? applyRate(mvBudget.cost, bonusValue(state, 'B005')) : 0;
+  const sskHasUnderGirlsMv = campaignResult.campaign?.type === 'sousenkyo'
+    && (campaignResult.campaign.result?.undergirls?.length ?? 0) >= 12;
+  const mvProjectCount = sskHasUnderGirlsMv ? 2 : 1;
+  const mvProductionCost = mvBudget ? applyRate(mvBudget.cost, bonusValue(state, 'B005')) * mvProjectCount : 0;
   if (campaignResult.campaign?.status === 'mv-production' && previousCampaignStatus !== 'mv-production' && mvProductionCost > state.money + moneyDelta) {
     campaignResult = { ...campaignResult, campaign: { ...campaignResult.campaign, status: 'mv-budget-pending', mvProjectId: null, mvBudgetCost: mvProductionCost } };
     notifications.push({ type: 'critical', text: 'Campaign MV is waiting for the configured production budget.' });
@@ -2004,8 +2011,17 @@ export function resolveWeek(state) {
     notifications.push({ type: 'success', text: title });
     history.push({ id: `campaign-${state.rngStep}-${event.type}`, type: 'campaign', campaignType: event.campaignType ?? campaignResult.campaign?.type, title, detail, year, week });
   });
-  const campaignMv = campaignResult.campaign?.status === 'mv-production' && previousCampaignStatus !== 'mv-production' && campaignResult.campaign.mvProjectId;
-  if (campaignMv && !singles.some((single) => single.id === campaignResult.campaign.mvProjectId)) {
+  const campaignUnderGirlsExpected = campaignResult.campaign?.type === 'sousenkyo'
+    && (campaignResult.campaign.result?.undergirls?.length ?? 0) >= 12;
+  const campaignUnderGirlsProjectId = campaignUnderGirlsExpected
+    ? (campaignResult.campaign.underGirlsMvProjectId ?? `mv-campaign-${campaignResult.campaign.id}-undergirls`)
+    : null;
+  const campaignHasMissingMv = campaignResult.campaign?.mvProjectId && (!singles.some((single) => single.id === campaignResult.campaign.mvProjectId)
+    || (campaignUnderGirlsProjectId && !singles.some((single) => single.id === campaignUnderGirlsProjectId)));
+  const campaignMv = campaignResult.campaign?.status === 'mv-production'
+    && campaignResult.campaign.mvProjectId
+    && (previousCampaignStatus !== 'mv-production' || campaignHasMissingMv);
+  if (campaignMv && campaignHasMissingMv) {
     const campaign = campaignResult.campaign;
     const result = campaign.result ?? {};
     const eligible = members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.temporarilyUnavailable);
@@ -2020,30 +2036,35 @@ export function resolveWeek(state) {
       .slice(0, 12);
     const song = dreamSetlistSongs.find((item) => item.id === campaign.rewardSongId);
     const campaignProductionDay = campaignMvProductionDay({ state, campaign, concerts, yearEndMeetGreets, singles });
-    singles = [...singles, {
-      id: campaign.mvProjectId,
-      title: `${song?.title ?? campaign.type.replace('-', ' ')} MV`,
-      songId: campaign.rewardSongId,
-      centerId: centerId ?? lineupIds[0] ?? null,
-      memberIds: lineupIds,
-      productionDay: campaignProductionDay,
-      productionCost: mvProductionCost,
-      budgetId: mvBudget?.id ?? 'medium',
-      budgetName: mvBudget?.name ?? 'Medium budget',
-      popularityGain: mvBudget?.popularityGain ?? 3,
-      fanTrustGain: mvBudget?.fanTrustGain ?? 1,
-      productionQuality: clamp(Math.round((mvBudget?.quality ?? 74) * 0.75 + (eligible.reduce((sum, member) => sum + (member.performance ?? 0), 0) / Math.max(1, eligible.length)) * 0.25)),
-      qualityRoll: 0,
-      qualityFloorBonus: 0,
-      year,
-      week,
-      status: 'production',
-      progressWeeks: 0,
-      durationWeeks: campaign.mvProductionDurationWeeks ?? 4,
-      campaignId: campaign.id,
-      campaignType: campaign.type,
-    }];
-    history.unshift({ id: `${campaign.mvProjectId}-start`, type: 'single', campaignId: campaign.id, title: `${song?.title ?? 'Campaign reward'} MV production started`, detail: `The ${campaign.mvBudgetId ?? 'medium'} campaign production budget enters the existing four-week MV production pipeline.`, year, week });
+    const underGirlsIds = campaign.type === 'sousenkyo'
+      ? [...new Set((result.undergirls ?? []).filter((memberId) => eligible.some((member) => member.id === memberId)))].slice(0, 12)
+      : [];
+    const underGirlsProjectId = underGirlsIds.length === 12 ? (campaign.underGirlsMvProjectId ?? `mv-campaign-${campaign.id}-undergirls`) : null;
+    const underGirlsSongId = result.underGirlsSongId
+      ?? campaign.underGirlsSongId
+      ?? dreamSetlistSongs.find((item) => item.id !== campaign.rewardSongId)?.id
+      ?? null;
+    const underGirlsSong = dreamSetlistSongs.find((item) => item.id === underGirlsSongId);
+    const singleProductionCost = mvProductionCost / mvProjectCount;
+    const buildCampaignMv = ({ id, title, songId, center, memberIds }) => {
+      const lineupMembers = memberIds.map((memberId) => eligible.find((member) => member.id === memberId)).filter(Boolean);
+      const lineupPerformance = lineupMembers.reduce((sum, member) => sum + (member.performance ?? 0), 0) / Math.max(1, lineupMembers.length);
+      return {
+        id, title, songId, centerId: center ?? memberIds[0] ?? null, memberIds, productionDay: campaignProductionDay,
+        productionCost: singleProductionCost, budgetId: mvBudget?.id ?? 'medium', budgetName: mvBudget?.name ?? 'Medium budget',
+        popularityGain: mvBudget?.popularityGain ?? 3, fanTrustGain: mvBudget?.fanTrustGain ?? 1,
+        productionQuality: clamp(Math.round((mvBudget?.quality ?? 74) * 0.75 + lineupPerformance * 0.25)), qualityRoll: 0, qualityFloorBonus: 0,
+        year, week, status: 'production', progressWeeks: 0, durationWeeks: campaign.mvProductionDurationWeeks ?? 4, campaignId: campaign.id, campaignType: campaign.type,
+      };
+    };
+    const mainMv = buildCampaignMv({ id: campaign.mvProjectId, title: `${song?.title ?? campaign.type.replace('-', ' ')} MV`, songId: campaign.rewardSongId, center: centerId ?? lineupIds[0], memberIds: lineupIds });
+    const underGirlsMv = underGirlsProjectId && underGirlsSong
+      ? buildCampaignMv({ id: underGirlsProjectId, title: `${underGirlsSong.title} · Under Girls MV`, songId: underGirlsSong.id, center: result.underGirlsCenterMemberId ?? underGirlsIds[0], memberIds: underGirlsIds })
+      : null;
+    const newCampaignMvs = [mainMv, underGirlsMv].filter((single) => single && !singles.some((existing) => existing.id === single.id));
+    singles = [...singles, ...newCampaignMvs];
+    campaignResult = { ...campaignResult, campaign: { ...campaign, underGirlsSongId: underGirlsSong?.id ?? null, underGirlsMvProjectId: underGirlsMv?.id ?? campaign.underGirlsMvProjectId ?? null } };
+    newCampaignMvs.forEach((single) => history.unshift({ id: `${single.id}-start`, type: 'single', campaignId: campaign.id, title: `${single.title} production started`, detail: `The ${campaign.mvBudgetId ?? 'medium'} campaign production budget enters the existing four-week MV production pipeline.`, year, week }));
   }
   const nextMoney = state.money + moneyDelta;
   const previousFailures = state.failureCounters ?? {};
@@ -2071,7 +2092,7 @@ export function resolveWeek(state) {
     completedMentorships,
     concertSummary,
     yearEndMeetGreetSummary,
-    campaign: campaignResult.campaign ? { id: campaignResult.campaign.id, type: campaignResult.campaign.type, status: campaignResult.campaign.status, held: campaignResult.campaign.held !== false, currentWeek: campaignResult.campaign.currentWeek ?? week, startWeek: campaignResult.campaign.startWeek, durationWeeks: campaignResult.campaign.durationWeeks, concertBudgetId: campaignResult.campaign.concertBudgetId, concertVenueId: campaignResult.campaign.concertVenueId, mvBudgetId: campaignResult.campaign.mvBudgetId, rewardConcertId: campaignResult.campaign.rewardConcertId ?? null, rewardConcertYear: campaignResult.campaign.rewardConcertYear ?? null, rewardConcertWeek: campaignResult.campaign.rewardConcertWeek ?? null, totalVotes: campaignResult.campaign.totalVotes ?? 0, votingRevenue: campaignResult.campaign.votingRevenue ?? 0, rewardSongId: campaignResult.campaign.rewardSongId ?? null, mvProjectId: campaignResult.campaign.mvProjectId ?? null, result: campaignResult.campaign.result ?? null } : null,
+    campaign: campaignResult.campaign ? { id: campaignResult.campaign.id, type: campaignResult.campaign.type, status: campaignResult.campaign.status, held: campaignResult.campaign.held !== false, currentWeek: campaignResult.campaign.currentWeek ?? week, startWeek: campaignResult.campaign.startWeek, durationWeeks: campaignResult.campaign.durationWeeks, concertBudgetId: campaignResult.campaign.concertBudgetId, concertVenueId: campaignResult.campaign.concertVenueId, mvBudgetId: campaignResult.campaign.mvBudgetId, rewardConcertId: campaignResult.campaign.rewardConcertId ?? null, rewardConcertYear: campaignResult.campaign.rewardConcertYear ?? null, rewardConcertWeek: campaignResult.campaign.rewardConcertWeek ?? null, totalVotes: campaignResult.campaign.totalVotes ?? 0, votingRevenue: campaignResult.campaign.votingRevenue ?? 0, rewardSongId: campaignResult.campaign.rewardSongId ?? null, underGirlsSongId: campaignResult.campaign.underGirlsSongId ?? campaignResult.campaign.result?.underGirlsSongId ?? null, mvProjectId: campaignResult.campaign.mvProjectId ?? null, underGirlsMvProjectId: campaignResult.campaign.underGirlsMvProjectId ?? null, result: campaignResult.campaign.result ?? null } : null,
     statistics: {
       before: { money: state.money, fanbase: state.group.fanbase, popularity: state.group.popularity, fanTrust: state.group.fanTrust, reputation: state.group.reputation },
       after: { money: nextMoney, fanbase: group.fanbase, popularity: group.popularity, fanTrust: group.fanTrust, reputation: group.reputation },
@@ -2087,7 +2108,8 @@ export function resolveWeek(state) {
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
     const lineup = members.filter((member) => weekSchedule[`${member.id}:${day}`] === 'theater');
     const center = lineup.find((member) => member.id === configured?.centerId) ?? lineup.toSorted((a, b) => b.performance - a.performance)[0];
-    return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, isSeitansai: Boolean(configured?.isSeitansai), seitansaiMemberId: configured?.seitansaiMemberId ?? null, isLastShow: Boolean(configured?.isLastShow), lastShowMemberId: configured?.lastShowMemberId ?? null, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
+    const validSeitansaiMember = lineup.find((member) => member.id === configured?.seitansaiMemberId);
+    return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, isSeitansai: Boolean(configured?.isSeitansai && validSeitansaiMember), seitansaiMemberId: validSeitansaiMember?.id ?? null, isLastShow: Boolean(configured?.isLastShow), lastShowMemberId: configured?.lastShowMemberId ?? null, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
   });
   lastResult.theaterShows = resolvedTheaterShows;
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult];

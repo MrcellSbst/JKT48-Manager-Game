@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CAMPAIGN_ROTATION, advanceCampaign, campaignRevenuePerVote, campaignTypeForYear, clampCampaignDuration, configureNextCampaign, createCampaignConfig, nextCampaignType, startCampaign } from '../src/engine/campaignEngine.js';
-import { resolveJankenBracket } from '../src/engine/campaigns/jankenEngine.js';
+import { resolveJanken, resolveJankenBracket } from '../src/engine/campaigns/jankenEngine.js';
 import { resolveRequestHour } from '../src/engine/campaigns/requestHourEngine.js';
 import { resolveSousenkyo } from '../src/engine/campaigns/sousenkyoEngine.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
@@ -58,8 +58,11 @@ test('Sousenkyo ranks members, creates Senbatsu and only creates Undergirls with
   assert.equal(result.result.winnerMemberId, 'member-29');
   assert.equal(result.result.senbatsu.length, 12);
   assert.equal(result.result.undergirls.length, 12);
+  assert.ok(result.result.underGirlsSongId);
+  assert.notEqual(result.result.underGirlsSongId, result.result.rewardSongId);
   const small = resolveSousenkyo({ participants: { votes: Object.fromEntries(members(12).map((member) => [member.id, 1])) } }, members(12), createRng(hashSeed('ssk-small')));
   assert.deepEqual(small.result.undergirls, []);
+  assert.equal(small.result.underGirlsSongId, null);
   assert.ok(dreamSetlistSongs.some((song) => song.id === result.rewardSongId));
 });
 
@@ -78,6 +81,21 @@ test('Janken bracket uses byes and seeded RPS, independent of member stats', () 
   assert.equal(first.bracketSize, 8);
   assert.ok(first.rounds.some((round) => round.matches.some((match) => match.bye)));
   assert.ok(ids.includes(first.winnerMemberId));
+});
+
+test('Janken is pure luck and never uses votes, support, or member stats', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const campaign = { id: 'campaign-janken-luck', campaignYear: 8, participants: { memberIds: ids, supports: Object.fromEntries(ids.map((id) => [id, 999_999])) }, totalVotes: 999_999, votingRevenue: 123_456 };
+  const first = resolveJanken(campaign, createRng(hashSeed('janken-luck')));
+  const second = resolveJanken({ ...campaign, participants: { memberIds: ids, supports: Object.fromEntries(ids.map((id) => [id, 0])) } }, createRng(hashSeed('janken-luck')));
+  assert.equal(first.result.winnerMemberId, second.result.winnerMemberId);
+  assert.equal(first.totalVotes, 0);
+  assert.equal(first.votingRevenue, 0);
+  assert.deepEqual(first.liveStandings, []);
+  const state = startCampaign({ seed: 'janken-no-vote', year: 2, week: 1, runStatus: 'active', members: members(16), group: { fanTrust: 80, reputation: 80, fanbase: 500_000 }, campaign: null, campaignHistory: [] }, { type: 'janken', durationWeeks: 8 });
+  const opened = advanceCampaign(state, { year: 2, week: 1, members: state.members, group: state.group, rng: createRng(hashSeed('janken-no-vote-week')) });
+  assert.equal(opened.campaign.totalVotes, 0);
+  assert.equal(opened.campaign.votingRevenue, 0);
 });
 
 test('campaign revenue per vote stays within configured trust and reputation range', () => {

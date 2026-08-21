@@ -11,13 +11,22 @@ const standingsFor = (campaign, members) => {
 
 export function resolveSousenkyo(campaign, members, rng) {
   const standings = standingsFor(campaign, members);
+  const senbatsu = standings.slice(0, 12).map((entry) => entry.memberId);
+  const undergirls = standings.length >= 24 ? standings.slice(12, 24).map((entry) => entry.memberId) : [];
+  const rewardSongId = dreamSetlistSongs[randomInt(rng, 0, dreamSetlistSongs.length - 1)]?.id ?? dreamSetlistSongs[0]?.id;
+  const underGirlsSongPool = dreamSetlistSongs.filter((song) => song.id !== rewardSongId);
+  const underGirlsSongId = undergirls.length === 12
+    ? (underGirlsSongPool[randomInt(rng, 0, Math.max(0, underGirlsSongPool.length - 1))]?.id ?? rewardSongId)
+    : null;
   const result = {
     winnerMemberId: standings[0]?.memberId ?? null,
     centerMemberId: standings[0]?.memberId ?? null,
-    senbatsu: standings.slice(0, 12).map((entry) => entry.memberId),
-    undergirls: standings.length >= 24 ? standings.slice(12, 24).map((entry) => entry.memberId) : [],
+    senbatsu,
+    undergirls,
+    underGirlsCenterMemberId: undergirls[0] ?? null,
     standings,
-    rewardSongId: dreamSetlistSongs[randomInt(rng, 0, dreamSetlistSongs.length - 1)]?.id ?? dreamSetlistSongs[0]?.id,
+    rewardSongId,
+    underGirlsSongId,
   };
   return { ...campaign, result, liveStandings: standings, rewardSongId: result.rewardSongId };
 }
