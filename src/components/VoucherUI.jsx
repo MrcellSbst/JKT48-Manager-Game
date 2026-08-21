@@ -69,38 +69,67 @@ export function VoucherInventory() {
   );
 }
 
-function clampDelta(value, min, max) {
-  return Math.min(max, Math.max(min, Number.isInteger(value) ? value : min));
-}
-
 export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en', onClose }) {
   const { redemptions, editStat } = useVouchers();
-  const [stat, setStat] = useState(initialStat);
   const [redemptionId, setRedemptionId] = useState('');
-  const [delta, setDelta] = useState(1);
+  const [deltas, setDeltas] = useState({});
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  const eligible = useMemo(() => redemptions.filter((item) => item.status === 'active' && item.pointsRemaining > 0 && item.voucher?.allowedStats?.includes(stat)), [redemptions, stat]);
-  const editableStats = useMemo(() => VOUCHER_MEMBER_STATS.filter((item) => redemptions.some((redemption) => redemption.status === 'active' && redemption.pointsRemaining > 0 && redemption.voucher?.allowedStats?.includes(item))), [redemptions]);
-  const selectedRedemption = eligible.find((item) => item.redemptionId === redemptionId) ?? eligible[0];
-  const selectedStat = Number(member?.[stat] ?? 0);
-  const adjustment = Number(member?.voucherAdjustments?.[stat] ?? 0);
-  const base = Number(member?.voucherBaseStats?.[stat] ?? (selectedStat - adjustment));
-  const statUsed = selectedRedemption?.usage?.filter((item) => item.stat === stat).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0) ?? 0;
-  const memberUsed = selectedRedemption?.usage?.filter((item) => item.memberId === member.id).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0) ?? 0;
-  const maxDelta = selectedRedemption ? Math.max(0, Math.min(selectedRedemption.pointsRemaining, Number(selectedRedemption.voucher.maxIncreasePerStat) - statUsed, Number(selectedRedemption.voucher.maxIncreasePerMember) - memberUsed)) : 0;
-  const minDelta = selectedRedemption?.voucher.allowDecrease ? -maxDelta : Math.min(1, maxDelta);
-  const boundedDelta = clampDelta(delta, minDelta, maxDelta);
-  const title = language === 'id' ? 'Edit statistik anggota' : 'Edit member stat';
-  const adjustDelta = (amount) => setDelta((current) => clampDelta(current + amount, minDelta, maxDelta));
+  const copy = language === 'id' ? {
+    title: 'Edit statistik anggota', voucher: 'Voucher', points: 'poin', selected: 'Poin dipilih', remaining: 'Sisa setelah diedit',
+    cancel: 'Batal', close: 'Tutup', apply: 'Terapkan perubahan', applying: 'Menerapkan…', empty: 'Tidak ada voucher aktif yang dapat mengedit anggota ini.',
+    helpDecrease: 'Gunakan tombol − dan + untuk mengubah beberapa statistik sekaligus.', helpIncrease: 'Voucher ini hanya dapat menaikkan statistik.',
+    decrease: 'Kurangi', increase: 'Tambah',
+  } : {
+    title: 'Edit member stats', voucher: 'Voucher', points: 'points', selected: 'Points selected', remaining: 'Remaining after edit',
+    cancel: 'Cancel', close: 'Close', apply: 'Apply changes', applying: 'Applying…', empty: 'No active voucher can edit this member.',
+    helpDecrease: 'Use − and + to change multiple stats before applying.', helpIncrease: 'This voucher only allows stat increases.',
+    decrease: 'Decrease', increase: 'Increase',
+  };
+  const eligible = useMemo(() => redemptions.filter((item) => {
+    if (item.status !== 'active' || item.pointsRemaining <= 0 || !item.voucher?.allowedStats?.length) return false;
+    const usedMemberIds = new Set((item.usage ?? []).map((usage) => String(usage.memberId)));
+    return item.voucher.allowMultipleMembers || usedMemberIds.size === 0 || usedMemberIds.has(String(member.id));
+  }), [member.id, redemptions]);
+  const selectedRedemption = eligible.find((item) => item.redemptionId === redemptionId)
+    ?? eligible.find((item) => item.voucher.allowedStats.includes(initialStat))
+    ?? eligible[0];
+  const editableStats = useMemo(() => VOUCHER_MEMBER_STATS.filter((stat) => selectedRedemption?.voucher.allowedStats.includes(stat)), [selectedRedemption]);
+  const usageByStat = useMemo(() => Object.fromEntries(editableStats.map((stat) => [stat, (selectedRedemption?.usage ?? []).filter((item) => item.stat === stat).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0)])), [editableStats, selectedRedemption]);
+  const memberUsed = selectedRedemption?.usage?.filter((item) => String(item.memberId) === String(member.id)).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0) ?? 0;
+  const selectedPoints = Object.values(deltas).reduce((sum, value) => sum + Math.abs(value), 0);
+  const remainingPoints = Math.max(0, Number(selectedRedemption?.pointsRemaining ?? 0) - selectedPoints);
+
+  const canAdjust = (stat, amount, currentDeltas = deltas) => {
+    if (!selectedRedemption || busy) return false;
+    const next = Number(currentDeltas[stat] ?? 0) + amount;
+    if (!selectedRedemption.voucher.allowDecrease && next < 0) return false;
+    const otherPoints = Object.entries(currentDeltas).reduce((sum, [key, value]) => key === stat ? sum : sum + Math.abs(value), 0);
+    const nextPoints = otherPoints + Math.abs(next);
+    return nextPoints <= Number(selectedRedemption.pointsRemaining)
+      && memberUsed + nextPoints <= Number(selectedRedemption.voucher.maxIncreasePerMember)
+      && Number(usageByStat[stat] ?? 0) + Math.abs(next) <= Number(selectedRedemption.voucher.maxIncreasePerStat);
+  };
+
+  const adjustStat = (stat, amount) => setDeltas((current) => {
+    if (!canAdjust(stat, amount, current)) return current;
+    const nextValue = Number(current[stat] ?? 0) + amount;
+    if (nextValue === 0) {
+      const next = { ...current };
+      delete next[stat];
+      return next;
+    }
+    return { ...current, [stat]: nextValue };
+  });
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!selectedRedemption || boundedDelta === 0 || busy) return;
+    const edits = editableStats.flatMap((stat) => deltas[stat] ? [{ stat, delta: deltas[stat] }] : []);
+    if (!selectedRedemption || edits.length === 0 || busy) return;
     setBusy(true);
     setMessage('');
     try {
-      await editStat({ redemptionId: selectedRedemption.redemptionId, memberId: member.id, stat, delta: boundedDelta });
+      await editStat({ redemptionId: selectedRedemption.redemptionId, memberId: member.id, edits });
       onClose();
     } catch (error) {
       setMessage(error.message);
@@ -114,48 +143,50 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
       <section className="voucher-edit-modal" role="dialog" aria-modal="true" aria-labelledby="voucher-edit-title">
         <header>
           <div>
-            <span className="eyebrow">Voucher points</span>
-            <h2 id="voucher-edit-title">{title}</h2>
+            <h2 id="voucher-edit-title">{copy.title}</h2>
             <p>{member.nickname || member.name}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X aria-hidden="true" size={19} /></button>
+          <button type="button" className="icon-button" onClick={onClose} aria-label={copy.close}><X aria-hidden="true" size={19} /></button>
         </header>
-        {eligible.length ? (
+        {selectedRedemption ? (
           <form onSubmit={submit}>
             <label>
-              <span>Voucher</span>
-              <select value={selectedRedemption?.redemptionId ?? ''} onChange={(event) => setRedemptionId(event.target.value)}>
-                {eligible.map((item) => <option key={item.redemptionId} value={item.redemptionId}>{item.voucher.code} · {item.pointsRemaining} points</option>)}
+              <span>{copy.voucher}</span>
+              <select value={selectedRedemption.redemptionId} onChange={(event) => { setRedemptionId(event.target.value); setDeltas({}); setMessage(''); }}>
+                {eligible.map((item) => <option key={item.redemptionId} value={item.redemptionId}>{item.voucher.code} · {item.pointsRemaining} {copy.points}</option>)}
               </select>
             </label>
-            <label>
-              <span>Stat</span>
-              <select value={stat} onChange={(event) => { setStat(event.target.value); setDelta(1); }}>
-                {editableStats.map((item) => <option key={item} value={item}>{voucherStatLabel(item)}</option>)}
-              </select>
-            </label>
-            <div className="voucher-stat-preview">
-              <span>Natural base <strong>{Math.round(base)}</strong></span>
-              <span>Voucher adjustment <strong>{adjustment > 0 ? '+' : ''}{Math.round(adjustment)}</strong></span>
-              <span>Displayed <strong>{Math.round(selectedStat)}</strong></span>
+            <div className="voucher-edit-summary" aria-live="polite">
+              <span>{copy.selected}<strong>{selectedPoints}</strong></span>
+              <span>{copy.remaining}<strong>{remainingPoints}</strong></span>
             </div>
-            <fieldset className="voucher-delta-control">
-              <legend>Change</legend>
-              <button type="button" className="voucher-delta-button" onClick={() => adjustDelta(-1)} disabled={busy || boundedDelta <= minDelta} aria-label="Decrease stat change">−</button>
-              <output aria-live="polite" aria-label="Stat change">{boundedDelta > 0 ? '+' : ''}{boundedDelta}</output>
-              <button type="button" className="voucher-delta-button" onClick={() => adjustDelta(1)} disabled={busy || boundedDelta >= maxDelta} aria-label="Increase stat change">+</button>
-            </fieldset>
-            <p className="voucher-delta-help">{selectedRedemption?.voucher.allowDecrease ? 'Use − for decrease or + for increase.' : 'This voucher only allows increases.'} Maximum available: {maxDelta} point{maxDelta === 1 ? '' : 's'}.</p>
+            <div className="voucher-stat-grid">
+              {editableStats.map((stat) => {
+                const delta = Number(deltas[stat] ?? 0);
+                const displayedValue = Math.min(100, Math.max(0, Number(member?.[stat] ?? 0) + delta));
+                return (
+                  <div className={delta ? 'voucher-stat-row is-edited' : 'voucher-stat-row'} key={stat}>
+                    <span>{voucherStatLabel(stat)}</span>
+                    <div className="voucher-stat-stepper">
+                      <button type="button" onClick={() => adjustStat(stat, -1)} disabled={!canAdjust(stat, -1)} aria-label={`${copy.decrease} ${voucherStatLabel(stat)}`}>−</button>
+                      <output aria-label={`${voucherStatLabel(stat)} ${Math.round(displayedValue)}`}>{Math.round(displayedValue)}</output>
+                      <button type="button" onClick={() => adjustStat(stat, 1)} disabled={!canAdjust(stat, 1)} aria-label={`${copy.increase} ${voucherStatLabel(stat)}`}>+</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="voucher-delta-help">{selectedRedemption.voucher.allowDecrease ? copy.helpDecrease : copy.helpIncrease}</p>
             {message ? <p className="voucher-message" role="alert">{message}</p> : null}
             <div className="confirm-week-actions">
-              <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
-              <button type="submit" className="setup-primary" disabled={busy || !selectedRedemption || boundedDelta === 0}>{busy ? 'Applying…' : 'Apply points'} <Check aria-hidden="true" size={17} /></button>
+              <button type="button" className="secondary-button" onClick={onClose}>{copy.cancel}</button>
+              <button type="submit" className="setup-primary" disabled={busy || selectedPoints === 0}>{busy ? copy.applying : `${copy.apply} (${selectedPoints})`} <Check aria-hidden="true" size={17} /></button>
             </div>
           </form>
         ) : (
           <>
-            <p className="muted-copy">No active voucher can edit this stat. Redeem a voucher or choose another stat.</p>
-            <div className="confirm-week-actions"><button type="button" className="setup-primary" onClick={onClose}>Close</button></div>
+            <p className="muted-copy">{copy.empty}</p>
+            <div className="confirm-week-actions"><button type="button" className="setup-primary" onClick={onClose}>{copy.close}</button></div>
           </>
         )}
       </section>

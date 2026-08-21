@@ -581,6 +581,31 @@ export function getMemberSalary(member, year = 1, hardMode = false) {
   return member?.salary ?? Math.round(base * ((1 + BALANCE.salary.annualIncreasePercent / 100) ** Math.max(0, year - 1)));
 }
 
+export function getSeitansaiCandidates(state) {
+  const currentMonth = Math.ceil(state.week / BALANCE.weeksPerMonth);
+  const previousMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+  const currentAbsoluteWeek = toAbsoluteWeek(state.year, state.week);
+  const fulfilledKeys = new Set((state.seitansaiObligations ?? [])
+    .filter((obligation) => obligation.status === 'fulfilled')
+    .map((obligation) => `${obligation.memberId}:${obligation.year}:${obligation.month}`));
+  const recentlyHeldMemberIds = new Set((state.theaterHistory ?? [])
+    .filter((show) => {
+      const showAbsoluteWeek = toAbsoluteWeek(show.year, show.week);
+      return show.isSeitansai && currentAbsoluteWeek - showAbsoluteWeek >= 0 && currentAbsoluteWeek - showAbsoluteWeek <= 8;
+    })
+    .map((show) => show.seitansaiMemberId));
+  const skipPreviousDecember = state.year === 1 && currentMonth === 1;
+
+  return (state.members ?? []).filter((member) => {
+    if (!['active', 'trainee'].includes(member.status)) return false;
+    const isCurrentBirthday = member.birthMonth === currentMonth;
+    const isPreviousBirthday = member.birthMonth === previousMonth && !skipPreviousDecember;
+    if (!isCurrentBirthday && !isPreviousBirthday) return false;
+    const birthdayYear = currentMonth === 1 && member.birthMonth === 12 ? state.year - 1 : state.year;
+    return !fulfilledKeys.has(`${member.id}:${birthdayYear}:${member.birthMonth}`) && !recentlyHeldMemberIds.has(member.id);
+  }).map((member) => ({ ...member, isActualBirthday: member.birthMonth === currentMonth }));
+}
+
 export function payDebt(state, category, amount = Infinity) {
   if (!state.hardMode || !['salary', 'upkeep', 'operations'].includes(category) || state.runStatus === 'ended') return state;
   const debt = state.ledger?.debt?.[category] ?? 0;
@@ -2083,6 +2108,13 @@ export function resolveWeek(state) {
     return { ...obligation, status: 'missed', missedYear: state.year, missedWeek: state.week };
   });
   members = members.map((member) => seitansaiOshiDelta.has(member.id) ? { ...member, oshiSentiment: clamp((member.oshiSentiment ?? 0) + seitansaiOshiDelta.get(member.id)) } : member);
+  if (!state.hardMode && state.week % BALANCE.weeksPerMonth === 0) {
+    const salaryDue = members
+      .filter((member) => ['active', 'trainee'].includes(member.status))
+      .reduce((sum, member) => sum + getMemberSalary(member, state.year, false), 0);
+    moneyDelta -= salaryDue;
+    finances.salary += salaryDue;
+  }
   if (state.hardMode) {
     resolvedLedger = { ...resolvedLedger, pendingUpkeep: (resolvedLedger.pendingUpkeep ?? 0) + (state.theater?.weeklyUpkeep ?? 0), pendingOperations: (resolvedLedger.pendingOperations ?? 0) + applyRate(18_000_000, bonusValue(state, 'B004')), debt: { ...(resolvedLedger.debt ?? {}) } };
     if (state.week % BALANCE.weeksPerMonth === 0) {

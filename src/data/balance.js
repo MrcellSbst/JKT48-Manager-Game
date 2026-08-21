@@ -44,7 +44,7 @@ export const BALANCE = {
   // A member left out of every weekly activity drifts toward graduation.
   idle: { graduationWeightPerWeek: 1.4, noticeAfterWeeks: 3 },
   fire: { flatSeverance: 22_500_000, fanTrustPenalty: 6, reputationPenalty: 4 },
-  salary: { regular: 12_000_000, trainee: 4_500_000, hardModeRegular: 9_000_000, hardModeTrainee: 3_375_000, annualIncreasePercent: 5, unpaidMonthsToEnd: 2 },
+  salary: { regular: 15_000_000, trainee: 6_000_000, hardModeRegular: 20_000_000, hardModeTrainee: 8_000_000, annualIncreasePercent: 5, unpaidMonthsToEnd: 2 },
   loans: { offersPerYear: 3, termsMonths: [6, 9, 12], repaymentMultipliers: [1.5, 1.65, 1.8], monthlyFeeRate: 0.04, reputationPenalty: 2 },
   twoShot: { roulette: { slotsPerMember: 5, ticket: 100_000 }, meetGreet: { slotsPerEvent: 150, ticket: 180_000 } },
   seitansai: { fanGain: 1_500, oshiSentiment: 8, trustGain: 2, missedTrustLoss: 4, missedOshiLoss: 10 },
@@ -67,9 +67,9 @@ export const BALANCE = {
   graduation: { year1Max: 0, normalMin: 4, normalMax: 6, extremeMax: 6, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
   managementTokenMultiplier: 0.5,
   theaterTiers: [
-    { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [60_000, 80_000] },
-    { id: 'city', name: 'City Theater', tier: 'Middle', priceRange: [210_000_000, 330_000_000], capacityRange: [300, 470], ticketRange: [80_000, 105_000] },
-    { id: 'flagship', name: 'Flagship Theater', tier: 'High', priceRange: [390_000_000, 570_000_000], capacityRange: [580, 880], ticketRange: [100_000, 130_000] },
+    { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [200_000, 200_000] },
+    { id: 'city', name: 'City Theater', tier: 'Middle', priceRange: [210_000_000, 330_000_000], capacityRange: [300, 470], ticketRange: [200_000, 200_000] },
+    { id: 'flagship', name: 'Flagship Theater', tier: 'High', priceRange: [390_000_000, 570_000_000], capacityRange: [580, 880], ticketRange: [200_000, 200_000] },
   ],
   activities: {
     ...TRAINING_ACTIVITIES,
@@ -78,7 +78,7 @@ export const BALANCE = {
     media: { label: 'Media appearance', energy: 10, cost: 750_000, revenuePerPopularity: 120_000, type: 'light' },
     // Off-air trades higher fatigue and a once-per-week limit for a premium over the theater gate.
     offAir: { label: 'Off-air performance', energy: 22, cost: 900_000, theaterRevenuePremium: [0.05, 0.10], requiredMembers: 12, maxPerWeek: 1, type: 'heavy' },
-    liveStream: { label: 'Live Stream', energy: 0, energyRecovery: 6, cost: 300_000, revenuePerPopularity: 20_000, fansPerPopularity: 5, type: 'light' },
+    liveStream: { label: 'Live Stream', energy: 0, energyRecovery: 6, cost: 300_000, revenuePerPopularity: 40_000, fansPerPopularity: 5, type: 'light' },
     photoshoot: { label: 'Photoshoot', energy: 10, cost: 1_800_000, type: 'light' },
     vc1: { label: 'Video Call', energy: 13, cost: 675_000, capacity: 150, ticket: 120_000, type: 'medium', schedulable: false },
     mg1: { label: 'Meet & Greet', energy: 30, cost: 1_125_000, capacity: 300, ticket: 50_000, type: 'heavy', schedulable: false },

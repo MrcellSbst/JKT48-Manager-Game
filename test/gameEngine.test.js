@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -78,13 +78,48 @@ test('hard mode is opt-in at setup and defaults to off', () => {
   assert.equal(finalizeGameSetup(draft, 'community', ids, 'Hard Office', [], { hardMode: true }).hardMode, true);
 });
 
-test('hard mode reduces member salary by 25%', () => {
+test('normal and hard mode use their dedicated increased salary rates', () => {
   const draft = createGame('salary-reduction-test');
   const ids = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const normal = finalizeGameSetupEngine(draft, 'community', ids, 'Normal Salary Office');
   const hard = finalizeGameSetupEngine(draft, 'community', ids, 'Hard Salary Office', [], { hardMode: true });
-  assert.equal(getMemberSalary(normal.members[0], 1, false), BALANCE.salary.regular);
-  assert.equal(getMemberSalary(hard.members[0], 1, true), BALANCE.salary.hardModeRegular);
+  const trainee = { ...normal.members[0], status: 'trainee' };
+  assert.equal(getMemberSalary(normal.members[0], 1, false), 15_000_000);
+  assert.equal(getMemberSalary(trainee, 1, false), 6_000_000);
+  assert.equal(getMemberSalary(hard.members[0], 1, true), 20_000_000);
+  assert.equal(getMemberSalary(trainee, 1, true), 8_000_000);
+  assert.equal(getMemberSalary(normal.members[0], 2, false), 15_750_000);
+});
+
+test('normal mode charges full monthly salary directly without creating arrears', () => {
+  const draft = createGame('normal-salary-charge-test');
+  const game = { ...finalizeGameSetupEngine(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id)), week: 4, money: 0 };
+  const next = resolveWeek(game);
+  const expectedSalary = BALANCE.foundingRosterSize * BALANCE.salary.regular;
+  assert.equal(next.lastResult.finances.salary, expectedSalary);
+  assert.equal(next.ledger.debt.salary, 0);
+  assert.ok(next.money < -expectedSalary);
+});
+
+test('hard mode keeps unpaid monthly salary as debt', () => {
+  const draft = createGame('hard-salary-debt-test', 'active', true);
+  const game = { ...finalizeGameSetupEngine(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id), 'Hard Debt Office', [], { hardMode: true }), week: 4, money: 0 };
+  const next = resolveWeek(game);
+  assert.equal(next.lastResult.finances.salary, 0);
+  assert.equal(next.ledger.debt.salary, BALANCE.foundingRosterSize * BALANCE.salary.hardModeRegular);
+  assert.equal(next.ledger.unpaidSalaryMonths, 1);
+});
+
+test('new-run January excludes previous December from Seitansai candidates', () => {
+  const members = [
+    { id: 'december', status: 'active', birthMonth: 12 },
+    { id: 'january', status: 'active', birthMonth: 1 },
+    { id: 'november', status: 'active', birthMonth: 11 },
+  ];
+  const base = { members, theaterHistory: [], seitansaiObligations: [] };
+  assert.deepEqual(getSeitansaiCandidates({ ...base, year: 1, week: 1 }).map((member) => member.id), ['january']);
+  assert.deepEqual(getSeitansaiCandidates({ ...base, year: 1, week: 4 }).map((member) => member.id), ['january']);
+  assert.deepEqual(getSeitansaiCandidates({ ...base, year: 2, week: 1 }).map((member) => member.id), ['december', 'january']);
 });
 
 test('member birthdays are seeded, stable, and expose a derived age', () => {
@@ -305,6 +340,7 @@ test('theater offers are seeded, randomized, and economically ordered', () => {
   assert.ok(first[0].price < first[1].price && first[1].price < first[2].price);
   assert.ok(first[0].capacity < first[1].capacity && first[1].capacity < first[2].capacity);
   assert.ok(first[0].weeklyUpkeep < first[1].weeklyUpkeep && first[1].weeklyUpkeep < first[2].weeklyUpkeep);
+  assert.ok(first.every((offer) => offer.ticketPrice === 200_000));
 });
 
 test('year-end renovation permanently increases ticket and upkeep costs', () => {
@@ -839,14 +875,14 @@ test('media appearance earns popularity-scaled income', () => {
   assert.ok(next.lastResult.fanGain > 0);
 });
 
-test('live stream uses the direct reduced income rate', () => {
+test('live stream uses the direct Rp40k income rate', () => {
   const draft = createGame('live-stream-income-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const member = game.members[0];
   game = { ...game, members: game.members.map((item) => item.id === member.id ? { ...item, popularity: 50 } : item) };
   const next = resolveWeek(assignActivity(game, member.id, 'Mon', 'liveStream'));
-  assert.equal(BALANCE.activities.liveStream.revenuePerPopularity, 20_000);
-  assert.equal(next.lastResult.finances.liveStream, 50 * 20_000);
+  assert.equal(BALANCE.activities.liveStream.revenuePerPopularity, 40_000);
+  assert.equal(next.lastResult.finances.liveStream, 50 * 40_000);
 });
 
 test('incomplete off-air performance cancels without activity cost or fan gain', () => {
@@ -1534,7 +1570,8 @@ test('missing the annual fan target applies review penalties without ending the 
   assert.equal(next.runStatus, 'active');
   assert.equal(next.year, 2);
   assert.equal(next.fanTargetHistory.at(-1).id, 'majorFailure');
-  assert.equal(next.group.fanTrust, base.group.fanTrust - 8);
+  // Major-failure trust loss combines with the normal month-end cash-pressure penalty from payroll.
+  assert.equal(next.group.fanTrust, base.group.fanTrust - 9);
   assert.equal(next.group.reputation, base.group.reputation - 5);
   assert.equal(next.annualReviews[0].snapshot.fanGrowth.label, 'Major Failure');
 });
