@@ -121,6 +121,19 @@ export function getCampaignConflictReasons(state, options = {}) {
     ...(state.activityEvents ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.week), type: event.type, days: [], memberIds: event.memberId ? [event.memberId] : [] })),
   ];
   storedCampaigns.forEach((campaign) => { if (matchesStoredCampaign(campaign)) addReason(campaign.type); });
+  // Meet & Greet is limited to one event per four-week month, not merely one
+  // target week. Check resolved events and future plans before opening the
+  // confirmation flow so a second week in the same month cannot become a
+  // silent no-op in assignActivity.
+  if (type === 'meetGreet') {
+    const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
+    const resolvedThisMonth = (state.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === targetYear && event.month === targetMonth);
+    const plannedThisMonth = (state.fanEventPlans ?? []).some((plan) => plan.type === 'meetGreet' && plan.year === targetYear && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth);
+    const currentScheduleThisMonth = targetYear === state.year
+      && Math.ceil(state.week / BALANCE.weeksPerMonth) === targetMonth
+      && Object.values(state.schedule ?? {}).some((activity) => activity?.startsWith?.('mg'));
+    if (resolvedThisMonth || plannedThisMonth || currentScheduleThisMonth) addReason('meetGreet');
+  }
 
   (state.singles ?? []).forEach((single) => {
     if (single.status === 'released') return;
@@ -950,7 +963,7 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 }
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
-  if (targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
+  if (state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays] });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;

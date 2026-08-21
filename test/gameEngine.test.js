@@ -984,6 +984,14 @@ test('anniversary concert locks rehearsal and concert dates', () => {
   assert.equal(assignActivity(game, game.members[0].id, 'Tue', 'rest'), game);
 });
 
+test('anniversary concert booking is unavailable before Month 7 Week 1', () => {
+  const draft = createGame('anniversary-early-booking-test');
+  const game = finalizeGameSetup({ ...draft, week: 24 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const venueId = game.concertVenueOffers[0].id;
+  const blocked = announceAnniversaryConcert(game, 45, 'Sat', 'Too Early Anniversary', 'standard', venueId, ['Tue', 'Thu']);
+  assert.equal(blocked, game);
+});
+
 test('anniversary conflict checks use the selected week instead of December week four', () => {
   const draft = createGame('anniversary-target-week-conflict-test');
   let game = finalizeGameSetup({ ...draft, week: 43 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
