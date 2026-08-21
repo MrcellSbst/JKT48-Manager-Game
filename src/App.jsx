@@ -70,6 +70,8 @@ const calendarParts = (week) => ({ month: MONTHS[Math.min(11, Math.floor((week -
 const activityEnergyLabel = (activity) => activity.energyRecovery ? `+${activity.energyRecovery}` : activity.energy ? `-${activity.energy}` : '0';
 const calendarLabel = (year, week) => { const date = calendarParts(week); return `Year ${year} · ${date.month} · Week ${date.weekOfMonth}`; };
 const monthWeekLabel = (week) => { const date = calendarParts(week); return `${date.month} · Week ${date.weekOfMonth}`; };
+const YEAR_END_MEET_GREET_FAILURE = 'Year-end Meet & Greet could not be scheduled. Check funds, date, roster availability, and campaign conflicts.';
+const ANNIVERSARY_CONCERT_FAILURE = 'Anniversary Concert could not be scheduled. Check funds, date, venue, roster availability, and campaign conflicts.';
 const absoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const eventConflictsForWeek = (game, week, eventType = 'meetGreet', day = null, memberIds = [], days = []) => getCampaignConflictReasons(game, {
   year: game.year,
@@ -406,6 +408,12 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
   const releasedSingles = useMemo(() => [...game.singles].filter((single) => single.status === 'released').reverse(), [game.singles]);
   const totalSingleViews = releasedSingles.reduce((total, single) => total + (single.views ?? 0), 0);
   const scheduled = Object.keys(game.schedule).length;
+  const hasCurrentYearMeetGreet = (game.yearEndMeetGreets ?? []).some((event) => event.year === game.year);
+  const hasCurrentYearAnniversary = (game.concerts ?? []).some((concert) => concert.eventType === 'anniversary' && concert.targetYear === game.year);
+  const visibleNotifications = (game.notifications ?? []).filter((item) => !(
+    (hasCurrentYearMeetGreet && item.text === YEAR_END_MEET_GREET_FAILURE)
+    || (hasCurrentYearAnniversary && item.text === ANNIVERSARY_CONCERT_FAILURE)
+  ));
   const eligibleCount = getTheaterEligibleMembers(game).length;
   const targetProgress = Math.max(0, Math.round(game.group.fanbase / Math.max(1, game.fanTarget.targetFanbase) * 10_000) / 100);
   const targetRemaining = Math.max(0, game.fanTarget.targetFanbase - game.group.fanbase);
@@ -413,7 +421,7 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
   const fanGrowthMultiplier = getFanGrowthMultiplier(game.group.fanbase, game.fanTarget.targetFanbase);
   return <div className="page dashboard-page">
     <section className="page-heading"><div><span className="eyebrow">Management briefing</span><h1>Command center</h1><p>Balance this week’s exposure, development, energy, and financial risk.</p></div><div className="seed">Seed <code>{game.seed}</code></div></section>
-     {game.notifications.length ? <section className="notice-strip">{game.notifications.map((item, index) => <div key={`${item.text}-${index}`} className={item.type}><Sparkles size={17} /><span>{item.text}</span></div>)}</section> : null}
+     {visibleNotifications.length ? <section className="notice-strip">{visibleNotifications.map((item, index) => <div key={`${item.text}-${index}`} className={item.type}><Sparkles size={17} /><span>{item.text}</span></div>)}</section> : null}
       {(() => { const hasSeitansaiThisWeek = (memberId) => DAYS.some((day) => { const show = game.theaterShows?.[day]; return show?.isSeitansai && show.seitansaiMemberId === memberId; }); const hasCompletedSeitansai = (item) => (game.theaterHistory ?? []).some((show) => show.isSeitansai && show.seitansaiMemberId === item.memberId && show.year === item.year); const obligations = (game.seitansaiObligations ?? []).filter((item) => (item.status === 'open' || (item.status === 'overdue' && item.year === game.year)) && !hasSeitansaiThisWeek(item.memberId) && !hasCompletedSeitansai(item)); const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth); const weekOneCandidates = game.hardMode && game.week % BALANCE.weeksPerMonth === 1 ? game.members.filter((member) => ['active', 'trainee'].includes(member.status) && member.birthMonth === currentMonth && !(game.seitansaiObligations ?? []).some((item) => item.memberId === member.id && item.year === game.year && item.month === currentMonth) && !hasSeitansaiThisWeek(member.id) && !hasCompletedSeitansai({ memberId: member.id, year: game.year })) : []; const warningMemberIds = [...new Set([...obligations.map((item) => item.memberId), ...weekOneCandidates.map((member) => member.id)])]; return warningMemberIds.length ? <section className="notice-strip"><div className="critical"><CalendarDays size={17} /><span>Seitansai pending: {warningMemberIds.map((memberId) => game.members.find((member) => member.id === memberId)?.name ?? 'Member').join(', ')}. Schedule that member's Seitansai theater show before the due date.</span></div></section> : null; })()}
     <section className={targetRemaining ? 'fan-target-strip' : 'fan-target-strip achieved'}><div className="fan-target-icon"><Target size={22} /></div><div className="fan-target-copy"><span><strong>Year {game.fanTarget.year} fan target</strong><small>{targetRemaining ? `${number.format(targetRemaining)} fans still needed` : targetPerformance.label}</small></span><progress max="130" value={Math.min(130, targetProgress)} aria-label="Annual fan target progress">{targetProgress}%</progress></div><div className="fan-target-score"><strong>{number.format(game.group.fanbase)}</strong><span>/ {number.format(game.fanTarget.targetFanbase)}</span><small>{targetProgress}% · Fan growth x{fanGrowthMultiplier.toFixed(2)} · {BALANCE.weeksPerYear - game.week + 1} weeks remaining</small></div></section>
     {game.pendingOpportunity ? <section className="opportunity-offer"><div className="opportunity-icon"><Sparkles size={22} /></div><div><span className="eyebrow">Limited opportunity</span><h2>{game.pendingOpportunity.title}</h2><p>{game.pendingOpportunity.memberIds.length} members · {money(game.pendingOpportunity.revenue)} gross revenue · {number.format(game.pendingOpportunity.fans)} projected fans</p></div><div className="opportunity-actions"><button type="button" className="secondary-button" onClick={() => setGame((current) => respondToOpportunity(current, false))}>Decline</button><button type="button" onClick={() => setGame((current) => respondToOpportunity(current, true))} disabled={game.money < game.pendingOpportunity.cost}>Accept · {money(game.pendingOpportunity.cost)}</button></div></section> : null}
@@ -598,7 +606,7 @@ function AnnualEventsCore({ game, setGame }) {
   const [anniversaryVenue, setAnniversaryVenue] = useState(venues[0]?.id ?? 'hall');
   const [anniversaryTitle, setAnniversaryTitle] = useState('');
   const [confirm, setConfirm] = useState(null);
-  const mgConflicts = mgWeek ? eventConflictsForWeek(game, mgWeek, 'meetGreet', mgDay) : [];
+  const mgConflicts = mgWeek ? eventConflictsForWeek(game, mgWeek, 'yearEndMeetGreet', mgDay) : [];
   const anniversaryConflicts = anniversaryWeek ? eventConflictsForWeek(game, anniversaryWeek, 'concert', anniversaryDay, [], ['Tue', 'Thu']) : [];
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
   const scheduleMg = () => {
@@ -635,7 +643,7 @@ function FixedAnnualEvents({ game, setGame }) {
     : game.money < 40_000_000 ? `Requires ${money(40_000_000)}; current funds: ${money(game.money)}.` : '';
   const mgConflicts = yearEndMeetGreetLockReason
     ? [yearEndMeetGreetLockReason]
-    : mgWeek ? eventConflictsForWeek(game, mgWeek, 'meetGreet', mgDay) : [];
+    : mgWeek ? eventConflictsForWeek(game, mgWeek, 'yearEndMeetGreet', mgDay) : [];
   const anniversaryBookingLockReason = game.week < 25
     ? `Anniversary Concert bookings open from ${monthWeekLabel(25)}.`
     : !anniversaryWeeks.length
@@ -647,9 +655,10 @@ function FixedAnnualEvents({ game, setGame }) {
   useEffect(() => { if (!mgWeeks.includes(mgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]); }, [game.week]);
   useEffect(() => { if (!anniversaryWeeks.includes(anniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]); }, [game.week]);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
-  const commitAnnualEvent = (action, failureText) => {
+  const commitAnnualEvent = (action, failureText, succeeded) => {
     setGame((current) => {
       const next = action(current);
+      if (succeeded(next, current)) return { ...next, notifications: (next.notifications ?? []).filter((item) => item.text !== failureText) };
       if (next !== current) return next;
       return { ...current, notifications: [{ type: 'critical', text: failureText }, ...(current.notifications ?? [])].slice(0, 20) };
     });
@@ -657,11 +666,19 @@ function FixedAnnualEvents({ game, setGame }) {
   };
   const scheduleMg = () => {
     if (mgConflicts.length) return;
-    commitAnnualEvent((current) => scheduleYearEndMeetGreet(current, mgWeek, mgDay, current.week), 'Year-end Meet & Greet could not be scheduled. Check funds, date, roster availability, and campaign conflicts.');
+    commitAnnualEvent(
+      (current) => scheduleYearEndMeetGreet(current, mgWeek, mgDay, current.week),
+      YEAR_END_MEET_GREET_FAILURE,
+      (next, current) => (next.yearEndMeetGreets ?? []).length > (current.yearEndMeetGreets ?? []).length,
+    );
   };
   const scheduleAnniversary = () => {
     if (anniversaryConflicts.length) return;
-    commitAnnualEvent((current) => announceAnniversaryConcert(current, anniversaryWeek, anniversaryDay, anniversaryTitle, anniversaryBudget, anniversaryVenue, ['Tue', 'Thu']), 'Anniversary Concert could not be scheduled. Check funds, date, venue, roster availability, and campaign conflicts.');
+    commitAnnualEvent(
+      (current) => announceAnniversaryConcert(current, anniversaryWeek, anniversaryDay, anniversaryTitle, anniversaryBudget, anniversaryVenue, ['Tue', 'Thu']),
+      ANNIVERSARY_CONCERT_FAILURE,
+      (next, current) => (next.concerts ?? []).length > (current.concerts ?? []).length,
+    );
   };
   return <section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, mgExisting.targetWeek)} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div> : <><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><div className="annual-event-rule"><span>Per member ticket</span><strong>300 slots · Rp 50k</strong></div><div className="annual-event-rule"><span>Booking cost</span><strong>Rp 40m</strong></div></div>{mgConflicts.length ? <p className="event-conflict-warning">{calendarLabel(game.year, mgWeek)} unavailable: {mgConflicts.join(' ')}</p> : null}<button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || mgConflicts.length > 0 || game.money < 40_000_000}>Review End-of-Year Meet&amp;Greet</button></>}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, anniversaryExisting.targetWeek)} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div> : <><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue', 'Thu'].includes(day)).map((day) => <option key={day}>{day}</option>)}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>)}</select></label></div>{anniversaryConflicts.length ? <p className="event-conflict-warning">{calendarLabel(game.year, anniversaryWeek)} unavailable: {anniversaryConflicts.join(' ')}</p> : null}<button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length || anniversaryConflicts.length > 0}>Review anniversary</button></>}</article></div>{confirm ? <ModalPortal><div className="setup-modal-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirm(null); }}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="annual-campaign-confirm-title"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2 id="annual-campaign-confirm-title">Confirm {confirm === 'mg' ? 'year-end Meet &amp; Greet' : 'Anniversary Concert'}?</h2><p>{confirm === 'mg' ? `Spend Rp 40m. Sales start now for ${calendarLabel(game.year, mgWeek)}; every active member receives 300 slots at Rp 50k.` : `Book ${calendarLabel(game.year, anniversaryWeek)}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" disabled={confirm === 'mg' ? mgConflicts.length > 0 : anniversaryConflicts.length > 0} onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}</section>;
 }
