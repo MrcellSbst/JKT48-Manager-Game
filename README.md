@@ -105,7 +105,7 @@ Guest saves remain in browser IndexedDB. Account saves use the same IndexedDB da
 - Signed-in runs create cloud checkpoints every four resolved weeks, on manual Save run, and before logout.
 - Registering uploads existing guest progress.
 - Logging in loads existing account data; explicit Load cloud save is also available from Save and load.
-- Logout waits for successful cloud save and session deletion, then clears local run data from the device.
+- Logout waits for successful cloud save and session deletion, then clears all Manager data from local IndexedDB.
 - Clearing browser site data removes guest progress that has not been uploaded.
 
 ## Project Structure

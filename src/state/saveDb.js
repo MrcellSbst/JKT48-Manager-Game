@@ -111,6 +111,21 @@ export async function replaceLocalSnapshot(snapshot) {
   ]);
 }
 
-export async function clearLocalSnapshot() {
-  await Promise.all([deleteActiveRun(), saveMetaProfile({ ...DEFAULT_META })]);
+export async function clearLocalDatabase() {
+  const db = await openDb();
+  try {
+    const storeNames = Array.from(db.objectStoreNames);
+    if (!storeNames.length) return;
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeNames, 'readwrite');
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB cleanup transaction aborted'));
+      storeNames.forEach((storeName) => transaction.objectStore(storeName).clear());
+    });
+  } finally {
+    db.close();
+  }
 }
+
+export const clearLocalSnapshot = clearLocalDatabase;

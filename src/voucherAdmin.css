@@ -1,0 +1,367 @@
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.voucher-admin-page button,
+.voucher-admin-page input,
+.voucher-admin-page select {
+  touch-action: manipulation;
+}
+
+.voucher-admin-heading {
+  min-width: 0;
+}
+
+.voucher-back-button {
+  width: max-content;
+  margin-bottom: 14px;
+}
+
+.voucher-admin-page > .page-heading {
+  align-items: flex-start;
+}
+
+.voucher-admin-page > .page-heading > .secondary-button {
+  flex: 0 0 auto;
+}
+
+.voucher-message {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.voucher-message-success {
+  background: color-mix(in srgb, var(--success) 10%, var(--paper));
+  border-color: color-mix(in srgb, var(--success) 30%, var(--line));
+  color: var(--success);
+}
+
+.voucher-message-error {
+  background: color-mix(in srgb, var(--critical) 10%, var(--paper));
+  border-color: color-mix(in srgb, var(--critical) 32%, var(--line));
+  color: var(--critical);
+}
+
+.voucher-admin-metrics {
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.voucher-admin-metrics article {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.voucher-admin-metrics strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.voucher-panel-heading {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.voucher-panel-heading > div:first-child {
+  min-width: 180px;
+}
+
+.voucher-panel-heading h2,
+.voucher-detail-panel h2 {
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.voucher-panel-heading > svg {
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+
+.voucher-admin-form-grid {
+  gap: 16px;
+}
+
+.voucher-admin-form-grid label {
+  min-width: 0;
+}
+
+.voucher-admin-form-grid input,
+.voucher-admin-form-grid textarea,
+.voucher-admin-form-grid select {
+  min-height: 44px;
+  border-radius: 5px;
+  transition: border-color 160ms, box-shadow 160ms;
+}
+
+.voucher-admin-form-grid textarea {
+  min-height: 88px;
+  line-height: 1.4;
+}
+
+.voucher-admin-form-grid input:focus,
+.voucher-admin-form-grid textarea:focus,
+.voucher-admin-form-grid select:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 18%, transparent);
+}
+
+.voucher-stat-picker {
+  gap: 8px 16px;
+  border-radius: 5px;
+}
+
+.voucher-stat-picker label,
+.voucher-check {
+  min-height: 36px;
+}
+
+.voucher-admin-filters {
+  flex: 1 1 520px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.voucher-admin-filters label {
+  min-width: 0;
+  height: 42px;
+  border-radius: 5px;
+  background: var(--paper);
+}
+
+.voucher-filter-search {
+  flex: 1 1 190px;
+}
+
+.voucher-admin-filters input,
+.voucher-admin-filters select {
+  min-width: 0;
+}
+
+.voucher-admin-filters input {
+  width: 100%;
+  height: 38px;
+}
+
+.voucher-admin-filters select {
+  max-width: 170px;
+  padding: 0 8px;
+}
+
+.voucher-filter-icon {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.voucher-table-wrap {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+}
+
+.voucher-table {
+  min-width: 900px;
+  font-variant-numeric: tabular-nums;
+}
+
+.voucher-redemption-table {
+  min-width: 820px;
+}
+
+.voucher-audit-table {
+  min-width: 980px;
+}
+
+.voucher-table th {
+  padding: 11px 12px;
+  background: var(--soft);
+  white-space: nowrap;
+}
+
+.voucher-table td {
+  padding: 12px;
+  line-height: 1.35;
+}
+
+.voucher-table td small {
+  overflow-wrap: anywhere;
+}
+
+.voucher-table td code,
+.voucher-detail-panel code {
+  font-family: inherit;
+  font-size: .95em;
+  color: var(--ink);
+}
+
+.voucher-table-state {
+  margin: 0;
+  padding: 18px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.voucher-row-actions {
+  gap: 6px;
+}
+
+.voucher-row-actions button {
+  min-height: 44px;
+  border-radius: 5px;
+  padding: 0 10px;
+  transition: background-color 160ms, border-color 160ms, color 160ms;
+}
+
+.voucher-row-actions button[aria-label] {
+  width: 44px;
+  padding: 0;
+}
+
+.voucher-row-actions button:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.voucher-status-paused,
+.voucher-status-exhausted,
+.voucher-status-depleted {
+  color: var(--warning);
+}
+
+.voucher-pagination {
+  min-height: 44px;
+}
+
+.voucher-pagination button {
+  min-height: 44px;
+  border-radius: 5px;
+  padding: 0 13px;
+  transition: background-color 160ms, border-color 160ms;
+}
+
+.voucher-pagination button:hover:not(:disabled),
+.voucher-row-actions button:hover {
+  border-color: var(--red);
+}
+
+.voucher-detail-panel {
+  border-radius: 5px;
+}
+
+.voucher-detail-panel h3 {
+  margin-top: 24px;
+}
+
+.voucher-detail-grid {
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.voucher-detail-grid span {
+  min-width: 0;
+}
+
+.voucher-activity-list {
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.voucher-activity-list > div {
+  min-height: 52px;
+}
+
+.voucher-detail-revoke {
+  min-height: 44px;
+  border-radius: 5px;
+}
+
+:root[data-theme='dark'] .voucher-admin-filters label,
+:root[data-theme='dark'] .voucher-table th {
+  background: var(--soft);
+}
+
+:root[data-theme='dark'] .voucher-table td code,
+:root[data-theme='dark'] .voucher-detail-panel code {
+  color: var(--ink);
+}
+
+@media (max-width: 850px) {
+  .voucher-admin-page > .page-heading {
+    gap: 16px;
+  }
+
+  .voucher-admin-filters {
+    justify-content: flex-start;
+  }
+
+  .voucher-admin-filters label {
+    flex: 1 1 170px;
+  }
+
+  .voucher-admin-filters .voucher-filter-search {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .voucher-admin-page > .page-heading > .secondary-button {
+    width: 100%;
+  }
+
+  .voucher-admin-metrics article {
+    min-height: 78px;
+  }
+
+  .voucher-admin-filters {
+    flex-basis: 100%;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .voucher-admin-filters label,
+  .voucher-admin-filters .voucher-filter-search {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+
+  .voucher-admin-filters select {
+    max-width: none;
+    width: 100%;
+  }
+
+  .voucher-admin-form-grid {
+    gap: 12px;
+  }
+
+  .voucher-admin-form-actions {
+    gap: 10px;
+  }
+
+  .voucher-admin-form-actions button {
+    min-height: 44px;
+  }
+
+  .voucher-table {
+    min-width: 860px;
+  }
+
+  .voucher-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

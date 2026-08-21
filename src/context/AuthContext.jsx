@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { clearLocalSnapshot, getLocalSnapshot, replaceLocalSnapshot } from '../state/saveDb.js';
+import { clearLocalDatabase, getLocalSnapshot, replaceLocalSnapshot } from '../state/saveDb.js';
 import { simpleDecrypt, simpleEncrypt } from '../utils/crypto.js';
 
 const AuthContext = createContext(null);
@@ -178,7 +178,7 @@ export function AuthProvider({ children }) {
       await uploadLocalSnapshot();
       setProgress('logging-out', 'Ending session…');
       await request('/api/auth/logout', { method: 'POST' });
-      await clearLocalSnapshot();
+      await clearLocalDatabase();
       setUser(null);
       setStorageRevision((revision) => revision + 1);
       setSyncState({ phase: 'success', message: 'Save confirmed. Logged out.', error: '', updatedAt: null });
