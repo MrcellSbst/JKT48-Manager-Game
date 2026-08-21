@@ -20,7 +20,7 @@ async function request(url, options = {}) {
 }
 
 export function VoucherProvider({ children }) {
-  const { user, loadCloudSave } = useAuth();
+  const { user, loadCloudSave, pushSave } = useAuth();
   const [redemptions, setRedemptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -42,17 +42,23 @@ export function VoucherProvider({ children }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const redeem = useCallback(async (code) => {
+    // Keep cloud roster aligned before voucher redemption, so later stat edits
+    // always target same active run browser currently shows.
+    await pushSave('voucher');
     const result = await request('/api/voucher/redeem', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
     await refresh();
     return result.redemption;
-  }, [refresh]);
+  }, [pushSave, refresh]);
 
   const editStat = useCallback(async (payload) => {
+    // Voucher API edits the cloud snapshot. Push latest local run first so roster
+    // changes made since last monthly checkpoint cannot produce a stale member ID.
+    await pushSave('voucher');
     const result = await request('/api/voucher/edit-member-stat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     await loadCloudSave();
     await refresh();
     return result;
-  }, [loadCloudSave, refresh]);
+  }, [loadCloudSave, pushSave, refresh]);
 
   const value = useMemo(() => ({ redemptions, loading, error, refresh, redeem, editStat }), [editStat, error, loading, redemptions, redeem, refresh]);
   return <VoucherContext.Provider value={value}>{children}</VoucherContext.Provider>;

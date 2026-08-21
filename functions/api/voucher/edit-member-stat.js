@@ -39,8 +39,8 @@ export async function onRequestPost({ request, env }) {
     if (!saveRow?.save_data) throw new VoucherError('No account save exists yet. Start or save a run before using a voucher.', 409, 'save_unavailable');
     const snapshot = decryptSnapshot(saveRow.save_data);
     const activeRun = snapshot.activeRun?.state;
-    const memberIndex = activeRun?.members?.findIndex((member) => member.id === memberId) ?? -1;
-    if (memberIndex < 0) throw new VoucherError('Member was not found in the active run.', 404, 'member_not_found');
+    const memberIndex = activeRun?.members?.findIndex((member) => String(member.id) === memberId) ?? -1;
+    if (memberIndex < 0) throw new VoucherError('Member was not found in the active cloud save. Save the current run and try again.', 404, 'member_not_found');
     const member = activeRun.members[memberIndex];
     if (!['active', 'trainee'].includes(member.status)) throw new VoucherError('Only an active roster member can be edited.', 409, 'member_ineligible');
     const current = getMemberVoucherState(member, stat);
