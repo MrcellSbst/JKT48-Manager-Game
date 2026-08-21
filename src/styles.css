@@ -301,6 +301,34 @@ main { min-width:0; }
 @media(max-width:560px){.auth-entry-brand{padding:28px 20px}.auth-entry-brand h1{font-size:44px}.auth-entry-facts{grid-template-columns:1fr}.auth-entry-facts span{display:grid;grid-template-columns:auto 1fr;gap:0 10px}.auth-entry-facts svg{grid-row:1/3}.auth-entry-facts b{margin:0}.auth-entry-panel{padding:32px 20px}.auth-entry-overlay .auth-entry-brand{display:none}.auth-entry-overlay .auth-entry-panel{min-height:100dvh}.save-operation-grid{gap:12px}}
 @media(prefers-reduced-motion:reduce){.sync-screen-mark span{animation:none}}
 
+/* Roster cards keep portrait area stable when optional injury copy appears or clears. */
+.member-card{display:flex;flex-direction:column;min-width:0}
+.member-card .photo-wrap{height:220px;min-height:220px;flex:0 0 220px;overflow:hidden}
+.member-card .card-body{flex:1;min-width:0}
+.member-card .portrait-card{display:block;width:100%;height:100%;object-fit:cover}
+
+/* Voucher editor is a centered, independent dialog with large touch-safe stepper controls. */
+.voucher-edit-backdrop{z-index:120;overscroll-behavior:contain}
+.voucher-edit-modal{margin:auto;position:relative}
+.voucher-delta-control{display:grid;grid-template-columns:48px minmax(80px,1fr) 48px;align-items:center;gap:10px;margin:0;padding:10px;border:1px solid var(--line);background:var(--soft);text-align:center}
+.voucher-delta-control legend{grid-column:1/-1;padding:0 4px;color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;text-align:left}
+.voucher-delta-button{width:48px;height:44px;border:1px solid var(--line);background:var(--paper);color:var(--ink);font:700 24px/1 'Barlow',sans-serif;touch-action:manipulation}
+.voucher-delta-button:hover:not(:disabled){border-color:var(--red);color:var(--red)}
+.voucher-delta-button:disabled{cursor:not-allowed;opacity:.4}
+.voucher-delta-control output{font:700 24px/1 'Barlow Condensed',sans-serif;color:var(--ink)}
+.voucher-delta-help{margin:8px 0 0;color:var(--muted);font-size:10px;line-height:1.4}
+
+/* Keep schedule member rail horizontally scrollable while sort controls remain visible on phones. */
+@media(max-width:760px){
+  .member-card .photo-wrap{height:190px;min-height:190px;flex-basis:190px}
+  .schedule-page .roster-rail{position:relative;padding-top:84px;overflow-x:auto;overflow-y:hidden}
+  .schedule-page .rail-title{position:absolute;inset:0 0 auto;display:flex;height:auto;min-height:84px;padding:7px 10px;flex-wrap:wrap;background:var(--paper);border-bottom:1px solid var(--line)}
+  .schedule-page .squad-sort-controls{display:flex;flex:1 1 100%;gap:6px;margin:4px 0 0}
+  .schedule-page .squad-sort-controls label{flex:1;min-width:0}
+  .schedule-page .squad-sort-controls select{width:100%;min-width:0}
+}
+@media(max-width:430px){.member-card .photo-wrap{height:170px;min-height:170px;flex-basis:170px}.schedule-page .roster-rail{padding-top:84px}}
+
 /* Account and cloud-save interaction polish. */
 .auth-entry-heading h2{text-wrap:balance}.auth-entry-close:hover,.auth-entry-guest button:hover{border-color:var(--ink);background:var(--soft)}.auth-entry-tabs button:not(.active):hover{background:var(--soft);color:var(--ink)}.auth-entry-overlay{overscroll-behavior:contain}.cloud-save-panel h2{overflow-wrap:anywhere}
 

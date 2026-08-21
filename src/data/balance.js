@@ -37,7 +37,7 @@ export const BALANCE = {
     lowEnergyThreshold: 30,
     severities: [
       { id: 'minor', label: 'Minor', weight: 60, weeks: 1, blocks: ['training', 'theater', 'offAir', 'meetGreet'] },
-      { id: 'moderate', label: 'Moderate', weight: 30, weeks: 2, blocks: ['photoshoot', 'media', 'videoCall'] },
+      { id: 'moderate', label: 'Moderate', weight: 30, weeks: 2, blocks: ['training', 'theater', 'offAir', 'meetGreet', 'photoshoot', 'media', 'videoCall'] },
       { id: 'severe', label: 'Severe', weight: 10, weeks: 2, blocks: ['all'] },
     ],
   },

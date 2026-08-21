@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -375,6 +375,22 @@ test('stamina lowers activity energy cost and raises every form of recovery', ()
      return resolveWeek(scheduled).members.find((member) => member.id === memberId).energy;
   };
   assert.ok(drain(90) > drain(30));
+});
+
+test('moderate injuries include every minor restriction plus their own limits', () => {
+  const injury = (severity) => ({ status: 'active', injury: { severity, weeksRemaining: severity === 'minor' ? 1 : 2, blocks: BALANCE.injury.severities.find((item) => item.id === severity).blocks } });
+  const minor = injury('minor');
+  assert.equal(canMemberPerform(minor, 'vocal'), false);
+  assert.equal(canMemberPerform(minor, 'theater'), false);
+  assert.equal(canMemberPerform(minor, 'offAir'), false);
+  assert.equal(canMemberPerform(minor, 'mg1'), false);
+  assert.equal(canMemberPerform(minor, 'photoshoot'), true);
+  assert.equal(canMemberPerform(minor, 'media'), true);
+  assert.equal(canMemberPerform(minor, 'vc1'), true);
+  const moderate = injury('moderate');
+  for (const activity of ['vocal', 'theater', 'offAir', 'mg1', 'photoshoot', 'media', 'vc1']) assert.equal(canMemberPerform(moderate, activity), false);
+  assert.equal(canMemberPerform(moderate, 'liveStream'), true);
+  assert.equal(canMemberPerform(moderate, 'rest'), true);
 });
 
 test('weekly result exposes an income and expense breakdown matching net cash', () => {
