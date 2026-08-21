@@ -497,12 +497,15 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember }) {
     return [day, [...activitiesForDay.values()]];
   }));
   const fillRequiredLineup = (day, activityId) => setGame((current) => {
-    const existingCount = current.members.reduce((count, item) => count + (current.schedule[`${item.id}:${day}`] === activityId ? 1 : 0), 0);
-    if (existingCount === 12) return current;
-    const available = current.members.filter((item) => ['active','trainee'].includes(item.status) && !AUTOMATIC_ACTIVITY_LOCKS.includes(current.schedule[`${item.id}:${day}`])).sort((a, b) => b.energy - a.energy).slice(0, 12);
-    if (available.length !== 12) return current;
+    const selectedIds = new Set(current.members.filter((item) => current.schedule[`${item.id}:${day}`] === activityId).map((item) => item.id));
+    const slotsToFill = 12 - selectedIds.size;
+    if (slotsToFill <= 0) return current;
+    const available = current.members
+      .filter((item) => ['active','trainee'].includes(item.status) && !selectedIds.has(item.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(current.schedule[`${item.id}:${day}`]))
+      .sort((a, b) => b.energy - a.energy)
+      .slice(0, slotsToFill);
+    if (available.length !== slotsToFill) return current;
     const schedule = { ...current.schedule };
-    current.members.forEach((item) => { if (schedule[`${item.id}:${day}`] === activityId) delete schedule[`${item.id}:${day}`]; });
     available.forEach((item) => { schedule[`${item.id}:${day}`] = activityId; });
     return { ...current, schedule };
   });
