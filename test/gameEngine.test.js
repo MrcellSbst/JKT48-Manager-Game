@@ -541,6 +541,25 @@ test('campaign schedule resolution follows Concert > MnG > MV > VC > template pr
   assert.equal(resolveWith('concert', 'meetGreet'), 'concert');
 });
 
+test('campaign rewards run result concert before the configured MV budget', () => {
+  const draft = createGame('campaign-reward-pipeline-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const campaign = { id: 'campaign-2-sousenkyo', type: 'sousenkyo', campaignYear: 2, status: 'locked', startWeek: 1, durationWeeks: 12, endWeek: 12, resultWeek: 13, concertBudgetId: 'major', concertVenueId: 'hall', concertDay: 'Sat', mvBudgetId: 'high', participants: { memberIds: base.members.map((member) => member.id), votes: Object.fromEntries(base.members.map((member) => [member.id, 1])) }, liveStandings: [], totalVotes: 12, votingRevenue: 0, result: null, rewardConcertId: null, rewardConcertStatus: null, mvProjectId: null, mvProductionWeeks: 0 };
+  let game = { ...base, year: 2, week: 13, money: 2_000_000_000, campaign, nextCampaignConfig: null, dramaCooldown: 99, memberDramaCooldown: 99, managementDramaCooldown: 99 };
+  game = resolveWeek(game);
+  assert.equal(game.campaign.status, 'concert-scheduled');
+  assert.ok(game.campaign.rewardConcertId);
+  const rewardConcert = game.concerts.find((concert) => concert.id === game.campaign.rewardConcertId);
+  assert.equal(rewardConcert.budgetId, 'major');
+  assert.equal(rewardConcert.memberIds.length, 12);
+  while (game.campaign.status !== 'mv-production' && game.week < 30) game = resolveWeek(game);
+  assert.equal(game.campaign.status, 'mv-production');
+  const rewardMv = game.singles.find((single) => single.campaignId === campaign.id);
+  assert.equal(rewardMv.budgetId, 'high');
+  assert.equal(rewardMv.durationWeeks, 4);
+  assert.ok(rewardMv.productionCost > 0);
+});
+
 test('Video Call is limited to one event per member per four-week month', () => {
   const draft = createGame('video-call-limit-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));

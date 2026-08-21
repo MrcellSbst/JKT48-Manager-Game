@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CAMPAIGN_ROTATION, advanceCampaign, campaignRevenuePerVote, campaignTypeForYear, clampCampaignDuration, createCampaignConfig } from '../src/engine/campaignEngine.js';
+import { CAMPAIGN_ROTATION, advanceCampaign, campaignRevenuePerVote, campaignTypeForYear, clampCampaignDuration, configureNextCampaign, createCampaignConfig, nextCampaignType, startCampaign } from '../src/engine/campaignEngine.js';
 import { resolveJankenBracket } from '../src/engine/campaigns/jankenEngine.js';
 import { resolveRequestHour } from '../src/engine/campaigns/requestHourEngine.js';
 import { resolveSousenkyo } from '../src/engine/campaigns/sousenkyoEngine.js';
@@ -12,12 +12,44 @@ const members = (count = 30) => Array.from({ length: count }, (_, index) => ({ i
 test('campaign rotation starts in Year 2 and cycles SSK, Request Hour, Janken', () => {
   assert.equal(campaignTypeForYear(1), null);
   assert.deepEqual([2, 3, 4, 5].map((year) => campaignTypeForYear(year)), CAMPAIGN_ROTATION.concat('sousenkyo'));
+  assert.equal(nextCampaignType({ year: 8, week: 1, campaign: null, campaignHistory: [] }), 'sousenkyo');
+  assert.equal(nextCampaignType({ year: 8, week: 1, lastCampaignType: 'sousenkyo' }), 'request-hour');
+  assert.equal(nextCampaignType({ year: 99, week: 48, lastCampaignType: 'request-hour' }), 'janken');
 });
 
 test('campaign duration clamps to eight through sixteen weeks', () => {
   assert.equal(clampCampaignDuration(2), 8);
   assert.equal(clampCampaignDuration(20), 16);
   assert.equal(createCampaignConfig({ campaignYear: 2, durationWeeks: 11 }).resultWeek, 12);
+});
+
+test('campaign configuration persists reward concert and MV budgets', () => {
+  const configured = configureNextCampaign({ year: 1, firstCampaignYear: 2, nextCampaignConfig: null }, { startWeek: 9, durationWeeks: 14, concertBudgetId: 'major', concertVenueId: 'arena', mvBudgetId: 'high' });
+  assert.equal(configured.nextCampaignConfig.startWeek, 9);
+  assert.equal(configured.nextCampaignConfig.durationWeeks, 14);
+  assert.equal(configured.nextCampaignConfig.concertBudgetId, 'major');
+  assert.equal(configured.nextCampaignConfig.concertVenueId, 'arena');
+  assert.equal(configured.nextCampaignConfig.mvBudgetId, 'high');
+  assert.equal(configured.nextCampaignConfig.held, true);
+  const retimed = configureNextCampaign(configured, { startWeek: 12, durationWeeks: 14 });
+  assert.equal(retimed.nextCampaignConfig.startWeek, 12);
+  assert.equal(retimed.nextCampaignConfig.concertBudgetId, 'major');
+  assert.equal(retimed.nextCampaignConfig.concertVenueId, 'arena');
+  assert.equal(retimed.nextCampaignConfig.mvBudgetId, 'high');
+});
+
+test('campaigns are optional and waiting does not auto-open or advance rotation', () => {
+  const roster = members(16);
+  const base = { seed: 'campaign-optional', year: 2, week: 1, members: roster, group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, nextCampaignConfig: null, campaignHistory: [], lastCampaignType: null, runStatus: 'active' };
+  const idle = advanceCampaign(base, { year: 8, week: 24, members: roster, group: base.group, rng: createRng(hashSeed('optional-idle')) });
+  assert.equal(idle.campaign, null);
+  assert.equal(idle.nextCampaignConfig, null);
+  assert.equal(nextCampaignType({ ...base, year: 8, week: 24 }), 'sousenkyo');
+  const started = startCampaign({ ...base, year: 8, week: 24 }, { members: roster, durationWeeks: 10 });
+  assert.equal(started.campaign.type, 'sousenkyo');
+  assert.equal(started.campaign.status, 'configured');
+  const heldThenWaited = { ...started, campaign: { ...started.campaign, status: 'completed' }, year: 20, week: 48 };
+  assert.equal(nextCampaignType(heldThenWaited), 'request-hour');
 });
 
 test('Sousenkyo ranks members, creates Senbatsu and only creates Undergirls with 24 participants', () => {
@@ -56,7 +88,8 @@ test('campaign revenue per vote stays within configured trust and reputation ran
 test('campaign advance creates Year 2 registration, active voting, and result lifecycle', () => {
   const roster = members(16);
   const base = { seed: 'campaign-lifecycle', year: 2, week: 1, members: roster, group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, nextCampaignConfig: null, campaignHistory: [] };
-  const opened = advanceCampaign(base, { year: 2, week: 1, members: roster, group: base.group, rng: createRng(hashSeed('week1')) });
+  const started = startCampaign({ ...base, runStatus: 'active' }, { members: roster, type: 'sousenkyo', startWeek: 1, durationWeeks: 12 });
+  const opened = advanceCampaign({ ...base, ...started }, { year: 2, week: 1, members: roster, group: base.group, rng: createRng(hashSeed('week1')) });
   assert.equal(opened.campaign.type, 'sousenkyo');
   assert.equal(opened.campaign.status, 'registration');
   const active = advanceCampaign({ ...base, ...opened }, { year: 2, week: 2, members: roster, group: base.group, rng: createRng(hashSeed('week2')) });
@@ -64,18 +97,40 @@ test('campaign advance creates Year 2 registration, active voting, and result li
   assert.ok(active.campaign.totalVotes > 0);
   let result = active;
   for (let week = 3; week <= 13; week += 1) result = advanceCampaign({ ...base, ...result }, { year: 2, week, members: roster, group: base.group, rng: createRng(hashSeed(`week${week}`)) });
-  assert.equal(result.campaign.status, 'mv-production');
+  assert.equal(result.campaign.status, 'concert-pending');
   assert.ok(result.campaign.result.winnerMemberId);
-  for (let week = 14; week <= 17; week += 1) result = advanceCampaign({ ...base, ...result }, { year: 2, week, members: roster, group: base.group, rng: createRng(hashSeed(`week${week}`)) });
+  const rewardConcert = { id: `campaign-concert-${result.campaign.id}`, campaignId: result.campaign.id, status: 'completed', targetYear: 2, targetWeek: 16 };
+  result = advanceCampaign({ ...base, ...result, campaign: { ...result.campaign, status: 'concert-scheduled', rewardConcertId: rewardConcert.id }, concerts: [rewardConcert] }, { year: 2, week: 16, members: roster, group: base.group, rng: createRng(hashSeed('week16')) });
+  assert.equal(result.campaign.status, 'mv-production');
+  for (let week = 17; week <= 20; week += 1) result = advanceCampaign({ ...base, ...result, concerts: [rewardConcert] }, { year: 2, week, members: roster, group: base.group, rng: createRng(hashSeed(`week${week}`)) });
   assert.equal(result.campaign.status, 'completed');
+});
+
+test('a user-started campaign can span the year boundary without moving its dates', () => {
+  const roster = members(16);
+  const base = { seed: 'campaign-cross-year', year: 2, week: 46, members: roster, group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, nextCampaignConfig: null, campaignHistory: [], runStatus: 'active' };
+  let state = startCampaign(base, { members: roster, type: 'sousenkyo', durationWeeks: 8 });
+  assert.equal(state.campaign.startYear, 2);
+  assert.equal(state.campaign.startWeek, 46);
+  assert.equal(state.campaign.endYear, 3);
+  assert.equal(state.campaign.endWeek, 5);
+  state = advanceCampaign(state, { year: 2, week: 46, members: roster, group: base.group, rng: createRng(hashSeed('cross-46')) });
+  assert.equal(state.campaign.status, 'registration');
+  for (const [year, week] of [[2, 47], [2, 48], [3, 1], [3, 2], [3, 3], [3, 4], [3, 5]]) {
+    state = advanceCampaign(state, { year, week, members: roster, group: base.group, rng: createRng(hashSeed(`cross-${year}-${week}`)) });
+  }
+  assert.equal(state.campaign.status, 'locked');
+  state = advanceCampaign(state, { year: 3, week: 6, members: roster, group: base.group, rng: createRng(hashSeed('cross-result')) });
+  assert.equal(state.campaign.status, 'concert-pending');
 });
 
 test('campaign MV production can finish across a year boundary', () => {
   const roster = members(16);
   const base = { seed: 'campaign-boundary', year: 2, week: 48, members: roster, group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: { id: 'campaign-2-sousenkyo', type: 'sousenkyo', campaignYear: 2, status: 'locked', startWeek: 40, durationWeeks: 8, endWeek: 47, resultWeek: 48, budget: 0, spent: 0, totalVotes: 0, votingRevenue: 0, participants: { memberIds: roster.map((member) => member.id), votes: Object.fromEntries(roster.map((member) => [member.id, 1])) }, liveStandings: [], result: null, rewardSongId: null, mvProjectId: null, mvProductionWeeks: 0, lifecycle: [] }, nextCampaignConfig: createCampaignConfig({ campaignYear: 3, configuredInYear: 2 }), campaignHistory: [] };
   const result = advanceCampaign(base, { year: 2, week: 48, members: roster, group: base.group, rng: createRng(hashSeed('boundary-result')) });
-  const nextYear = advanceCampaign({ ...base, ...result }, { year: 3, week: 1, members: roster, group: base.group, rng: createRng(hashSeed('boundary-next')) });
+  const rewardConcert = { id: `campaign-concert-${result.campaign.id}`, campaignId: result.campaign.id, status: 'completed', targetYear: 3, targetWeek: 4 };
+  const nextYear = advanceCampaign({ ...base, ...result, campaign: { ...result.campaign, status: 'concert-scheduled', rewardConcertId: rewardConcert.id }, concerts: [rewardConcert] }, { year: 3, week: 1, members: roster, group: base.group, rng: createRng(hashSeed('boundary-next')) });
   assert.equal(nextYear.campaign.campaignYear, 2);
   assert.equal(nextYear.campaign.status, 'mv-production');
-  assert.equal(nextYear.campaign.mvProductionWeeks, 1);
+  assert.equal(nextYear.campaign.mvProductionWeeks, 0);
 });
