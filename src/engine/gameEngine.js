@@ -56,45 +56,100 @@ const protectNormalTrustLoss = (state, delta) => delta < 0 ? Math.ceil(delta * (
 const applyRate = (value, rate) => Math.round(value * (1 + rate));
 const chemistryPairKey = (firstId, secondId) => [firstId, secondId].sort().join('::');
 const chemistryDimensions = ['stage', 'performance', 'mc', 'unit'];
-// Campaign assignments must survive template application and automatic schedule merging.
-// Higher number always wins when two sources target same member/day.
-const activityPriority = (activityId) => {
-  if (typeof activityId !== 'string' || activityId === 'clear') return 0;
-  if (activityId === 'concert' || activityId === 'concertRehearsal') return 5;
-  if (activityId === 'yearEndMeetGreet' || activityId.startsWith('mg')) return 4;
-  if (activityId === 'mvProduction' || activityId.startsWith('mv')) return 3;
-  if (activityId.startsWith('vc')) return 2;
-  return 1;
-};
 const isConcertActivity = (activityId) => activityId === 'concert' || activityId === 'concertRehearsal';
 const isMeetGreetActivity = (activityId) => activityId === 'yearEndMeetGreet' || activityId?.startsWith?.('mg');
-const setScheduleByPriority = (schedule, key, activityId) => {
+const isCampaignActivity = (activityId) => isConcertActivity(activityId) || isMeetGreetActivity(activityId)
+  || activityId === 'mvProduction' || activityId?.startsWith?.('mv') || activityId?.startsWith?.('vc');
+const isGroupCampaignType = (type) => type === 'concert' || type === 'meetGreet' || type === 'yearEndMeetGreet';
+const campaignTypeForActivity = (activityId) => {
+  if (isConcertActivity(activityId)) return 'concert';
+  if (activityId === 'yearEndMeetGreet') return 'yearEndMeetGreet';
+  if (activityId?.startsWith?.('mg')) return 'meetGreet';
+  if (activityId?.startsWith?.('vc')) return 'videoCall';
+  return 'mv';
+};
+// Campaigns outrank ordinary/template work, but campaign slots are first-claim wins.
+// Event type never replaces another campaign that already took the member/day slot.
+const claimScheduleSlot = (schedule, key, activityId) => {
   const currentActivity = schedule[key];
-  if (!currentActivity || currentActivity === activityId || activityPriority(activityId) > activityPriority(currentActivity)) schedule[key] = activityId;
+  if (!currentActivity || currentActivity === activityId || (!isCampaignActivity(currentActivity) && isCampaignActivity(activityId))) schedule[key] = activityId;
   return schedule[key] === activityId;
 };
-const eventConflict = (state, targetYear, targetWeek, ignoreVideoCalls = false, requestedActivity = null) => {
-  const absolute = toAbsoluteWeek(targetYear, targetWeek);
-  const storedEvents = [
-    ...(state.concerts ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: event.eventType === 'anniversary' ? 'concert' : 'concert' })),
-    ...(state.yearEndMeetGreets ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: 'yearEndMeetGreet' })),
-    ...(state.fanEventPlans ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: event.type })),
-    ...(state.activityEvents ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.week), type: event.type })),
+const campaignConflictLabel = (type) => type === 'concert'
+  ? 'Concert already occupies the requested schedule.'
+  : type === 'yearEndMeetGreet' ? 'Year-end Meet & Greet already occupies the requested schedule.'
+    : type === 'meetGreet' ? 'Meet & Greet already occupies the requested schedule.'
+      : type === 'videoCall' ? 'Video Call already occupies this member and day.'
+        : 'MV production already occupies this member and day.';
+const campaignEventDays = (event) => [...new Set([event.day, ...(event.rehearsalDays ?? [])].filter(Boolean))];
+const campaignDaysOverlap = (requestedDays, existingDays) => !requestedDays.length || !existingDays.length || requestedDays.some((day) => existingDays.includes(day));
+const campaignMemberOverlap = (requestedMembers, existingMembers) => requestedMembers.size > 0 && existingMembers.some((memberId) => requestedMembers.has(memberId));
+const conflictNotification = (state, reasons) => ({
+  ...state,
+  notifications: [{ type: 'critical', text: `Campaign blocked: ${reasons[0]}` }, ...(state.notifications ?? [])].slice(0, 20),
+});
+
+export function getCampaignConflictReasons(state, options = {}) {
+  const targetYear = options.year ?? state.year;
+  const targetWeek = options.week;
+  if (!Number.isInteger(targetYear) || !Number.isInteger(targetWeek)) return [];
+  const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
+  const type = options.type ?? 'meetGreet';
+  const requestedDays = [...new Set([...(options.days ?? []), options.day].filter(Boolean))];
+  const requestedMembers = new Set(options.memberIds ?? []);
+  const reasons = [];
+  const addReason = (conflictType) => {
+    const label = campaignConflictLabel(conflictType);
+    if (!reasons.includes(label)) reasons.push(label);
+  };
+  const matchesStoredCampaign = ({ absolute, type: existingType, days = [], memberIds = [] }) => {
+    if (absolute !== targetAbsolute) return false;
+    // Meet & Greet is a single group campaign per target week; other campaign
+    // types remain slot-aware and only conflict when their day/member overlaps.
+    if (type === 'meetGreet' && existingType === 'meetGreet') return true;
+    if (!campaignDaysOverlap(requestedDays, days)) return false;
+    if (type === 'videoCall' || type === 'mv') {
+      if (isGroupCampaignType(existingType)) return true;
+      return campaignMemberOverlap(requestedMembers, memberIds);
+    }
+    return true;
+  };
+  const storedCampaigns = [
+    ...(state.concerts ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: 'concert', days: campaignEventDays(event), memberIds: event.memberIds ?? [] })),
+    ...(state.yearEndMeetGreets ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: 'yearEndMeetGreet', days: [event.day].filter(Boolean), memberIds: (event.memberSessions ?? []).map((session) => session.memberId) })),
+    ...(state.fanEventPlans ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: event.type, days: [event.day].filter(Boolean), memberIds: event.memberIds ?? [] })),
+    ...(state.activityEvents ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.week), type: event.type, days: [], memberIds: event.memberId ? [event.memberId] : [] })),
   ];
-  const currentWeek = toAbsoluteWeek(state.year, state.week);
-  const requestedPriority = activityPriority(requestedActivity ?? (ignoreVideoCalls ? 'vc1' : 'mg1'));
-  const storedEventBlocks = storedEvents.some(({ absolute: eventAbsolute, type }) => {
-    if (eventAbsolute !== absolute || (ignoreVideoCalls && type === 'videoCall')) return false;
-    const eventActivity = type === 'concert' ? 'concert' : type === 'videoCall' ? 'vc1' : type === 'meetGreet' || type === 'yearEndMeetGreet' ? 'mg1' : null;
-    return eventActivity ? activityPriority(eventActivity) >= requestedPriority : true;
+  storedCampaigns.forEach((campaign) => { if (matchesStoredCampaign(campaign)) addReason(campaign.type); });
+
+  (state.singles ?? []).forEach((single) => {
+    if (single.status === 'released') return;
+    const startYear = Number.isInteger(single.productionStartYear) ? single.productionStartYear : single.year;
+    const startWeek = Number.isInteger(single.productionStartWeek) ? single.productionStartWeek : single.week;
+    if (!Number.isInteger(startYear) || !Number.isInteger(startWeek)) return;
+    const startAbsolute = toAbsoluteWeek(startYear, startWeek);
+    if (targetAbsolute < startAbsolute || targetAbsolute >= startAbsolute + (single.durationWeeks ?? 4) || !campaignDaysOverlap(requestedDays, [single.productionDay].filter(Boolean))) return;
+    if ((type === 'videoCall' || type === 'mv') && !campaignMemberOverlap(requestedMembers, single.memberIds ?? [])) return;
+    addReason('mv');
   });
-  const currentScheduleHasEvent = absolute === currentWeek && Object.values(state.schedule ?? {}).some((activity) => {
-    if (activityPriority(activity) < 2) return false;
-    if (ignoreVideoCalls && activity?.startsWith?.('vc')) return false;
-    return activityPriority(activity) >= requestedPriority;
-  });
-  return storedEventBlocks || currentScheduleHasEvent;
-};
+
+  if (targetAbsolute === toAbsoluteWeek(state.year, state.week) && requestedDays.length) {
+    if (type === 'meetGreet' && Object.values(state.schedule ?? {}).some((activity) => activity?.startsWith?.('mg'))) addReason('meetGreet');
+    Object.entries(state.schedule ?? {}).forEach(([key, activity]) => {
+      if (!isCampaignActivity(activity)) return;
+      const separator = key.lastIndexOf(':');
+      const memberId = key.slice(0, separator);
+      const day = key.slice(separator + 1);
+      if (requestedDays.length && !requestedDays.includes(day)) return;
+      if (type === 'videoCall' || type === 'mv') {
+        const existingType = campaignTypeForActivity(activity);
+        if (isGroupCampaignType(existingType)) addReason(existingType);
+        else if (requestedMembers.has(memberId)) addReason(existingType);
+      } else addReason(campaignTypeForActivity(activity));
+    });
+  }
+  return reasons;
+}
 
 function createChemistry(seed, firstId, secondId) {
   if (isAllNinetySeed(seed)) return Object.fromEntries(chemistryDimensions.map((dimension) => [dimension, 100]));
@@ -661,12 +716,10 @@ export function assignActivity(state, memberId, day, activityId, options = {}) {
   const key = `${memberId}:${day}`;
   const schedule = { ...state.schedule };
   const currentActivity = schedule[key];
-  const campaignSource = options.source === 'campaign';
-  // Manual/template assignments cannot clear or replace campaign work. Higher-priority
-  // campaigns may still replace lower-priority assignments through their campaign APIs.
+  // Campaigns can take an ordinary/template slot, but never replace a campaign that claimed it first.
   if (activityId === 'clear') {
-    if (activityPriority(currentActivity) >= 2) return state;
-  } else if (activityPriority(currentActivity) > activityPriority(activityId) || (!campaignSource && activityPriority(currentActivity) >= 2 && currentActivity !== activityId)) {
+    if (isCampaignActivity(currentActivity)) return state;
+  } else if (isCampaignActivity(currentActivity) && currentActivity !== activityId) {
     return state;
   }
   const month = Math.ceil(state.week / BALANCE.weeksPerMonth);
@@ -686,12 +739,12 @@ export function assignActivity(state, memberId, day, activityId, options = {}) {
     const type = isConcertActivity(activityId) ? 'concert' : 'meetGreet';
     const alreadyResolved = events.some((event) => event.type === type && event.year === state.year && event.month === month);
     const alreadyScheduled = Object.values(schedule).some((value) => type === 'concert' ? isConcertActivity(value) : isMeetGreetActivity(value));
-    const higherPriorityLock = groupMembers.some((item) => activityPriority(schedule[`${item.id}:${day}`]) > activityPriority(activityId));
-    if (alreadyResolved || alreadyScheduled || higherPriorityLock) return state;
-    // Group campaigns replace lower-priority work for all participating members.
+    const campaignLock = groupMembers.some((item) => isCampaignActivity(schedule[`${item.id}:${day}`]));
+    if (alreadyResolved || alreadyScheduled || campaignLock) return state;
+    // Group campaign claims every available member slot that is not already campaign-locked.
     eligibleMembers.forEach((item) => {
       const memberKey = `${item.id}:${day}`;
-      if (activityPriority(schedule[memberKey]) <= activityPriority(activityId)) schedule[memberKey] = activityId;
+      if (!isCampaignActivity(schedule[memberKey])) schedule[memberKey] = activityId;
     });
     return { ...state, schedule };
   }
@@ -721,14 +774,27 @@ export function assignActivity(state, memberId, day, activityId, options = {}) {
 export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek = state.week) {
   if (state.runStatus === 'ended' || !DAYS.includes(day) || !['videoCall', 'meetGreet'].includes(type)) return state;
   if (!Number.isInteger(targetWeek) || targetWeek < state.week || targetWeek > BALANCE.weeksPerYear) return state;
-  if (eventConflict(state, state.year, targetWeek, type === 'videoCall')) return state;
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type, day, memberIds });
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const activityId = type === 'videoCall' ? 'vc1' : 'mg1';
   const eligibleIds = getSchedulableMembers(state, activityId).map((member) => member.id);
   if (!eligibleIds.length) return state;
+  if (type === 'videoCall') {
+    const requestedIds = [...new Set(memberIds)].filter((memberId) => eligibleIds.includes(memberId));
+    const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
+    const hasExistingMemberEvent = requestedIds.some((memberId) => (
+      (state.activityEvents ?? []).some((event) => event.type === 'videoCall' && event.memberId === memberId && event.year === state.year && event.month === targetMonth)
+      || Object.entries(state.schedule ?? {}).some(([key, activity]) => key.startsWith(`${memberId}:`) && activity?.startsWith?.('vc'))
+      || (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.year === state.year && plan.memberIds.includes(memberId) && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth)
+    ));
+    if (hasExistingMemberEvent) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.']);
+  }
   if (targetWeek > state.week) {
     const selectedIds = type === 'meetGreet' ? eligibleIds : [...new Set(memberIds)].filter((id) => eligibleIds.includes(id));
     const sameDayPlanExists = (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.day === day && plan.type === type);
-    if (!selectedIds.length || sameDayPlanExists || (type === 'meetGreet' && (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type))) return state;
+    if (!selectedIds.length) return state;
+    if (sameDayPlanExists) return conflictNotification(state, [`${type === 'videoCall' ? 'Video Call' : 'Meet & Greet'} already occupies the requested day.`]);
+    if (type === 'meetGreet' && (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type)) return conflictNotification(state, ['Meet & Greet already occupies the requested week.']);
     if (type === 'videoCall') {
       const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
       const currentMonth = Math.ceil(state.week / BALANCE.weeksPerMonth);
@@ -742,13 +808,13 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
         const plannedSameWeek = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && plan.year === state.year && plan.targetWeek === targetWeek);
         return resolved || planned || scheduled || plannedSameWeek;
       });
-      if (hasExisting) return state;
+      if (hasExisting) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.']);
     }
     return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: `fan-event-${type}-${state.year}-${targetWeek}-${day}`, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
   }
   if (type === 'meetGreet') {
-    const hasHigherPriorityMember = eligibleIds.some((memberId) => activityPriority(state.schedule[`${memberId}:${day}`]) > activityPriority('mg1'));
-    return hasHigherPriorityMember ? state : assignActivity(state, eligibleIds[0], day, activityId, { source: 'campaign' });
+    const hasCampaignLock = eligibleIds.some((memberId) => isCampaignActivity(state.schedule[`${memberId}:${day}`]));
+    return hasCampaignLock ? state : assignActivity(state, eligibleIds[0], day, activityId, { source: 'campaign' });
   }
   const requestedIds = [...new Set(memberIds)].filter((memberId) => eligibleIds.includes(memberId));
   if (!requestedIds.length) return state;
@@ -819,7 +885,12 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   if (scheduledRelease && (releaseMonth < 1 || releaseMonth > 12 || productionStartAbsolute < currentAbsolute)) return state;
   const startsNow = productionStartAbsolute === currentAbsolute;
-  if (startsNow && memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return state;
+  if (startsNow && memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return conflictNotification(state, ['MV production cannot use an occupied member and day.']);
+  const productionConflictReasons = [...new Set(
+    Array.from({ length: 4 }, (_, offset) => fromAbsoluteWeek(productionStartAbsolute + offset))
+      .flatMap(({ year, week }) => getCampaignConflictReasons(state, { year, week, type: 'mv', day: productionDay, memberIds })),
+  )];
+  if (productionConflictReasons.length) return conflictNotification(state, productionConflictReasons);
   const schedule = { ...state.schedule };
   if (startsNow) memberIds.forEach((memberId) => { schedule[`${memberId}:${productionDay}`] = 'mvProduction'; });
   const productionStart = fromAbsoluteWeek(productionStartAbsolute);
@@ -835,17 +906,20 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   return { ...state, money: state.money - productionCost, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
-export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '', budgetId = 'lean', venueId = 'hall') {
+export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '', budgetId = 'lean', venueId = 'hall', targetWeekOverride = null) {
   const budget = CONCERT_BUDGETS.find((option) => option.id === budgetId);
   const venue = [...(state.concertVenueOffers ?? []), ...CONCERT_VENUES].find((option) => option.id === venueId);
   const productionCost = applyRate(budget?.cost ?? 0, bonusValue(state, 'B006'));
   const venueCost = applyRate(venue?.cost ?? 0, bonusValue(state, 'B008'));
   const upfrontCost = productionCost + venueCost;
   if (!budget || !venue || state.runStatus === 'ended' || state.money < upfrontCost || !DAYS.includes(concertDay) || targetMonth < 1 || targetMonth > 12) return state;
-  const targetWeek = targetMonth * BALANCE.weeksPerMonth;
+  const targetWeek = Number.isInteger(targetWeekOverride) ? targetWeekOverride : targetMonth * BALANCE.weeksPerMonth;
+  if (targetWeek < 1 || targetWeek > BALANCE.weeksPerYear) return state;
   const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
-  if (targetAbsolute - currentAbsolute < 2 || state.concerts.some((concert) => concert.targetYear === targetYear && concert.targetMonth === targetMonth) || eventConflict(state, targetYear, targetWeek, false, 'concert')) return state;
+  if (targetAbsolute - currentAbsolute < 2 || state.concerts.some((concert) => concert.targetYear === targetYear && concert.targetMonth === targetMonth)) return state;
+  const conflictReasons = getCampaignConflictReasons(state, { year: targetYear, week: targetWeek, type: 'concert', day: concertDay });
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const memberIds = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0).map((member) => member.id);
   if (memberIds.length < BALANCE.theaterMinimumMembers) return state;
   const salesMultiplier = 1 + bonusValue(state, 'B028');
@@ -856,12 +930,15 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
   const customTitle = requestedTitle.trim();
   if (customTitle.length > 60) return state;
   const concert = { id: `concert-${targetYear}-${targetMonth}-${state.concerts.length + 1}`, title: customTitle || `Concert ${state.concerts.length + 1}`, budgetId, budgetName: budget.name, productionCost, venueId, venueName: venue.name, venueCost, upfrontCost, targetYear, targetMonth, targetWeek, day: concertDay, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute, salesWeeks: saleCloseAbsolute - currentAbsolute + 1, memberIds };
-  return { ...state, money: state.money - upfrontCost, concerts: [...state.concerts, concert], history: [{ id: concert.id, type: 'concert', title: `${concert.title} announced`, detail: `${venue.name} · ${capacity.toLocaleString()} seats · ${budget.name} · Year ${targetYear}, Month ${targetMonth}, Week 4 on ${concertDay}.`, year: state.year, week: state.week }, ...state.history] };
+  const targetWeekOfMonth = ((targetWeek - 1) % BALANCE.weeksPerMonth) + 1;
+  return { ...state, money: state.money - upfrontCost, concerts: [...state.concerts, concert], history: [{ id: concert.id, type: 'concert', title: `${concert.title} announced`, detail: `${venue.name} · ${capacity.toLocaleString()} seats · ${budget.name} · Year ${targetYear}, Month ${targetMonth}, Week ${targetWeekOfMonth} on ${concertDay}.`, year: state.year, week: state.week }, ...state.history] };
 }
 
 export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}) {
   if (state.runStatus === 'ended' || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
-  if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year) || eventConflict(state, state.year, targetWeek)) return state;
+  if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year)) return state;
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day });
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const cost = 40_000_000;
   if (state.money < cost) return state;
   const eligible = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0);
@@ -873,10 +950,12 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 }
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
-  if (targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || eventConflict(state, state.year, targetWeek, false, 'concert') || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
+  if (targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays] });
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;
   const chosenVenueId = venueId ?? state.concertVenueOffers?.[0]?.id ?? CONCERT_VENUES[0].id;
-  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, budgetId, chosenVenueId);
+  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, budgetId, chosenVenueId, targetWeek);
   if (announced === state) return state;
   const createdId = announced.concerts.at(-1).id;
   const targetAbsolute = toAbsoluteWeek(state.year, targetWeek);
@@ -891,7 +970,7 @@ export function applyScheduleTemplate(state, template) {
   for (const entry of template.entries) {
     const member = next.members.find((item) => item.id === entry.memberId);
     const key = `${entry.memberId}:${entry.day}`;
-    if (!member || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || activityPriority(next.schedule[key]) > activityPriority(entry.activityId)) { skipped += 1; continue; }
+    if (!member || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || isCampaignActivity(next.schedule[key])) { skipped += 1; continue; }
     const before = next;
     next = assignActivity(next, entry.memberId, entry.day, entry.activityId);
     if (next === before && next.schedule[`${entry.memberId}:${entry.day}`] !== entry.activityId) skipped += 1;
@@ -1498,7 +1577,7 @@ export function resolveWeek(state) {
   const activatedPlans = (state.fanEventPlans ?? []).filter((plan) => plan.year === state.year && plan.targetWeek === state.week);
   const weekSchedule = { ...state.schedule };
   activatedPlans.forEach((plan) => plan.memberIds.forEach((memberId) => {
-    setScheduleByPriority(weekSchedule, `${memberId}:${plan.day}`, plan.type === 'videoCall' ? 'vc1' : 'mg1');
+    claimScheduleSlot(weekSchedule, `${memberId}:${plan.day}`, plan.type === 'videoCall' ? 'vc1' : 'mg1');
   }));
   let moneyDelta = state.hardMode ? 0 : -applyRate(18_000_000, bonusValue(state, 'B004')) - (state.theater?.weeklyUpkeep ?? 0);
   let fanGain = 0;
@@ -1919,26 +1998,31 @@ export function resolveWeek(state) {
   }
   const nextSchedule = {};
   const nextAbsolute = toAbsoluteWeek(year, week);
-  singles.forEach((single) => {
-    if (!single.productionStartYear || !single.productionStartWeek) {
-      if (single.status === 'production') single.memberIds.forEach((memberId) => { setScheduleByPriority(nextSchedule, `${memberId}:${single.productionDay}`, 'mvProduction'); });
-      return;
-    }
-    const startAbsolute = toAbsoluteWeek(single.productionStartYear, single.productionStartWeek);
-    if (nextAbsolute >= startAbsolute && nextAbsolute < startAbsolute + single.durationWeeks) single.memberIds.forEach((memberId) => { setScheduleByPriority(nextSchedule, `${memberId}:${single.productionDay}`, 'mvProduction'); });
-  });
   concerts.forEach((concert) => {
     if (nextAbsolute !== toAbsoluteWeek(concert.targetYear, concert.targetWeek)) return;
-    concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { setScheduleByPriority(nextSchedule, `${memberId}:${concert.day}`, 'concert'); });
-    if (concert.eventType === 'anniversary') concert.rehearsalDays.forEach((day) => concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { setScheduleByPriority(nextSchedule, `${memberId}:${day}`, 'concertRehearsal'); }));
+    concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${concert.day}`, 'concert'); });
+    if (concert.eventType === 'anniversary') concert.rehearsalDays.forEach((day) => concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${day}`, 'concertRehearsal'); }));
   });
   yearEndMeetGreets.forEach((event) => {
     if (nextAbsolute !== toAbsoluteWeek(event.year, event.targetWeek)) return;
-    event.memberSessions.filter((session) => members.some((member) => member.id === session.memberId && ['active', 'trainee'].includes(member.status))).forEach((session) => { setScheduleByPriority(nextSchedule, `${session.memberId}:${event.day}`, 'yearEndMeetGreet'); });
+    event.memberSessions.filter((session) => members.some((member) => member.id === session.memberId && ['active', 'trainee'].includes(member.status))).forEach((session) => { claimScheduleSlot(nextSchedule, `${session.memberId}:${event.day}`, 'yearEndMeetGreet'); });
   });
-  (state.fanEventPlans ?? []).filter((plan) => plan.year === year && plan.targetWeek === week).forEach((plan) => {
+  (state.fanEventPlans ?? []).filter((plan) => plan.year === year && plan.targetWeek === week && plan.type === 'meetGreet').forEach((plan) => {
     plan.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => {
-      setScheduleByPriority(nextSchedule, `${memberId}:${plan.day}`, plan.type === 'videoCall' ? 'vc1' : 'mg1');
+      claimScheduleSlot(nextSchedule, `${memberId}:${plan.day}`, 'mg1');
+    });
+  });
+  singles.forEach((single) => {
+    if (!single.productionStartYear || !single.productionStartWeek) {
+      if (single.status === 'production') single.memberIds.forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${single.productionDay}`, 'mvProduction'); });
+      return;
+    }
+    const startAbsolute = toAbsoluteWeek(single.productionStartYear, single.productionStartWeek);
+    if (nextAbsolute >= startAbsolute && nextAbsolute < startAbsolute + single.durationWeeks) single.memberIds.forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${single.productionDay}`, 'mvProduction'); });
+  });
+  (state.fanEventPlans ?? []).filter((plan) => plan.year === year && plan.targetWeek === week && plan.type === 'videoCall').forEach((plan) => {
+    plan.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => {
+      claimScheduleSlot(nextSchedule, `${memberId}:${plan.day}`, 'vc1');
     });
   });
   if (concertSummary) concerts = concerts.map((concert) => concert.targetYear === state.year && concert.targetWeek === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert);

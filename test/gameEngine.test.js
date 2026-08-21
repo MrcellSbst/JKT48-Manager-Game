@@ -542,7 +542,7 @@ test('campaign priority keeps template assignments from replacing campaign work'
   }
 });
 
-test('campaign schedule resolution follows Concert > MnG > MV > VC > template priority', () => {
+test('campaign schedule resolution uses first campaign claim, with templates below campaign work', () => {
   const game = createGame('campaign-resolution-priority-test');
   const memberId = game.members[0].id;
   const plan = (type) => ({ id: `priority-${type}`, type, day: 'Mon', memberIds: [memberId], year: 1, targetWeek: 1, status: 'announced' });
@@ -554,7 +554,7 @@ test('campaign schedule resolution follows Concert > MnG > MV > VC > template pr
 
   assert.equal(resolveWith('vocal', 'videoCall'), 'vc1');
   assert.equal(resolveWith('mvProduction', 'videoCall'), 'mvProduction');
-  assert.equal(resolveWith('mvProduction', 'meetGreet'), 'mg1');
+  assert.equal(resolveWith('mvProduction', 'meetGreet'), 'mvProduction');
   assert.equal(resolveWith('concert', 'meetGreet'), 'concert');
 });
 
@@ -633,15 +633,19 @@ test('fan campaigns schedule selected Video Call members and the full Meet & Gre
   // A member can only have one Video Call per week, so second call with same members is blocked.
   const secondVideoCall = scheduleFanCampaign(videoCall, 'videoCall', 'Sat', selectedIds);
   assert.equal(Object.values(secondVideoCall.schedule).filter((activity) => activity === 'vc1').length, 3);
-  assert.deepEqual(secondVideoCall, scheduleFanCampaign(secondVideoCall, 'videoCall', 'Sat', selectedIds));
+  const repeatedVideoCall = scheduleFanCampaign(secondVideoCall, 'videoCall', 'Sat', selectedIds);
+  assert.equal(Object.values(repeatedVideoCall.schedule).filter((activity) => activity === 'vc1').length, 3);
+  assert.match(repeatedVideoCall.notifications[0].text, /Campaign blocked/);
 
   const meetGreet = scheduleFanCampaign(game, 'meetGreet', 'Sun');
   assert.equal(Object.values(meetGreet.schedule).filter((activity) => activity === 'mg1').length, 12);
-  assert.deepEqual(meetGreet, scheduleFanCampaign(meetGreet, 'meetGreet', 'Sat'));
+  const repeatedMeetGreet = scheduleFanCampaign(meetGreet, 'meetGreet', 'Sat');
+  assert.equal(Object.values(repeatedMeetGreet.schedule).filter((activity) => activity === 'mg1').length, 12);
+  assert.match(repeatedMeetGreet.notifications[0].text, /Campaign blocked/);
   const campaignLocked = { ...game, schedule: { [`${game.members[5].id}:Thu`]: 'mvProduction' } };
-  const campaignWins = scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu');
-  assert.equal(Object.values(campaignWins.schedule).filter((activity) => activity === 'mg1').length, 12);
-  assert.equal(campaignWins.schedule[`${game.members[5].id}:Thu`], 'mg1');
+  const campaignBlocked = scheduleFanCampaign(campaignLocked, 'meetGreet', 'Thu');
+  assert.equal(Object.values(campaignBlocked.schedule).filter((activity) => activity === 'mg1').length, 0);
+  assert.equal(campaignBlocked.schedule[`${game.members[5].id}:Thu`], 'mvProduction');
 });
 
 test('Video Call cannot book the same member on different days in one week', () => {
@@ -654,7 +658,23 @@ test('Video Call cannot book the same member on different days in one week', () 
   assert.equal(friday.schedule[`${memberId}:Fri`], 'vc1');
   // Second call should be blocked because member already has a Video Call this week.
   assert.equal(saturday.schedule[`${memberId}:Sat`], undefined);
-  assert.deepEqual(saturday, scheduleFanCampaign(saturday, 'videoCall', 'Sat', [memberId]));
+  const repeatedSaturday = scheduleFanCampaign(saturday, 'videoCall', 'Sat', [memberId]);
+  assert.match(repeatedSaturday.notifications[0].text, /Campaign blocked/);
+});
+
+test('campaign conflicts are scoped to the requested day and members', () => {
+  const draft = createGame('campaign-slot-conflict-scope-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 16).map((member) => member.id));
+  const mvIds = game.members.slice(0, 12).map((member) => member.id);
+  const withMv = startSingleProduction(game, mvIds[0], 'Mon', mvIds.slice(1));
+  const outsideMemberId = game.members[12].id;
+
+  const unrelatedDay = scheduleFanCampaign(withMv, 'videoCall', 'Tue', [outsideMemberId]);
+  assert.equal(unrelatedDay.schedule[`${outsideMemberId}:Tue`], 'vc1');
+
+  const occupiedMemberDay = scheduleFanCampaign(withMv, 'videoCall', 'Mon', [mvIds[0]]);
+  assert.equal(occupiedMemberDay.schedule[`${mvIds[0]}:Mon`], 'mvProduction');
+  assert.match(occupiedMemberDay.notifications[0].text, /Campaign blocked/);
 });
 
 test('future fan campaigns occupy member schedules when their weeks begin', () => {
@@ -713,7 +733,9 @@ test('single production requires 12 members and completes after four weeks', () 
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const centerId = game.members[0].id;
   const occupied = assignActivity(game, centerId, 'Wed', 'vocal');
-  assert.equal(startSingleProduction(occupied, centerId, 'Wed'), occupied);
+  const blockedOccupied = startSingleProduction(occupied, centerId, 'Wed');
+  assert.equal(blockedOccupied.singles.length, 0);
+  assert.match(blockedOccupied.notifications[0].text, /Campaign blocked/);
   const started = startSingleProduction(game, centerId, 'Wed');
   assert.equal(started.singles[0].memberIds.length, 12);
   assert.equal(new Set(started.singles[0].memberIds).size, 12);
@@ -960,6 +982,16 @@ test('anniversary concert locks rehearsal and concert dates', () => {
   assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concert').length, 12);
   assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concertRehearsal').length, 24);
   assert.equal(assignActivity(game, game.members[0].id, 'Tue', 'rest'), game);
+});
+
+test('anniversary conflict checks use the selected week instead of December week four', () => {
+  const draft = createGame('anniversary-target-week-conflict-test');
+  let game = finalizeGameSetup({ ...draft, week: 43 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = scheduleFanCampaign(game, 'meetGreet', 'Mon', [], 48);
+  const venueId = game.concertVenueOffers[0].id;
+  const announced = announceAnniversaryConcert(game, 45, 'Sat', 'Early Anniversary', 'standard', venueId, ['Tue', 'Thu']);
+  assert.equal(announced.concerts.length, 1);
+  assert.equal(announced.concerts[0].targetWeek, 45);
 });
 
 test('concert announcement persists selected budget and venue size', () => {
