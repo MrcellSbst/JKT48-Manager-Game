@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, ArrowLeft, Copy, Pause, Play, Plus, RefreshCw, Search, ShieldAlert, Ticket, X } from 'lucide-react';
-import { VOUCHER_MEMBER_STATS, voucherStatLabel } from '../data/voucher.js';
+import { VOUCHER_ADMIN_MEMBER_STATS, VOUCHER_MEMBER_STATS, voucherStatLabel } from '../data/voucher.js';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'include', ...options });
@@ -55,7 +55,7 @@ function VoucherForm({ form, setForm, onSubmit, busy, editing = false, locked = 
       <label><span>Valid from</span><input name="voucher-valid-from" type="datetime-local" value={form.validFrom} onChange={(event) => update('validFrom', event.target.value)} /></label>
       <label><span>Expires at</span><input name="voucher-expires-at" type="datetime-local" value={form.expiresAt} onChange={(event) => update('expiresAt', event.target.value)} /></label>
       <label><span>Target user IDs</span><input name="voucher-target-users" value={form.targetUserIds} onChange={(event) => update('targetUserIds', event.target.value)} placeholder="e.g. 12, 34…" inputMode="numeric" /></label>
-      <fieldset className="voucher-stat-picker voucher-wide"><legend>Allowed stats {locked ? '(locked)' : ''}</legend>{VOUCHER_MEMBER_STATS.map((stat) => <label key={stat}><input name={`voucher-stat-${stat}`} type="checkbox" checked={form.allowedStats.includes(stat)} disabled={locked} onChange={() => toggleStat(stat)} />{voucherStatLabel(stat)}</label>)}</fieldset>
+      <fieldset className="voucher-stat-picker voucher-wide"><legend>Allowed stats {locked ? '(locked)' : ''}</legend>{VOUCHER_ADMIN_MEMBER_STATS.map((stat) => { const disabled = stat === 'energy'; return <label key={stat}><input name={`voucher-stat-${stat}`} type="checkbox" checked={!disabled && form.allowedStats.includes(stat)} disabled={locked || disabled} onChange={() => toggleStat(stat)} />{voucherStatLabel(stat)}{disabled ? ' (disabled)' : ''}</label>; })}</fieldset>
       <label className="voucher-check"><input name="voucher-allow-decrease" type="checkbox" checked={form.allowDecrease} disabled={locked} onChange={(event) => update('allowDecrease', event.target.checked)} />Allow decreases</label>
       <label className="voucher-check"><input name="voucher-allow-multiple-members" type="checkbox" checked={form.allowMultipleMembers} disabled={locked} onChange={(event) => update('allowMultipleMembers', event.target.checked)} />Allow multiple members</label>
     </div>
@@ -178,7 +178,7 @@ export default function VoucherAdminDashboard({ onBack = null }) {
 
   const edit = (voucher) => {
     setEditing(voucher);
-    setForm({ ...initialForm, ...voucher, code: voucher.code, targetUserIds: (voucher.targetUserIds ?? []).join(', '), maxRedemptions: voucher.maxRedemptions ?? '', maxRedemptionsPerUser: voucher.maxRedemptionsPerUser ?? '', validFrom: toDateTimeLocal(voucher.validFrom), expiresAt: toDateTimeLocal(voucher.expiresAt) });
+    setForm({ ...initialForm, ...voucher, code: voucher.code, allowedStats: (voucher.allowedStats ?? []).filter((stat) => VOUCHER_MEMBER_STATS.includes(stat)), targetUserIds: (voucher.targetUserIds ?? []).join(', '), maxRedemptions: voucher.maxRedemptions ?? '', maxRedemptionsPerUser: voucher.maxRedemptionsPerUser ?? '', validFrom: toDateTimeLocal(voucher.validFrom), expiresAt: toDateTimeLocal(voucher.expiresAt) });
     const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     window.scrollTo({ top: 0, behavior: reducedMotion ? 'auto' : 'smooth' });
   };

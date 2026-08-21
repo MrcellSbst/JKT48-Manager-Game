@@ -1,4 +1,4 @@
-import { applyMemberVoucherAdjustment, capMemberVoucherAdjustment, createId, decryptSnapshot, encryptSnapshot, errorResponse, getMemberVoucherState, parseJson, requireUser, VoucherError } from '../_voucher.js';
+import { applyMemberVoucherAdjustment, capMemberVoucherAdjustment, createId, decryptSnapshot, EDITABLE_MEMBER_STATS, encryptSnapshot, errorResponse, getMemberVoucherState, parseJson, requireUser, VoucherError } from '../_voucher.js';
 
 function normalizeEdits(body) {
   const source = Array.isArray(body.edits) ? body.edits : [body];
@@ -37,7 +37,7 @@ export async function onRequestPost({ request, env }) {
     if (row.valid_from && new Date(row.valid_from) > new Date()) throw new VoucherError('Voucher is not valid yet.', 409, 'voucher_future');
 
     const allowedStats = parseJson(row.allowed_stats, []);
-    if (edits.some((item) => !allowedStats.includes(item.stat))) throw new VoucherError('One or more selected stats are not allowed by the voucher.', 403, 'stat_not_allowed');
+    if (edits.some((item) => !EDITABLE_MEMBER_STATS.includes(item.stat) || !allowedStats.includes(item.stat))) throw new VoucherError('One or more selected stats are not allowed by the voucher.', 403, 'stat_not_allowed');
     if (!Boolean(row.allow_decrease) && edits.some((item) => item.delta < 0)) throw new VoucherError('This voucher does not allow stat decreases.', 403, 'decrease_not_allowed');
     const pointsCost = edits.reduce((sum, item) => sum + Math.abs(item.delta), 0);
     const pointsUsed = Number(row.points_used ?? 0);

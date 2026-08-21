@@ -2,7 +2,7 @@ import { getSessionUser } from './_session.js';
 
 export const VOUCHER_TYPE = 'member-stat-editor';
 export const EDITABLE_MEMBER_STATS = Object.freeze([
-  'vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'popularity', 'energy', 'ego',
+  'vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'popularity', 'ego',
 ]);
 export const CORE_PERMISSION_FIELDS = Object.freeze([
   'totalPoints', 'maxIncreasePerStat', 'maxIncreasePerMember', 'allowedStats', 'allowDecrease', 'allowMultipleMembers',
@@ -108,7 +108,10 @@ export function normalizeAllowedStats(value) {
 }
 
 export function normalizeVoucherDefinition(input, { partial = false, current = null, redemptionCount = 0 } = {}) {
-  const source = current ? { ...voucherToClient(current), ...input } : input;
+  const inheritedAllowedStats = current && input.allowedStats === undefined
+    ? (current.allowedStats ?? []).filter((stat) => EDITABLE_MEMBER_STATS.includes(String(stat).toLowerCase()))
+    : input.allowedStats;
+  const source = current ? { ...voucherToClient(current), ...input, allowedStats: inheritedAllowedStats } : input;
   const code = input.code === undefined && current ? current.code : normalizeVoucherCode(source.code);
   const type = String(source.type ?? VOUCHER_TYPE);
   if (type !== VOUCHER_TYPE) throw new VoucherError('This voucher type is not supported.', 400, 'invalid_type');
@@ -148,7 +151,7 @@ export function normalizeVoucherDefinition(input, { partial = false, current = n
   };
   if (partial && current && redemptionCount > 0) {
     const sameList = (left, right) => JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
-    const currentAllowedStats = normalizeAllowedStats(current.allowedStats ?? []);
+    const currentAllowedStats = [...new Set((current.allowedStats ?? []).map((stat) => String(stat).trim().toLowerCase()).filter((stat) => EDITABLE_MEMBER_STATS.includes(stat)))];
     const lockedValues = {
       totalPoints: Number(current.totalPoints),
       maxIncreasePerStat: Number(current.maxIncreasePerStat),

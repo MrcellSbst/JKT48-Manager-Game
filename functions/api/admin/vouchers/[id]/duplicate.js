@@ -1,4 +1,4 @@
-import { buildVoucherInsert, errorResponse, generateVoucherCode, normalizeVoucherDefinition, readJson, requireAdmin, VoucherError } from '../../../_voucher.js';
+import { buildVoucherInsert, EDITABLE_MEMBER_STATS, errorResponse, generateVoucherCode, normalizeVoucherDefinition, readJson, requireAdmin, VoucherError } from '../../../_voucher.js';
 import { assertTargetUsersExist, loadVoucher, routeId } from '../../_voucher.js';
 
 export async function onRequestPost({ request, env, params }) {
@@ -6,7 +6,8 @@ export async function onRequestPost({ request, env, params }) {
     const admin = await requireAdmin(request, env);
     const source = await loadVoucher(env, routeId(params));
     const body = await readJson(request);
-    const voucher = normalizeVoucherDefinition({ ...source.voucher, ...body, voucherId: undefined, code: body.code || generateVoucherCode(source.voucher.code), lifecycleStatus: body.lifecycleStatus || 'draft' });
+    const allowedStats = (body.allowedStats ?? source.voucher.allowedStats ?? []).filter((stat) => EDITABLE_MEMBER_STATS.includes(String(stat).toLowerCase()));
+    const voucher = normalizeVoucherDefinition({ ...source.voucher, ...body, allowedStats, voucherId: undefined, code: body.code || generateVoucherCode(source.voucher.code), lifecycleStatus: body.lifecycleStatus || 'draft' });
     if (voucher.lifecycleStatus === 'revoked') throw new VoucherError('Duplicated vouchers cannot start revoked.', 400, 'invalid_lifecycle');
     await assertTargetUsersExist(env, voucher.targetUserIds);
     const insert = buildVoucherInsert(voucher, admin.user_id);

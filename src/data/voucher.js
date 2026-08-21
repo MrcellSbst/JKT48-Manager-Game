@@ -1,4 +1,8 @@
 export const VOUCHER_MEMBER_STATS = Object.freeze([
+  'vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'popularity', 'ego',
+]);
+
+export const VOUCHER_ADMIN_MEMBER_STATS = Object.freeze([
   'vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'popularity', 'energy', 'ego',
 ]);
 

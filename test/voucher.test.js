@@ -46,10 +46,11 @@ const validVoucherRow = {
 
 test('voucher definitions normalize codes, limits, and editable permissions', () => {
   assert.equal(normalizeVoucherCode('  jkt48-test_1 '), 'JKT48-TEST_1');
-  const voucher = normalizeVoucherDefinition({ code: 'jkt48-test', name: 'Training', totalPoints: 12, maxIncreasePerStat: 5, maxIncreasePerMember: 8, allowedStats: ['Vocal', 'vocal', 'energy'], allowMultipleMembers: false });
-  assert.deepEqual(voucher.allowedStats, ['vocal', 'energy']);
+  const voucher = normalizeVoucherDefinition({ code: 'jkt48-test', name: 'Training', totalPoints: 12, maxIncreasePerStat: 5, maxIncreasePerMember: 8, allowedStats: ['Vocal', 'vocal', 'ego'], allowMultipleMembers: false });
+  assert.deepEqual(voucher.allowedStats, ['vocal', 'ego']);
   assert.equal(voucher.allowMultipleMembers, false);
   assert.throws(() => normalizeVoucherCode('bad code'), /letters/);
+  assert.throws(() => normalizeVoucherDefinition({ code: 'JKT48-E', name: 'Energy', totalPoints: 5, maxIncreasePerStat: 5, maxIncreasePerMember: 5, allowedStats: ['energy'] }), /unsupported stat/);
   assert.throws(() => normalizeVoucherDefinition({ code: 'JKT48-X', name: 'Bad', totalPoints: 5, maxIncreasePerStat: 6, maxIncreasePerMember: 2, allowedStats: ['vocal'] }), /between 0 and total/);
 });
 
@@ -66,6 +67,12 @@ test('voucher permission fields lock after first redemption', () => {
   const renamed = normalizeVoucherDefinition({ name: 'Renamed', description: 'Updated' }, { partial: true, current, redemptionCount: 1 });
   assert.equal(renamed.name, 'Renamed');
   assert.throws(() => normalizeVoucherDefinition({ code: 'JKT48-NEW' }, { partial: true, current, redemptionCount: 1 }), /cannot change/);
+});
+
+test('legacy vouchers drop Energy without tripping locked permission checks', () => {
+  const current = { voucherId: 'voucher-old', code: 'JKT48-OLD', name: 'Legacy', totalPoints: 10, maxIncreasePerStat: 5, maxIncreasePerMember: 10, allowedStats: ['vocal', 'energy'], allowDecrease: false, allowMultipleMembers: true, maxRedemptions: null, maxRedemptionsPerUser: 1, targetUserIds: [], lifecycleStatus: 'active', redemptionCount: 1 };
+  const updated = normalizeVoucherDefinition({ name: 'Legacy renamed' }, { partial: true, current, redemptionCount: 1 });
+  assert.deepEqual(updated.allowedStats, ['vocal']);
 });
 
 test('voucher status reflects lifecycle, expiry, and exhaustion', () => {
