@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useVouchers } from '../context/VoucherContext.jsx';
 import { VOUCHER_MEMBER_STATS, voucherStatLabel } from '../data/voucher.js';
 
-const formatDate = (value) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value)) : null;
+const formatDate = (value) => value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'Asia/Jakarta' }).format(new Date(value)) : null;
 
 export function VoucherInventory() {
   const { user, authLoading } = useAuth();

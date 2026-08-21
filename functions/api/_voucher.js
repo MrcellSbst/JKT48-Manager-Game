@@ -79,7 +79,17 @@ export function parseDate(value, fieldName, { allowNull = true } = {}) {
     if (allowNull) return null;
     throw new VoucherError(`${fieldName} is required.`, 400, 'invalid_date');
   }
-  const date = new Date(value);
+  const raw = String(value).trim();
+  // The admin form uses datetime-local, whose value has no timezone. Voucher
+  // schedules are authored in Jakarta time, so make that zone explicit before
+  // normalizing the value stored in D1 as UTC ISO.
+  const hasExplicitTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  const jakartaValue = hasExplicitTimeZone
+    ? raw
+    : /^\d{4}-\d{2}-\d{2}$/.test(raw)
+      ? `${raw}T00:00:00+07:00`
+      : `${raw}+07:00`;
+  const date = new Date(jakartaValue);
   if (Number.isNaN(date.getTime())) throw new VoucherError(`${fieldName} is invalid.`, 400, 'invalid_date');
   return date.toISOString();
 }

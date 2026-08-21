@@ -16,8 +16,9 @@ const initialForm = {
   allowMultipleMembers: true, maxRedemptions: '', maxRedemptionsPerUser: 1, targetUserIds: '', lifecycleStatus: 'draft', validFrom: '', expiresAt: '',
 };
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const VOUCHER_TIME_ZONE = 'Asia/Jakarta';
+const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: VOUCHER_TIME_ZONE });
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: VOUCHER_TIME_ZONE });
 const numberFormatter = new Intl.NumberFormat();
 const formatDate = (value, fallback = 'Any time') => {
   if (!value) return fallback;
@@ -205,5 +206,9 @@ function toDateTimeLocal(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const pad = (part) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: VOUCHER_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date).filter(({ type }) => type !== 'literal').map(({ type, value }) => [type, value]));
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
 }

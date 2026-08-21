@@ -6,6 +6,7 @@ import {
   getMemberVoucherState,
   normalizeVoucherCode,
   normalizeVoucherDefinition,
+  parseDate,
   requireAdmin,
   voucherStatus,
 } from '../functions/api/_voucher.js';
@@ -50,6 +51,12 @@ test('voucher definitions normalize codes, limits, and editable permissions', ()
   assert.equal(voucher.allowMultipleMembers, false);
   assert.throws(() => normalizeVoucherCode('bad code'), /letters/);
   assert.throws(() => normalizeVoucherDefinition({ code: 'JKT48-X', name: 'Bad', totalPoints: 5, maxIncreasePerStat: 6, maxIncreasePerMember: 2, allowedStats: ['vocal'] }), /between 0 and total/);
+});
+
+test('voucher datetimes treat timezone-less input as Jakarta time before storing UTC', () => {
+  assert.equal(parseDate('2026-08-21T10:00', 'Valid from'), '2026-08-21T03:00:00.000Z');
+  assert.equal(parseDate('2026-08-21T10:00:00+02:00', 'Valid from'), '2026-08-21T08:00:00.000Z');
+  assert.equal(parseDate('2026-08-21', 'Valid from'), '2026-08-20T17:00:00.000Z');
 });
 
 test('voucher permission fields lock after first redemption', () => {

@@ -1250,7 +1250,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       momentum += score >= 75 ? 1 : 0;
     }
     if (activityId === 'liveStream') {
-      const streamRevenue = Math.round(member.popularity * activity.revenuePerPopularity * 0.7);
+      const streamRevenue = Math.round(member.popularity * activity.revenuePerPopularity);
       const streamFans = Math.round(member.popularity * activity.fansPerPopularity);
       money += streamRevenue;
       finances.liveStream += streamRevenue;
@@ -2185,7 +2185,7 @@ export function resolveWeek(state) {
     notifications.push({ type: 'critical', text: `${pendingOpportunity.title} opportunity expired.` });
     pendingOpportunity = null;
   }
-  if (!pendingOpportunity && !ended && rng() < 0.08) {
+  if (!pendingOpportunity && !ended && rng() < 0.24) {
     const template = OPPORTUNITIES[randomInt(rng, 0, OPPORTUNITIES.length - 1)];
     const eligible = members.filter((member) => member.status === 'active').sort((a, b) => template.category === 'media' ? b.variety - a.variety : b.performance - a.performance);
     const memberIds = eligible.slice(0, Math.min(template.memberCount, eligible.length)).map((member) => member.id);

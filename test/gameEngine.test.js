@@ -701,7 +701,7 @@ test('Live Stream is available daily and scales revenue and fans with popularity
   assert.equal(scheduledTwice.schedule[`${memberId}:Tue`], 'liveStream');
   const next = resolveWeek(scheduledTwice);
   const updated = next.members.find((member) => member.id === memberId);
-  assert.equal(next.lastResult.finances.liveStream, 4_480_000);
+  assert.equal(next.lastResult.finances.liveStream, 2 * 80 * BALANCE.activities.liveStream.revenuePerPopularity);
   assert.equal(next.lastResult.fanGain, 240);
   const stamina = updated.stamina;
   assert.equal(updated.energy, 100);
@@ -815,6 +815,16 @@ test('media appearance earns popularity-scaled income', () => {
   assert.equal(next.lastResult.finances.media, 50 * BALANCE.activities.media.revenuePerPopularity);
   assert.equal(next.lastResult.finances.activityCosts, BALANCE.activities.media.cost);
   assert.ok(next.lastResult.fanGain > 0);
+});
+
+test('live stream uses the direct reduced income rate', () => {
+  const draft = createGame('live-stream-income-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const member = game.members[0];
+  game = { ...game, members: game.members.map((item) => item.id === member.id ? { ...item, popularity: 50 } : item) };
+  const next = resolveWeek(assignActivity(game, member.id, 'Mon', 'liveStream'));
+  assert.equal(BALANCE.activities.liveStream.revenuePerPopularity, 20_000);
+  assert.equal(next.lastResult.finances.liveStream, 50 * 20_000);
 });
 
 test('incomplete off-air performance cancels without activity cost or fan gain', () => {
