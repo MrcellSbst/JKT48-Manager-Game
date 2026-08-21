@@ -149,7 +149,7 @@ Voucher request: +3
 Global maximum: 100
 ```
 
-Reject changes above the valid final cap using the project's normal validation behavior.
+Clamp the applied result to the valid final cap instead of rejecting the voucher request. The requested voucher points are still consumed and logged, while the effective stat increase is limited to the remaining room. For example, Base 95 + request 10 produces Display 100 with an effective adjustment of +5.
 
 ## Allowed Stats
 
@@ -541,7 +541,7 @@ This stat is not allowed
 Maximum per-stat adjustment reached
 Maximum per-member adjustment reached
 Voucher is locked to another member
-Requested stat exceeds global limit
+Requested stat is clamped to the global limit
 ```
 
 Do not expose database internals.
@@ -653,7 +653,7 @@ Editing:
 - per-member cumulative limit enforced
 - multiple-member rule enforced
 - negative edits rejected when disabled
-- global stat cap enforced
+- global stat cap enforced by clamping the displayed result to 0-100
 - successful edit creates one log
 - failed edit creates no applied edit log
 - concurrent requests cannot overspend

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyMemberVoucherAdjustment,
+  capMemberVoucherAdjustment,
   getMemberVoucherState,
   normalizeVoucherCode,
   normalizeVoucherDefinition,
@@ -75,6 +76,14 @@ test('voucher adjustments preserve a natural stat base', () => {
   const reduced = applyMemberVoucherAdjustment(boosted, 'vocal', 1);
   assert.equal(reduced.vocal, 71);
   assert.equal(reduced.voucherBaseStats.vocal, 70);
+});
+
+test('voucher adjustments clamp displayed stats to the global 0-100 range', () => {
+  assert.equal(capMemberVoucherAdjustment(95, 10), 5);
+  assert.equal(capMemberVoucherAdjustment(0, -10), 0);
+  const capped = applyMemberVoucherAdjustment({ id: 'm2', vocal: 95 }, 'vocal', 10);
+  assert.equal(capped.vocal, 100);
+  assert.equal(capped.voucherAdjustments.vocal, 5);
 });
 
 test('voucher admin authorization is limited to user ID 1', async () => {

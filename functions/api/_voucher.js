@@ -246,11 +246,19 @@ export function getMemberVoucherState(member, stat) {
   return { baseValue, adjustment, displayValue };
 }
 
+export function capMemberVoucherAdjustment(baseValue, adjustment) {
+  const base = Number(baseValue);
+  const requested = base + Number(adjustment);
+  const cappedDisplay = Math.min(100, Math.max(0, requested));
+  return Math.round((cappedDisplay - base) * 10) / 10;
+}
+
 export function applyMemberVoucherAdjustment(member, stat, adjustment) {
   const current = getMemberVoucherState(member, stat);
-  const voucherAdjustments = { ...(member.voucherAdjustments ?? {}), [stat]: adjustment };
+  const cappedAdjustment = capMemberVoucherAdjustment(current.baseValue, adjustment);
+  const voucherAdjustments = { ...(member.voucherAdjustments ?? {}), [stat]: cappedAdjustment };
   const voucherBaseStats = { ...(member.voucherBaseStats ?? {}), [stat]: current.baseValue };
-  return { ...member, [stat]: Math.round((current.baseValue + adjustment) * 10) / 10, voucherAdjustments, voucherBaseStats };
+  return { ...member, [stat]: Math.round((current.baseValue + cappedAdjustment) * 10) / 10, voucherAdjustments, voucherBaseStats };
 }
 
 export function decryptSnapshot(saveData) {

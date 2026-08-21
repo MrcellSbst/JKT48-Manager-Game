@@ -1,4 +1,4 @@
-import { applyMemberVoucherAdjustment, createId, decryptSnapshot, encryptSnapshot, errorResponse, getMemberVoucherState, parseJson, requireUser, VoucherError } from '../_voucher.js';
+import { applyMemberVoucherAdjustment, capMemberVoucherAdjustment, createId, decryptSnapshot, encryptSnapshot, errorResponse, getMemberVoucherState, parseJson, requireUser, VoucherError } from '../_voucher.js';
 
 export async function onRequestPost({ request, env }) {
   try {
@@ -44,9 +44,8 @@ export async function onRequestPost({ request, env }) {
     const member = activeRun.members[memberIndex];
     if (!['active', 'trainee'].includes(member.status)) throw new VoucherError('Only an active roster member can be edited.', 409, 'member_ineligible');
     const current = getMemberVoucherState(member, stat);
-    const nextAdjustment = current.adjustment + delta;
+    const nextAdjustment = capMemberVoucherAdjustment(current.baseValue, current.adjustment + delta);
     const nextDisplay = current.baseValue + nextAdjustment;
-    if (nextDisplay < 0 || nextDisplay > 100) throw new VoucherError('Requested stat exceeds the global 0-100 limit.', 409, 'stat_cap');
     const updatedMember = applyMemberVoucherAdjustment(member, stat, nextAdjustment);
     const nextSnapshot = { ...snapshot, savedAt: Date.now(), activeRun: { ...snapshot.activeRun, state: { ...activeRun, members: activeRun.members.map((item, index) => index === memberIndex ? updatedMember : item) } } };
     const encrypted = encryptSnapshot(nextSnapshot);
@@ -63,7 +62,7 @@ export async function onRequestPost({ request, env }) {
         .bind(editId, redemptionId, row.voucher_id, user.user_id, memberId, stat, current.baseValue, current.adjustment, nextAdjustment, current.displayValue, nextDisplay, delta, pointsCost, timestamp, user.user_id, encrypted),
     ]);
     if ((batch[0]?.meta?.changes ?? 0) !== 1 || (batch[1]?.meta?.changes ?? 0) !== 1 || (batch[2]?.meta?.changes ?? 0) !== 1) throw new VoucherError('The save changed while this edit was being applied. Reload and try again.', 409, 'edit_conflict');
-    return new Response(JSON.stringify({ ok: true, editId, member: updatedMember, pointsUsed: newPointsUsed, pointsRemaining: Number(row.points_total) - newPointsUsed }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    return new Response(JSON.stringify({ ok: true, editId, member: updatedMember, appliedDelta: nextAdjustment - current.adjustment, pointsUsed: newPointsUsed, pointsRemaining: Number(row.points_total) - newPointsUsed }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   } catch (error) {
     return errorResponse(error);
   }
