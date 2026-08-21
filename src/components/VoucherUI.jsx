@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, Pencil, Plus, Ticket, X } from 'lucide-react';
+import { Check, Plus, Ticket, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useVouchers } from '../context/VoucherContext.jsx';
 import { VOUCHER_MEMBER_STATS, voucherStatLabel } from '../data/voucher.js';
@@ -160,18 +160,5 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
         )}
       </section>
     </div>
-  );
-}
-
-export function VoucherStatButton({ member, stat, onEdit }) {
-  const { redemptions } = useVouchers();
-  const adjustment = Number(member?.voucherAdjustments?.[stat] ?? 0);
-  const canEdit = redemptions.some((item) => item.status === 'active' && item.pointsRemaining > 0 && item.voucher?.allowedStats?.includes(stat));
-  return (
-    <span className="voucher-stat-cell">
-      <strong>{Math.round(member?.[stat] ?? 0)}</strong>
-      {adjustment ? <small className="voucher-adjustment">{adjustment > 0 ? '+' : ''}{Math.round(adjustment)} voucher</small> : null}
-      {canEdit ? <button type="button" className="voucher-edit-trigger" onClick={() => onEdit(stat)} aria-label={`Edit ${voucherStatLabel(stat)}`} title={`Edit ${voucherStatLabel(stat)}`}><Pencil aria-hidden="true" size={13} /></button> : null}
-    </span>
   );
 }
