@@ -56,3 +56,9 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
     'Bayar Rp 40 jt. Penjualan dimulai sekarang untuk Tahun 2 · Okt · Minggu 1; setiap anggota aktif mendapat 300 slot seharga Rp 50 rb.',
   );
 });
+
+test('translator safely handles missing and non-string history fields', () => {
+  assert.equal(translateIndonesian(undefined), '');
+  assert.equal(translateIndonesian(null), '');
+  assert.equal(translateIndonesian(12), '12');
+});

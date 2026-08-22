@@ -559,24 +559,26 @@ export function getLocalizationParity() {
 }
 
 export function translateIndonesian(value) {
-  const text = value.trim();
-  if (!text) return value;
+  if (value === null || value === undefined) return '';
+  const source = String(value);
+  const text = source.trim();
+  if (!text) return source;
   const monthNames = { Jan:'Jan', Feb:'Feb', Mar:'Mar', Apr:'Apr', May:'Mei', Jun:'Jun', Jul:'Jul', Aug:'Agu', Sep:'Sep', Oct:'Okt', Nov:'Nov', Dec:'Des' };
   const calendar = text.match(/^Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4])$/);
-  if (calendar) return value.replace(text, `Tahun ${calendar[1]} · ${monthNames[calendar[2]] ?? calendar[2]} · Minggu ${calendar[3]}`);
+  if (calendar) return source.replace(text, `Tahun ${calendar[1]} · ${monthNames[calendar[2]] ?? calendar[2]} · Minggu ${calendar[3]}`);
   const shortCalendar = text.match(/^([A-Z][a-z]{2}) · W([1-4])$/);
-  if (shortCalendar) return value.replace(text, `${monthNames[shortCalendar[1]] ?? shortCalendar[1]} · M${shortCalendar[2]}`);
+  if (shortCalendar) return source.replace(text, `${monthNames[shortCalendar[1]] ?? shortCalendar[1]} · M${shortCalendar[2]}`);
   const monthlySummary = text.match(/^Monthly summary · ([A-Z][a-z]{2})$/);
-  if (monthlySummary) return value.replace(text, `Ringkasan bulanan · ${monthNames[monthlySummary[1]] ?? monthlySummary[1]}`);
+  if (monthlySummary) return source.replace(text, `Ringkasan bulanan · ${monthNames[monthlySummary[1]] ?? monthlySummary[1]}`);
   const deleteLabel = text.match(/^Delete (.+)$/);
-  if (deleteLabel) return value.replace(text, `Hapus ${deleteLabel[1]}`);
+  if (deleteLabel) return source.replace(text, `Hapus ${deleteLabel[1]}`);
   const birthday = text.match(/^Birthday ([A-Z][a-z]{2}) (\d{4})(?: · Age (\d+))?$/);
-  if (birthday) return value.replace(text, `Ulang tahun ${monthNames[birthday[1]] ?? birthday[1]} ${birthday[2]}${birthday[3] ? ` · Usia ${birthday[3]}` : ''}`);
-  if (monthNames[text]) return value.replace(text, monthNames[text]);
+  if (birthday) return source.replace(text, `Ulang tahun ${monthNames[birthday[1]] ?? birthday[1]} ${birthday[2]}${birthday[3] ? ` · Usia ${birthday[3]}` : ''}`);
+  if (monthNames[text]) return source.replace(text, monthNames[text]);
   const direct = ID[text];
-  if (direct) return value.replace(text, direct);
-  for (const [pattern, replacement] of patterns) if (pattern.test(text)) return value.replace(text, text.replace(pattern, replacement));
-  return value;
+  if (direct) return source.replace(text, direct);
+  for (const [pattern, replacement] of patterns) if (pattern.test(text)) return source.replace(text, text.replace(pattern, replacement));
+  return source;
 }
 
 const sources = new WeakMap();

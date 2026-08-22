@@ -16,6 +16,7 @@ import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import comingSoonImage from './Asset/Pics/Coming_SoonCOPY.png';
 import { getMemberOverall, ROSTER_SORT_OPTIONS, SORT_DIRECTIONS, SQUAD_SORT_OPTIONS, sortMembers, VISIBLE_MEMBER_STAT_KEYS, visibleStatLabel } from './engine/memberSort.js';
+import { formatHistoryEventDetail } from './engine/historyPresentation.js';
 import { VoucherEditModal, VoucherInventory } from './components/VoucherUI.jsx';
 import VoucherAdminDashboard from './components/VoucherAdminDashboard.jsx';
 
@@ -72,6 +73,8 @@ const calendarLabel = (year, week) => { const date = calendarParts(week); return
 const monthWeekLabel = (week) => { const date = calendarParts(week); return `${date.month} · Week ${date.weekOfMonth}`; };
 const YEAR_END_MEET_GREET_FAILURE = 'Year-end Meet & Greet could not be scheduled. Check funds, date, roster availability, and campaign conflicts.';
 const ANNIVERSARY_CONCERT_FAILURE = 'Anniversary Concert could not be scheduled. Check funds, date, venue, roster availability, and campaign conflicts.';
+const YEAR_END_MEET_GREET_FAILURE_CODE = 'year-end-meet-greet-schedule-failed';
+const ANNIVERSARY_CONCERT_FAILURE_CODE = 'anniversary-concert-schedule-failed';
 const absoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const eventConflictsForWeek = (game, week, eventType = 'meetGreet', day = null, memberIds = [], days = []) => getCampaignConflictReasons(game, {
   year: game.year,
@@ -412,10 +415,21 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
   const scheduled = Object.keys(game.schedule).length;
   const hasCurrentYearMeetGreet = (game.yearEndMeetGreets ?? []).some((event) => event.year === game.year);
   const hasCurrentYearAnniversary = (game.concerts ?? []).some((concert) => concert.eventType === 'anniversary' && concert.targetYear === game.year);
-  const visibleNotifications = (game.notifications ?? []).filter((item) => !(
-    (hasCurrentYearMeetGreet && item.text === YEAR_END_MEET_GREET_FAILURE)
-    || (hasCurrentYearAnniversary && item.text === ANNIVERSARY_CONCERT_FAILURE)
-  ));
+  const visibleNotifications = (game.notifications ?? []).filter((item) => {
+    if (item.text === YEAR_END_MEET_GREET_FAILURE) {
+      return !hasCurrentYearMeetGreet
+        && item.code === YEAR_END_MEET_GREET_FAILURE_CODE
+        && item.year === game.year
+        && item.week === game.week;
+    }
+    if (item.text === ANNIVERSARY_CONCERT_FAILURE) {
+      return !hasCurrentYearAnniversary
+        && item.code === ANNIVERSARY_CONCERT_FAILURE_CODE
+        && item.year === game.year
+        && item.week === game.week;
+    }
+    return true;
+  });
   const eligibleCount = getTheaterEligibleMembers(game).length;
   const targetProgress = Math.max(0, Math.round(game.group.fanbase / Math.max(1, game.fanTarget.targetFanbase) * 10_000) / 100);
   const targetRemaining = Math.max(0, game.fanTarget.targetFanbase - game.group.fanbase);
@@ -650,26 +664,24 @@ function FixedAnnualEvents({ game, setGame }) {
   const yearEndMeetGreetLockReason = game.week < 25
     ? `Year-end Meet & Greet bookings open from ${monthWeekLabel(25)}.`
     : game.money < 40_000_000 ? `Requires ${money(40_000_000)}; current funds: ${money(game.money)}.` : '';
-  const mgConflicts = yearEndMeetGreetLockReason
-    ? [yearEndMeetGreetLockReason]
-    : mgWeek ? eventConflictsForWeek(game, mgWeek, 'yearEndMeetGreet', mgDay) : [];
+  const mgScheduleConflicts = mgWeek ? eventConflictsForWeek(game, mgWeek, 'yearEndMeetGreet', mgDay) : [];
+  const mgConflicts = yearEndMeetGreetLockReason ? [yearEndMeetGreetLockReason] : mgScheduleConflicts;
   const anniversaryBookingLockReason = game.week < 25
     ? `Anniversary Concert bookings open from ${monthWeekLabel(25)}.`
     : !anniversaryWeeks.length
       ? 'Anniversary Concert requires a future date with at least two weeks of lead time.'
     : game.money < anniversaryUpfrontCost ? `Requires ${money(anniversaryUpfrontCost)}; current funds: ${money(game.money)}.` : '';
-  const anniversaryConflicts = anniversaryBookingLockReason
-    ? [anniversaryBookingLockReason]
-    : anniversaryWeek ? eventConflictsForWeek(game, anniversaryWeek, 'concert', anniversaryDay, [], ['Tue', 'Thu']) : [];
+  const anniversaryScheduleConflicts = anniversaryWeek ? eventConflictsForWeek(game, anniversaryWeek, 'concert', anniversaryDay, [], ['Tue', 'Thu']) : [];
+  const anniversaryConflicts = anniversaryBookingLockReason ? [anniversaryBookingLockReason] : anniversaryScheduleConflicts;
   useEffect(() => { if (!mgWeeks.includes(mgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]); }, [game.week]);
   useEffect(() => { if (!anniversaryWeeks.includes(anniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]); }, [game.week]);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
-  const commitAnnualEvent = (action, failureText, succeeded) => {
+  const commitAnnualEvent = (action, failureText, failureCode, succeeded) => {
     setGame((current) => {
       const next = action(current);
       if (succeeded(next, current)) return { ...next, notifications: (next.notifications ?? []).filter((item) => item.text !== failureText) };
       if (next !== current) return next;
-      return { ...current, notifications: [{ type: 'critical', text: failureText }, ...(current.notifications ?? [])].slice(0, 20) };
+      return { ...current, notifications: [{ type: 'critical', code: failureCode, year: current.year, week: current.week, text: failureText }, ...(current.notifications ?? [])].slice(0, 20) };
     });
     setConfirm(null);
   };
@@ -678,6 +690,7 @@ function FixedAnnualEvents({ game, setGame }) {
     commitAnnualEvent(
       (current) => scheduleYearEndMeetGreet(current, mgWeek, mgDay, current.week),
       YEAR_END_MEET_GREET_FAILURE,
+      YEAR_END_MEET_GREET_FAILURE_CODE,
       (next, current) => (next.yearEndMeetGreets ?? []).length > (current.yearEndMeetGreets ?? []).length,
     );
   };
@@ -686,10 +699,11 @@ function FixedAnnualEvents({ game, setGame }) {
     commitAnnualEvent(
       (current) => announceAnniversaryConcert(current, anniversaryWeek, anniversaryDay, anniversaryTitle, anniversaryBudget, anniversaryVenue, ['Tue', 'Thu']),
       ANNIVERSARY_CONCERT_FAILURE,
+      ANNIVERSARY_CONCERT_FAILURE_CODE,
       (next, current) => (next.concerts ?? []).length > (current.concerts ?? []).length,
     );
   };
-  return <section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, mgExisting.targetWeek)} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div> : <><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><div className="annual-event-rule"><span>Per member ticket</span><strong>300 slots · Rp 50k</strong></div><div className="annual-event-rule"><span>Booking cost</span><strong>Rp 40m</strong></div></div>{mgConflicts.length ? <p className="event-conflict-warning">{calendarLabel(game.year, mgWeek)} unavailable: {mgConflicts.join(' ')}</p> : null}<button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || mgConflicts.length > 0 || game.money < 40_000_000}>Review End-of-Year Meet&amp;Greet</button></>}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, anniversaryExisting.targetWeek)} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div> : <><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue', 'Thu'].includes(day)).map((day) => <option key={day}>{day}</option>)}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>)}</select></label></div>{anniversaryConflicts.length ? <p className="event-conflict-warning">{calendarLabel(game.year, anniversaryWeek)} unavailable: {anniversaryConflicts.join(' ')}</p> : null}<button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length || anniversaryConflicts.length > 0}>Review anniversary</button></>}</article></div>{confirm ? <ModalPortal><div className="setup-modal-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirm(null); }}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="annual-campaign-confirm-title"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2 id="annual-campaign-confirm-title">Confirm {confirm === 'mg' ? 'year-end Meet &amp; Greet' : 'Anniversary Concert'}?</h2><p>{confirm === 'mg' ? `Spend Rp 40m. Sales start now for ${calendarLabel(game.year, mgWeek)}; every active member receives 300 slots at Rp 50k.` : `Book ${calendarLabel(game.year, anniversaryWeek)}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" disabled={confirm === 'mg' ? mgConflicts.length > 0 : anniversaryConflicts.length > 0} onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}</section>;
+  return <section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, mgExisting.targetWeek)} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div> : <><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><div className="annual-event-rule"><span>Per member ticket</span><strong>300 slots · Rp 50k</strong></div><div className="annual-event-rule"><span>Booking cost</span><strong>Rp 40m</strong></div></div>{mgScheduleConflicts.length ? <p className="event-conflict-warning">{calendarLabel(game.year, mgWeek)} unavailable: {mgScheduleConflicts.join(' ')}</p> : yearEndMeetGreetLockReason ? <p>{yearEndMeetGreetLockReason}</p> : null}<button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || mgConflicts.length > 0 || game.money < 40_000_000}>Review End-of-Year Meet&amp;Greet</button></>}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, anniversaryExisting.targetWeek)} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div> : <><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue', 'Thu'].includes(day)).map((day) => <option key={day}>{day}</option>)}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>)}</select></label></div>{anniversaryScheduleConflicts.length ? <p className="event-conflict-warning">{calendarLabel(game.year, anniversaryWeek)} unavailable: {anniversaryScheduleConflicts.join(' ')}</p> : anniversaryBookingLockReason ? <p>{anniversaryBookingLockReason}</p> : null}<button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length || anniversaryConflicts.length > 0}>Review anniversary</button></>}</article></div>{confirm ? <ModalPortal><div className="setup-modal-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirm(null); }}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="annual-campaign-confirm-title"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2 id="annual-campaign-confirm-title">Confirm {confirm === 'mg' ? 'year-end Meet &amp; Greet' : 'Anniversary Concert'}?</h2><p>{confirm === 'mg' ? `Spend Rp 40m. Sales start now for ${calendarLabel(game.year, mgWeek)}; every active member receives 300 slots at Rp 50k.` : `Book ${calendarLabel(game.year, anniversaryWeek)}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" disabled={confirm === 'mg' ? mgConflicts.length > 0 : anniversaryConflicts.length > 0} onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}</section>;
 }
 
 function AnnualEvents({ game, setGame }) {
@@ -1055,12 +1069,18 @@ function HistoryView({ game, language = 'en' }) {
       });
       const parts = [];
       for (const [day, ids] of daysMap) {
-        const names = ids.map((id) => displayName(game.members.find((m) => m.id === id) ?? { name: 'Former member' }));
-        parts.push(`${day}: ${names.join(', ')}`);
+        const names = ids.map((id) => {
+          const member = game.members.find((item) => item.id === id);
+          return member ? displayName(member) : t('Former member');
+        });
+        parts.push(`${t(day)}: ${names.join(', ')}`);
       }
       detail = parts.join('; ');
     } else if (memberIds.length) {
-      const names = memberIds.map((id) => displayName(game.members.find((m) => m.id === id) ?? { name: 'Former member' }));
+      const names = memberIds.map((id) => {
+        const member = game.members.find((item) => item.id === id);
+        return member ? displayName(member) : t('Former member');
+      });
       detail = `Members: ${names.join(', ')}.`;
     } else {
       detail = `Group fan event ${event.title.includes('scheduled') ? 'scheduled' : 'completed'}.`;
@@ -1068,14 +1088,7 @@ function HistoryView({ game, language = 'en' }) {
     return { ...event, detail };
   });
   const historyEvents = [...game.history, ...fanEventHistory].sort((a, b) => absoluteWeek(b.year, b.week) - absoluteWeek(a.year, a.week));
-   const formatEventDetail = (event) => String(event.detail ?? '').replace(
-     /Year (\d+),? Month (\d+),? Week (\d+)|Year (\d+),? Week (\d+)|\bWeek (\d+)\b/g,
-     (_, monthYear, month, monthWeek, weekYear, yearWeek, standaloneWeek) => {
-       if (monthYear) return calendarLabel(Number(monthYear), (Number(month) - 1) * BALANCE.weeksPerMonth + Number(monthWeek));
-       if (weekYear) return calendarLabel(Number(weekYear), Number(yearWeek));
-       return calendarLabel(event.year, Number(standaloneWeek));
-     },
-   );
+   const formatEventDetail = (event) => formatHistoryEventDetail(event.detail, event.year, calendarLabel);
     return <div className="page history-page"><section className="page-heading"><div><span className="eyebrow">{t('Alternate timeline')}</span><h1>{t('Club history')}</h1><p>{t('Major decisions, breakthroughs, disruptions, and generations remain in this run.')}</p></div></section>{reviews.length ? <section className="annual-review-list"><div><span className="eyebrow">{t('Season archive')}</span><h2>{t('Annual reviews')}</h2></div>{reviews.map((review) => <article key={review.year}><header><span>{t(`Year ${review.year}`)}</span><strong>{review.overallGrade}</strong></header><div>{review.categories.map((category) => <span key={category.id}><small>{t(category.label)}</small><b>{category.grade}</b></span>)}</div><footer>{review.snapshot.fanGrowth ? <><span>{t('Fan target grade')} <strong>{t(review.snapshot.fanGrowth.label)}</strong></span><span>{t('Starting fans')} <strong>{number.format(review.snapshot.fanGrowth.startingFans)}</strong></span><span>{t('Target fans')} <strong>{number.format(review.snapshot.fanGrowth.targetFans)}</strong></span><span>{t('Actual fans')} <strong>{number.format(review.snapshot.fanGrowth.actualFans)}</strong></span><span>{t('Achievement')} <strong>{review.snapshot.fanGrowth.achievementPercent}%</strong></span></> : <span>{t('Fanbase')} <strong>{number.format(review.snapshot.fanbase)}</strong></span>}<span>{t('Net cash')} <strong>{money(review.snapshot.netCash)}</strong></span><span>{t('Roster')} <strong>{review.snapshot.roster}</strong></span></footer></article>)}</section> : null}<section className="timeline">{historyEvents.map((event) => <article key={event.id}><div className={`timeline-mark ${event.type}`} /> <div className="timeline-time"><strong>{t(`Year ${event.year}`)}</strong><span>{t(`${calendarParts(event.week).month} · Week ${calendarParts(event.week).weekOfMonth}`)}</span></div><div><span>{t(event.type)}</span><h2>{t(language === 'id' && event.titleId ? event.titleId : event.title)}</h2><p>{t(language === 'id' && event.detailId ? event.detailId : formatEventDetail(event))}</p></div></article>)}</section></div>;
 }
 
