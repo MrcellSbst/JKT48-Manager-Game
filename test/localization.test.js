@@ -27,6 +27,10 @@ test('date formatting follows the selected locale and Jakarta timezone', () => {
 
 test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   assert.equal(translateIndonesian('Festival Invitation'), 'Undangan Festival');
+  assert.equal(
+    translateIndonesian('New opportunity: Festival Invitation. Respond within two weeks.'),
+    'Peluang baru: Undangan Festival. Tanggapi dalam dua minggu.',
+  );
   assert.equal(translateIndonesian('+1 from last week'), '+1 dari minggu lalu');
   assert.equal(translateIndonesian('Unassigned day restores energy'), 'Hari tanpa penugasan memulihkan energi');
   assert.equal(translateIndonesian('Intensive Dance training'), 'Latihan tari intensif');
