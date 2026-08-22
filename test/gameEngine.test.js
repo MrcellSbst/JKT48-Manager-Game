@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getRosterPool, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
-import { BALANCE, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
+import { BALANCE, DAYS, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
@@ -411,6 +411,31 @@ test('stamina lowers activity energy cost and raises every form of recovery', ()
      return resolveWeek(scheduled).members.find((member) => member.id === memberId).energy;
   };
   assert.ok(drain(90) > drain(30));
+});
+
+test('projected Energy matches resolved Stamina fatigue and passive recovery', () => {
+  const draft = createGame('projected-energy-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 60, stamina: 50 } : member) };
+  for (const day of DAYS) game = assignActivity(game, memberId, day, 'media');
+  const projected = getProjectedEnergyByMember(game)[memberId];
+  const resolved = resolveWeek(game).members.find((member) => member.id === memberId).energy;
+  assert.equal(projected, 48);
+  assert.equal(projected, resolved);
+});
+
+test('projected Energy includes Recovery Program and current-week Stamina growth', () => {
+  const draft = createGame('projected-energy-stamina-training-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id), 'Energy Office', ['B011']);
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 90, stamina: 40 } : member) };
+  for (const day of DAYS) game = assignActivity(game, memberId, day, 'staminaIntensive');
+  const projected = getProjectedEnergyByMember(game)[memberId];
+  const resolvedGame = resolveWeek(game);
+  const resolvedMember = resolvedGame.members.find((member) => member.id === memberId);
+  assert.ok(resolvedMember.stamina > 40);
+  assert.equal(projected, resolvedMember.energy);
 });
 
 test('moderate injuries include every minor restriction plus their own limits', () => {

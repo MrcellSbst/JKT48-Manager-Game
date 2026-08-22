@@ -399,6 +399,103 @@ const roundTo = (value, step) => Math.round(value / step) * step;
 export const staminaCostMultiplier = (stamina = 50) => Math.max(BALANCE.stamina.costFloor, BALANCE.stamina.costBase - (stamina ?? 50) * BALANCE.stamina.costPerPoint);
 export const staminaRecoveryMultiplier = (stamina = 50) => 1 + (stamina ?? 50) * BALANCE.stamina.recoveryPerPoint;
 
+function activeMentorshipFor(state, memberId) {
+  return (state.mentorships ?? []).find((item) => item.menteeId === memberId
+    && item.status === 'active'
+    && toAbsoluteWeek(state.year, state.week) >= toAbsoluteWeek(item.startYear, item.startWeek)
+    && toAbsoluteWeek(state.year, state.week) < item.endAbsolute);
+}
+
+function trainingStatGain(member, stats, activity, energyBefore, state, mentorship) {
+  const ceiling = Math.max(0.15, (member.potential - stats[activity.skill]) / 45);
+  const traitBonus = member.traits.includes('Quick Learner') ? 1.2 : 1;
+  const trainingRate = bonusValue(state, 'B015') + (member.status === 'trainee' ? bonusValue(state, 'B016') : 0) + (mentorship?.developmentBonus ?? 0);
+  const energyEffectiveness = energyBefore >= 60 ? 1 : energyBefore >= 40 ? 0.9 : energyBefore >= 20 ? 0.7 : 0.4;
+  const lowestSkill = SKILLS.reduce((lowest, skill) => stats[skill] < stats[lowest] ? skill : lowest, SKILLS[0]);
+  const crossTrainingRate = activity.skill === lowestSkill ? bonusValue(state, 'B018') : 0;
+  const adaptabilityRate = activity.skill === lowestSkill ? 0.9 + (member.adaptability ?? 50) / 500 : member.traits.includes('Versatile') ? 1.08 : 1;
+  const gain = ceiling * member.development / 100 * developmentCurveMultiplier(member, state.year) * adaptabilityRate * traitBonus * energyEffectiveness * (activity.intensity ?? 1) * (1 + trainingRate + crossTrainingRate);
+  return Math.max(0.1, gain);
+}
+
+function activityEnergyChange(state, member, activityId, activityDay = null) {
+  const activity = BALANCE.activities[activityId];
+  if (!activity) return { fatigue: 0, recovery: 0 };
+  const energyRate = (['theater', 'concert'].includes(activityId) ? bonusValue(state, 'B012') : 0)
+    + (/^(mg|vc)/.test(activityId) || activityId === 'yearEndMeetGreet' ? bonusValue(state, 'B013') : 0)
+    + (activityId === 'concertRehearsal' ? bonusValue(state, 'B014') : 0);
+  let fatigue = Math.round((activity.energy ?? 0) * staminaCostMultiplier(member.stamina) * (1 + energyRate));
+  const theaterShow = activityId === 'theater' ? state.theaterShows?.[activityDay] : null;
+  if (theaterShow?.isSeitansai && theaterShow.seitansaiMemberId === member.id && member.birthMonth === Math.ceil(state.week / BALANCE.weeksPerMonth)) fatigue += 5;
+  return {
+    fatigue,
+    recovery: Math.round((activity.energyRecovery ?? 0) * staminaRecoveryMultiplier(member.stamina)),
+  };
+}
+
+function currentWeekSchedule(state) {
+  const schedule = { ...(state.schedule ?? {}) };
+  (state.fanEventPlans ?? [])
+    .filter((plan) => plan.year === state.year && plan.targetWeek === state.week)
+    .forEach((plan) => (plan.memberIds ?? []).forEach((memberId) => {
+      claimScheduleSlot(schedule, `${memberId}:${plan.day}`, plan.type === 'videoCall' ? 'vc1' : 'mg1');
+    }));
+  return schedule;
+}
+
+function scheduleLineupValidity(state, schedule) {
+  const theaterLineups = Object.fromEntries(DAYS.map((day) => [day, state.members.reduce((count, member) => count + (schedule[`${member.id}:${day}`] === 'theater' ? 1 : 0), 0)]));
+  const offAirLineups = Object.fromEntries(DAYS.map((day) => [day, state.members.reduce((count, member) => count + (schedule[`${member.id}:${day}`] === 'offAir' ? 1 : 0), 0)]));
+  const validTheaterDays = new Set(DAYS.filter((day) => theaterLineups[day] === BALANCE.theaterMinimumMembers));
+  const completeOffAirDays = DAYS.filter((day) => offAirLineups[day] === BALANCE.activities.offAir.requiredMembers);
+  return {
+    theaterLineups,
+    offAirLineups,
+    validTheaterDays,
+    validOffAirDays: new Set(completeOffAirDays.slice(0, BALANCE.activities.offAir.maxPerWeek)),
+    surplusOffAirDays: completeOffAirDays.slice(BALANCE.activities.offAir.maxPerWeek),
+  };
+}
+
+function projectMemberEnergy(state, member, schedule, validTheaterDays, validOffAirDays) {
+  if ((member.suspensionWeeks ?? 0) > 0) return member.suspensionWeeks === 1 ? 100 : member.energy;
+  const injuryActive = Boolean(member.injury && (member.injury.weeksRemaining ?? 0) > 0);
+  const assignments = DAYS.map((day) => {
+    if (injuryActive) return { activityId: 'rest', day };
+    const activityId = schedule[`${member.id}:${day}`];
+    if (activityId === 'theater' && !validTheaterDays.has(day)) return null;
+    if (activityId === 'offAir' && !validOffAirDays.has(day)) return null;
+    return { activityId: activityId ?? 'rest', day };
+  }).filter(Boolean);
+  let energy = voucherBaseFor(member, 'energy');
+  const stats = { ...member };
+  SKILLS.forEach((skill) => { stats[skill] = voucherBaseFor(member, skill); });
+  const mentorship = activeMentorshipFor(state, member.id);
+  for (const { activityId, day } of assignments) {
+    const activity = BALANCE.activities[activityId];
+    if (!activity || (energy <= 0 && !activity.energyRecovery)) continue;
+    const energyBefore = energy;
+    const { fatigue, recovery } = activityEnergyChange(state, member, activityId, day);
+    energy = clamp(energy - fatigue + recovery);
+    if (activity.skill) {
+      const statCap = voucherNaturalCap(member, activity.skill);
+      stats[activity.skill] = clamp(stats[activity.skill] + trainingStatGain(member, stats, activity, energyBefore, state, mentorship), statCap.min, statCap.max);
+    }
+  }
+  const energyCap = voucherNaturalCap(member, 'energy');
+  const displayedEnergy = clamp(energy, energyCap.min, energyCap.max) + voucherAdjustmentFor(member, 'energy');
+  if (!['active', 'trainee'].includes(member.status)) return displayedEnergy;
+  const projectedStamina = Math.round((stats.stamina + voucherAdjustmentFor(member, 'stamina')) * 10) / 10;
+  const passiveRecovery = Math.round((BALANCE.weeklyRecovery + bonusValue(state, 'B011')) * staminaRecoveryMultiplier(projectedStamina));
+  return clamp(displayedEnergy + passiveRecovery);
+}
+
+export function getProjectedEnergyByMember(state) {
+  const schedule = currentWeekSchedule(state);
+  const { validTheaterDays, validOffAirDays } = scheduleLineupValidity(state, schedule);
+  return Object.fromEntries(state.members.map((member) => [member.id, projectMemberEnergy(state, member, schedule, validTheaterDays, validOffAirDays)]));
+}
+
 export function calculateNextFanTarget(lastFanTarget, year) {
   const { fixedGrowthPercent, startingRunningGrowthPercent, runningGrowthIncreasePerYear, maxRunningGrowthPercent, year2PlusBonusPercent = 0 } = FAN_BALANCE.target;
   const runningGrowthPercent = Math.min(startingRunningGrowthPercent + (year - 1) * runningGrowthIncreasePerYear, maxRunningGrowthPercent);
@@ -1279,7 +1376,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
   let trainingProgress = member.trainingProgress ?? 0;
   let theaterAppearances = member.theaterAppearances ?? appearances.theater ?? 0;
   const demandRecords = [];
-  const mentorship = (state.mentorships ?? []).find((item) => item.menteeId === member.id && item.status === 'active' && toAbsoluteWeek(state.year, state.week) >= toAbsoluteWeek(item.startYear, item.startWeek) && toAbsoluteWeek(state.year, state.week) < item.endAbsolute);
+  const mentorship = activeMentorshipFor(state, member.id);
 
   for (const assignment of assignments) {
     const activityId = typeof assignment === 'string' ? assignment : assignment.activityId;
@@ -1287,13 +1384,8 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     const activity = BALANCE.activities[activityId];
     if (!activity || (energy <= 0 && !activity.energyRecovery)) continue;
     const energyBefore = energy;
-    const energyRate = (['theater', 'concert'].includes(activityId) ? bonusValue(state, 'B012') : 0) + (/^(mg|vc)/.test(activityId) || activityId === 'yearEndMeetGreet' ? bonusValue(state, 'B013') : 0) + (activityId === 'concertRehearsal' ? bonusValue(state, 'B014') : 0);
     const theaterShow = activityId === 'theater' ? state.theaterShows?.[activityDay] : null;
-    let fatigue = Math.round(activity.energy * staminaCostMultiplier(member.stamina) * (1 + energyRate));
-    if (activityId === 'theater' && theaterShow?.isSeitansai && theaterShow.seitansaiMemberId === member.id && member.birthMonth === Math.ceil(state.week / BALANCE.weeksPerMonth)) {
-      fatigue += 5;
-    }
-    const recovery = Math.round((activity.energyRecovery ?? 0) * staminaRecoveryMultiplier(member.stamina));
+    const { fatigue, recovery } = activityEnergyChange(state, member, activityId, activityDay);
     const performanceBand = energy >= 60 ? 1 : energy >= 40 ? 0.95 : energy >= 20 ? 0.85 : 0.7;
     const familiarity = theaterShow ? member.setlistFamiliarity?.[theaterShow.setlistId] ?? 0 : 0;
     const baseFamiliarityMultiplier = 0.85 + familiarity * 0.0015;
@@ -1319,16 +1411,8 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       finances.theater += theaterRevenue;
     }
     if (activity.skill) {
-      const ceiling = Math.max(0.15, (member.potential - stats[activity.skill]) / 45);
-      const traitBonus = member.traits.includes('Quick Learner') ? 1.2 : 1;
-      const trainingRate = bonusValue(state, 'B015') + (member.status === 'trainee' ? bonusValue(state, 'B016') : 0) + (mentorship?.developmentBonus ?? 0);
-      const energyEffectiveness = energyBefore >= 60 ? 1 : energyBefore >= 40 ? 0.9 : energyBefore >= 20 ? 0.7 : 0.4;
-      const lowestSkill = SKILLS.reduce((lowest, skill) => stats[skill] < stats[lowest] ? skill : lowest, SKILLS[0]);
-      const crossTrainingRate = activity.skill === lowestSkill ? bonusValue(state, 'B018') : 0;
-      const adaptabilityRate = activity.skill === lowestSkill ? 0.9 + (member.adaptability ?? 50) / 500 : member.traits.includes('Versatile') ? 1.08 : 1;
-      const gain = ceiling * member.development / 100 * developmentCurveMultiplier(member, state.year) * adaptabilityRate * traitBonus * energyEffectiveness * (activity.intensity ?? 1) * (1 + trainingRate + crossTrainingRate);
       const statCap = voucherNaturalCap(member, activity.skill);
-      stats[activity.skill] = clamp(stats[activity.skill] + Math.max(0.1, gain), statCap.min, statCap.max);
+      stats[activity.skill] = clamp(stats[activity.skill] + trainingStatGain(member, stats, activity, energyBefore, state, mentorship), statCap.min, statCap.max);
       if (member.status === 'trainee') trainingProgress = clamp(trainingProgress + (activity.intensity ?? 1) * BALANCE.trainee.trainingProgressPerIntensity);
     }
     if (activityId === 'theater') {
@@ -1613,10 +1697,7 @@ export function resolveWeek(state) {
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   const activatedPlans = (state.fanEventPlans ?? []).filter((plan) => plan.year === state.year && plan.targetWeek === state.week);
-  const weekSchedule = { ...state.schedule };
-  activatedPlans.forEach((plan) => plan.memberIds.forEach((memberId) => {
-    claimScheduleSlot(weekSchedule, `${memberId}:${plan.day}`, plan.type === 'videoCall' ? 'vc1' : 'mg1');
-  }));
+  const weekSchedule = currentWeekSchedule(state);
   let moneyDelta = state.hardMode ? 0 : -applyRate(18_000_000, bonusValue(state, 'B004')) - (state.theater?.weeklyUpkeep ?? 0);
   let fanGain = 0;
   let baseFanGain = 0;
@@ -1629,8 +1710,7 @@ export function resolveWeek(state) {
     return applied;
   };
   const finances = { theater: 0, videoCall: 0, meetGreet: 0, media: 0, offAir: 0, liveStream: 0, concert: 0, twoShot: 0, campaign: 0, otherIncome: 0, activityCosts: 0, refunds: 0, salary: 0, debtPayments: 0, loanPayment: 0, generalOperations: state.hardMode ? 0 : applyRate(18_000_000, bonusValue(state, 'B004')), theaterUpkeep: state.hardMode ? 0 : state.theater?.weeklyUpkeep ?? 0 };
-  const theaterLineups = Object.fromEntries(DAYS.map((day) => [day, state.members.reduce((count, member) => count + (weekSchedule[`${member.id}:${day}`] === 'theater' ? 1 : 0), 0)]));
-  const offAirLineups = Object.fromEntries(DAYS.map((day) => [day, state.members.reduce((count, member) => count + (weekSchedule[`${member.id}:${day}`] === 'offAir' ? 1 : 0), 0)]));
+  const { theaterLineups, offAirLineups, validTheaterDays, validOffAirDays, surplusOffAirDays } = scheduleLineupValidity(state, weekSchedule);
   const month = Math.ceil(state.week / BALANCE.weeksPerMonth);
   const scheduledEntries = Object.entries(weekSchedule);
   const concertDay = DAYS.find((day) => scheduledEntries.some(([key, activity]) => key.endsWith(`:${day}`) && activity === 'concert'));
@@ -1667,11 +1747,6 @@ export function resolveWeek(state) {
   if (scheduledEntries.some(([, activity]) => activity === 'concert')) activityEvents.push({ id: `concert-${state.year}-${state.week}`, type: 'concert', year: state.year, week: state.week, month });
   if (scheduledEntries.some(([, activity]) => activity.startsWith('mg'))) activityEvents.push({ id: `meet-greet-${state.year}-${state.week}`, type: 'meetGreet', year: state.year, week: state.week, month });
   scheduledEntries.filter(([, activity]) => activity.startsWith('vc')).forEach(([scheduleKey]) => activityEvents.push({ id: `video-call-${state.year}-${state.week}-${scheduleKey}`, type: 'videoCall', memberId: scheduleKey.split(':')[0], year: state.year, week: state.week, month }));
-  const validTheaterDays = new Set(DAYS.filter((day) => theaterLineups[day] === 12));
-  // Only one off-air show can pay out per week; extra complete lineups are treated as canceled.
-  const completeOffAirDays = DAYS.filter((day) => offAirLineups[day] === BALANCE.activities.offAir.requiredMembers);
-  const validOffAirDays = new Set(completeOffAirDays.slice(0, BALANCE.activities.offAir.maxPerWeek));
-  const surplusOffAirDays = completeOffAirDays.slice(BALANCE.activities.offAir.maxPerWeek);
   const effectiveTheater = state.theater ?? state.theaterOffers?.[0];
   const theaterEconomics = Object.fromEntries([...validTheaterDays].map((day) => [day, createTheaterEconomics({ ...state, schedule: weekSchedule }, day, effectiveTheater)]));
   const offAirEconomics = Object.fromEntries([...validOffAirDays].map((day) => [day, createOffAirEconomics(state, day, effectiveTheater)]));
