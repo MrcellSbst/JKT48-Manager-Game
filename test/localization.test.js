@@ -26,7 +26,7 @@ test('date formatting follows the selected locale and Jakarta timezone', () => {
 });
 
 test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
-  assert.equal(translateIndonesian('Sort by'), 'Urutkan Berdasarkan');
+  assert.equal(translateIndonesian('Sort by'), 'Urutkan');
   assert.equal(translateIndonesian('Visible stat'), 'Statistik terlihat');
   assert.equal(translateIndonesian('Generation'), 'Generasi');
   assert.equal(translateIndonesian('Team'), 'Tim');

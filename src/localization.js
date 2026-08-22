@@ -224,7 +224,7 @@ Object.assign(ID, {
   'Annual campaigns': 'Kampanye tahunan',
   'Choose saved template': 'Pilih templat tersimpan',
   'Apply': 'Terapkan',
-  'Sort by': 'Urutkan Berdasarkan',
+  'Sort by': 'Urutkan',
   'Visible stat': 'Statistik terlihat',
   'Visible Stat': 'Statistik terlihat',
   'Generation': 'Generasi',
