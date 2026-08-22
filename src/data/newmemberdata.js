@@ -674,8 +674,8 @@ export const memberData = {
       name: "Isha Kirana",
       nickname: "Isha",
       team: "JKT48_VIRTUAL",
-      photo: "ISHA_KIRANA.png",
-      graduated: false
+      photo: "JKT48V_GEN2/ISHA_KIRANA.png",
+      graduated: true
     },
     {
       name: "Maura Nilambari",
