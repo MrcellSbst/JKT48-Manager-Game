@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, ArrowLeft, Copy, Pause, Play, Plus, RefreshCw, Search, ShieldAlert, Ticket, X } from 'lucide-react';
 import { VOUCHER_ADMIN_MEMBER_STATS, VOUCHER_MEMBER_STATS, voucherStatLabel } from '../data/voucher.js';
+import { getActiveLanguage } from '../localization.js';
 
 async function api(url, options = {}) {
   const response = await fetch(url, { credentials: 'include', ...options });
@@ -17,19 +18,17 @@ const initialForm = {
 };
 
 const VOUCHER_TIME_ZONE = 'Asia/Jakarta';
-const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: VOUCHER_TIME_ZONE });
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: VOUCHER_TIME_ZONE });
-const numberFormatter = new Intl.NumberFormat();
 const formatDate = (value, fallback = 'Any time') => {
   if (!value) return fallback;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? fallback : dateFormatter.format(date);
+  return Number.isNaN(date.getTime()) ? fallback : new Intl.DateTimeFormat(getActiveLanguage() === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium', timeZone: VOUCHER_TIME_ZONE }).format(date);
 };
 const formatDateTime = (value, fallback = 'Unknown') => {
   if (!value) return fallback;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? fallback : dateTimeFormatter.format(date);
+  return Number.isNaN(date.getTime()) ? fallback : new Intl.DateTimeFormat(getActiveLanguage() === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: VOUCHER_TIME_ZONE }).format(date);
 };
+const numberFormatter = { format: (value) => new Intl.NumberFormat(getActiveLanguage() === 'id' ? 'id-ID' : 'en-US').format(value) };
 const statusClass = (status) => `voucher-status voucher-status-${String(status ?? '').toLowerCase()}`;
 
 function VoucherStatus({ status }) {

@@ -160,6 +160,153 @@ Object.assign(ID, {
   'Each perk has five permanent levels. Equip exactly three before a run; their current levels and effects are snapshotted and locked for that timeline.':'Setiap perk memiliki lima level permanen. Pasang tepat tiga sebelum permainan; level dan efek saat ini disimpan serta dikunci untuk linimasa tersebut.'
 });
 
+// Short UI copy lives in the same dictionary as game labels. Dynamic values
+// remain in English source text and are handled by the patterns below.
+Object.assign(ID, {
+  'Cloud sync on': 'Sinkronisasi cloud aktif',
+  'Save and logout': 'Simpan dan keluar',
+  'Login / Register': 'Login / Daftar',
+  'Schedule confirmation': 'Konfirmasi jadwal',
+  'End this week?': 'Akhiri minggu ini?',
+  'All scheduled activities will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.': 'Semua aktivitas terjadwal akan diproses, keuangan dihitung, dan kalender maju. Tindakan ini tidak dapat dibatalkan.',
+  'The annual fan result resolves after this week. It affects Fan Trust, Reputation, annual grade, and Management Token reward, but does not end the run.': 'Hasil penggemar tahunan diproses setelah minggu ini. Hasilnya memengaruhi Kepercayaan Penggemar, Reputasi, nilai tahunan, dan hadiah Management Token, tetapi tidak mengakhiri permainan.',
+  'End week': 'Akhiri minggu',
+  'JKT48 Manager account': 'Akun Manajer JKT48',
+  'Continue your timeline': 'Lanjutkan linimasa Anda',
+  'Protect this run': 'Lindungi permainan ini',
+  'Your cloud save replaces local data after login.': 'Penyimpanan cloud Anda menggantikan data lokal setelah login.',
+  'Existing guest progress uploads when registration succeeds.': 'Progres tamu yang ada diunggah saat pendaftaran berhasil.',
+  'Account action': 'Tindakan akun',
+  'Login': 'Login',
+  'Register': 'Daftar',
+  'Close account screen': 'Tutup layar akun',
+  'Username': 'Nama pengguna',
+  'Password': 'Kata sandi',
+  'Confirm password': 'Konfirmasi kata sandi',
+  'Please wait…': 'Harap tunggu…',
+  'Login and load save': 'Login dan muat penyimpanan',
+  'Register and upload save': 'Daftar dan unggah penyimpanan',
+  'Continue as guest': 'Lanjut sebagai tamu',
+  'Progress remains in this browser only.': 'Progres hanya tersimpan di browser ini.',
+  'or': 'atau',
+  'Enter both username and password.': 'Masukkan nama pengguna dan kata sandi.',
+  'Passwords do not match.': 'Kata sandi tidak cocok.',
+  'Password must be at least 6 characters.': 'Kata sandi harus memiliki minimal 6 karakter.',
+  'Account request failed. Try again.': 'Permintaan akun gagal. Coba lagi.',
+  'Checking account…': 'Memeriksa akun…',
+  'Creating account…': 'Membuat akun…',
+  'Loading cloud save…': 'Memuat penyimpanan cloud…',
+  'Uploading local save…': 'Mengunggah penyimpanan lokal…',
+  'Saving run to cloud…': 'Menyimpan permainan ke cloud…',
+  'Saving before logout…': 'Menyimpan sebelum keluar…',
+  'Ending session…': 'Mengakhiri sesi…',
+  'Account ready.': 'Akun siap.',
+  'Cloud save loaded.': 'Penyimpanan cloud dimuat.',
+  'Local save uploaded.': 'Penyimpanan lokal diunggah.',
+  'Account created and local save uploaded.': 'Akun dibuat dan penyimpanan lokal diunggah.',
+  'Save confirmed. Logged out.': 'Penyimpanan dikonfirmasi. Anda telah keluar.',
+  'Cloud operation failed. Check your connection and retry.': 'Operasi cloud gagal. Periksa koneksi lalu coba lagi.',
+  'Encrypted saves': 'Penyimpanan terenkripsi',
+  'Game data is encrypted before upload.': 'Data permainan dienkripsi sebelum diunggah.',
+  'Monthly checkpoints': 'Checkpoint bulanan',
+  'Manual saves and logout also sync.': 'Penyimpanan manual dan logout juga disinkronkan.',
+  'Guest mode': 'Mode tamu',
+  'No account and no cloud transfer.': 'Tanpa akun dan tanpa transfer cloud.',
+  'All rights reserved.': 'Hak cipta dilindungi.',
+  'Fictional gameplay data for entertainment.': 'Data permainan fiktif untuk hiburan.',
+  'Keep this window open until confirmation.': 'Biarkan jendela ini tetap terbuka sampai konfirmasi selesai.'
+});
+
+Object.assign(ID, {
+  'Exactly 12 members must be assigned on the same day. Demand controls attendance and revenue. Familiarity, ability, crowd traits, and sell-through shape satisfaction; results record center, unit songs, understudies, and Theater EXP.': 'Tepat 12 anggota harus ditugaskan pada hari yang sama. Permintaan mengatur kehadiran dan pendapatan. Familiaritas, kemampuan, sifat panggung, dan tingkat penjualan membentuk kepuasan; hasil mencatat center, lagu unit, pengganti, dan EXP Teater.',
+  'One concert per four-week month. Every available member participates. Choose budget, venue, title, month, and day; ticket sales close two weeks before the event and its day is locked.': 'Satu konser per bulan empat minggu. Semua anggota yang tersedia berpartisipasi. Pilih anggaran, tempat, judul, bulan, dan hari; penjualan tiket ditutup dua minggu sebelum acara dan harinya terkunci.',
+  'Cloud save enabled': 'Penyimpanan cloud aktif',
+  'Annual campaigns': 'Kampanye tahunan',
+  'Choose saved template': 'Pilih templat tersimpan',
+  'Apply': 'Terapkan',
+  'Sort by': 'Urutkan berdasarkan',
+  'Visible Stat': 'Statistik terlihat',
+  'Order': 'Urutan',
+  'Member punished': 'Anggota dihukum',
+  'Year-end Meet & Greet': 'Meet & Greet akhir tahun',
+  'Per member ticket': 'Tiket per anggota',
+  'Booking cost': 'Biaya pemesanan',
+  'Review End-of-Year Meet&Greet': 'Tinjau Meet&Greet akhir tahun',
+  'Set up monthly Video Call and Meet & Greet sessions before assigning the rest of the week.': 'Atur sesi Video Call dan Meet & Greet bulanan sebelum menyusun sisa minggu ini.',
+  'Schedule Video Call and Meet & Greet sessions for this week or a future week.': 'Jadwalkan sesi Video Call dan Meet & Greet untuk minggu ini atau minggu mendatang.',
+  'Save operations': 'Operasi penyimpanan',
+  'Save and load': 'Simpan dan muat',
+  'Weekly autosaves stay in IndexedDB. Cloud checkpoints run monthly, on manual save, and before logout.': 'Penyimpanan otomatis mingguan berada di IndexedDB. Checkpoint cloud berjalan setiap bulan, saat penyimpanan manual, dan sebelum logout.',
+  'Local browser save': 'Penyimpanan browser lokal',
+  'Reload local save': 'Muat ulang penyimpanan lokal',
+  'Cloud account': 'Akun cloud',
+  'Save to cloud': 'Simpan ke cloud',
+  'Load cloud save': 'Muat penyimpanan cloud',
+  'Register and upload this run': 'Daftar dan unggah permainan ini',
+  "Loading cloud data replaces this browser's active run and Management Token profile.": 'Memuat data cloud akan menggantikan permainan aktif dan profil Management Token di browser ini.',
+  'Opportunity costs': 'Biaya peluang',
+  'Punish 4 weeks': 'Hukum 4 minggu',
+  'Fire member': 'Keluarkan anggota',
+  'Loading browser save status.': 'Memuat status penyimpanan browser.',
+  'Squad sorting': 'Pengurutan skuad',
+  'Roster sort order': 'Urutan daftar anggota',
+  'Audience statistics': 'Statistik audiens',
+  'Roster statistics': 'Statistik daftar anggota',
+  'Example: Senayan Stage Office': 'Contoh: Kantor Panggung Senayan',
+  'Before → after': 'Sebelum → sesudah',
+  'Administrator / user ID 1': 'Administrator / ID pengguna 1',
+  'Vouchers': 'Voucher',
+  'Filter vouchers by status': 'Saring voucher berdasarkan status',
+  'Sort vouchers by': 'Urutkan voucher berdasarkan',
+  'Newest': 'Terbaru',
+  'Expiry': 'Kedaluwarsa',
+  'Code': 'Kode',
+  'Voucher sort direction': 'Arah pengurutan voucher',
+  'Descending': 'Menurun',
+  'Ascending': 'Menaik',
+  'Voucher inventory': 'Inventaris voucher',
+  'Voucher': 'Voucher',
+  'Actions': 'Tindakan',
+  'Revoke': 'Cabut',
+  'Account activity': 'Aktivitas akun',
+  'Filter redemptions by status': 'Saring penukaran berdasarkan status',
+  'Depleted': 'Habis digunakan',
+  'Voucher redemptions': 'Penukaran voucher',
+  'Audit': 'Audit',
+  'Filter audit log by stat': 'Saring log audit berdasarkan statistik',
+  'All stats': 'Semua statistik',
+  'Voucher edit audit log': 'Log audit edit voucher',
+  'Values': 'Nilai',
+  'Pagination': 'Paginasi',
+  'Close voucher detail': 'Tutup detail voucher',
+  'Close redemption detail': 'Tutup detail penukaran',
+  'Voucher overview': 'Ringkasan voucher',
+  'Cancel editing': 'Batalkan pengeditan',
+  'JKT48-XXXX-XXXX…': 'JKT48-XXXX-XXXX…',
+  'e.g. JKT48-SUMMER…': 'mis. JKT48-SUMMER…',
+  'Unlimited…': 'Tanpa batas…',
+  'e.g. summer…': 'mis. summer…',
+  'e.g. username…': 'mis. nama pengguna…',
+  'e.g. member…': 'mis. anggota…'
+});
+
+// Stored enum values are also rendered in a few compact status/history cells.
+// Keep their IDs language-neutral while providing visible Indonesian labels.
+Object.assign(ID, {
+  'open': 'terbuka', 'fulfilled': 'terpenuhi', 'missed': 'terlewat', 'overdue': 'terlambat',
+  'selling': 'penjualan berlangsung', 'announced': 'diumumkan', 'completed': 'selesai', 'released': 'dirilis',
+  'production': 'produksi', 'configured': 'dikonfigurasi', 'cancelled': 'dibatalkan', 'active': 'aktif',
+  'returned': 'kembali', 'fired': 'dikeluarkan', 'mv-pending': 'menunggu anggaran MV',
+  'mv-production': 'produksi MV', 'concert-pending': 'menunggu konser', 'concert-scheduled': 'konser dijadwalkan',
+  'campaign-complete': 'kampanye selesai', 'campaign-concert-complete': 'konser kampanye selesai',
+  'yearEndMeetGreet': 'Meet & Greet akhir tahun', 'meetGreet': 'Meet & Greet', 'videoCall': 'Video Call',
+  'twoShotRoulette': '2Shot Roulette', 'twoShotBirthday': '2Shot Ulang Tahun', 'twoShotLastShow': '2Shot Pertunjukan Terakhir',
+  'twoShotMeetGreet': '2Shot Meet & Greet', 'critical': 'kritis', 'success': 'berhasil', 'opportunity': 'peluang',
+  'management': 'manajemen', 'member': 'anggota', 'drama': 'drama', 'audition': 'audisi', 'single': 'single',
+  'concert': 'konser', 'campaign': 'kampanye', 'year': 'tahun', 'viral': 'viral', 'breakout': 'terobosan',
+  'pattern': 'pola', 'light': 'ringan', 'medium': 'sedang', 'heavy': 'berat'
+});
+
 const patterns = [
   [/^Level (\d+)\/5$/, 'Level $1/5'], [/^Level (\d+) · (.+)$/, 'Level $1 · $2'],
   [/^Current effect (.+) · locked into equipped runs$/, 'Efek saat ini $1 · terkunci dalam permainan yang memasangnya'], [/^Unlock Level 1 effect (.+)$/, 'Buka efek Level 1 $1'],
@@ -206,12 +353,74 @@ const patterns = [
   [/^Annual fan result: Exceptional \(([\d.]+)%\)\.$/, 'Hasil target penggemar tahunan: Luar biasa ($1%).'], [/^Annual fan result: Target Achieved \(([\d.]+)%\)\.$/, 'Hasil target penggemar tahunan: Target tercapai ($1%).'], [/^Annual fan result: Slightly Below Target \(([\d.]+)%\)\.$/, 'Hasil target penggemar tahunan: Sedikit di bawah target ($1%).'], [/^Annual fan result: Underperformed \(([\d.]+)%\)\.$/, 'Hasil target penggemar tahunan: Di bawah harapan ($1%).'], [/^Annual fan result: Major Failure \(([\d.]+)%\)\.$/, 'Hasil target penggemar tahunan: Kegagalan besar ($1%).'],
   [/^Year (\d+) fan target: Exceptional$/, 'Target penggemar Tahun $1: Luar biasa'], [/^Year (\d+) fan target: Target Achieved$/, 'Target penggemar Tahun $1: Target tercapai'], [/^Year (\d+) fan target: Slightly Below Target$/, 'Target penggemar Tahun $1: Sedikit di bawah target'], [/^Year (\d+) fan target: Underperformed$/, 'Target penggemar Tahun $1: Di bawah harapan'], [/^Year (\d+) fan target: Major Failure$/, 'Target penggemar Tahun $1: Kegagalan besar'],
   [/^([\d.,]+) fans against a ([\d.,]+) target \(([\d.]+)%\)\. Next target: ([\d.,]+)\.$/, '$1 penggemar dibanding target $2 ($3%). Target berikutnya: $4.'],
+  [/^([+-]?[\d.,]+) from last week$/, '$1 dari minggu lalu'],
 ];
 
 Object.assign(ID, {
   'Account vouchers': 'Voucher akun', 'Member stat editors': 'Editor statistik anggota', 'Redeem a code, then spend points on eligible roster members.': 'Tukarkan kode, lalu gunakan poin pada anggota roster yang memenuhi syarat.', 'Voucher code': 'Kode voucher', 'Redeem': 'Tukarkan', 'Voucher redeemed.': 'Voucher berhasil ditukarkan.', 'Loading vouchers…': 'Memuat voucher…', 'No redeemed vouchers yet.': 'Belum ada voucher yang ditukarkan.', 'Edit with voucher': 'Edit dengan voucher', 'Edit member stat': 'Edit statistik anggota', 'Natural base': 'Nilai dasar', 'Voucher adjustment': 'Penyesuaian voucher', 'Displayed': 'Tampilan', 'Change (negative allowed only if voucher permits)': 'Perubahan (negatif hanya jika diizinkan voucher)', 'Applying…': 'Menerapkan…', 'Apply points': 'Terapkan poin', 'No active voucher can edit this stat. Redeem a voucher or choose another stat.': 'Tidak ada voucher aktif untuk mengedit statistik ini. Tukarkan voucher atau pilih statistik lain.',
   'Voucher control room': 'Ruang kontrol voucher', 'Create, monitor, and revoke account-bound member stat vouchers.': 'Buat, pantau, dan cabut voucher statistik anggota yang terikat akun.', 'Voucher admin': 'Admin voucher', 'Issue voucher': 'Terbitkan voucher', 'Create a member stat editor': 'Buat editor statistik anggota', 'Create voucher': 'Buat voucher', 'Save voucher': 'Simpan voucher', 'Inventory': 'Inventaris', 'Search code or name': 'Cari kode atau nama', 'All statuses': 'Semua status', 'Points issued': 'Poin diterbitkan', 'Points used': 'Poin digunakan', 'Redemptions': 'Penukaran', 'Edit log': 'Log edit', 'No vouchers match these filters.': 'Tidak ada voucher yang cocok dengan filter.', 'Voucher detail': 'Detail voucher', 'Redemption detail': 'Detail penukaran', 'Type': 'Tipe', 'Usage': 'Penggunaan', 'Points': 'Poin', 'Validity': 'Masa berlaku', 'Any time': 'Kapan saja', 'No description.': 'Tidak ada deskripsi.', 'Admin audit': 'Audit admin', 'User': 'Pengguna', 'Status': 'Status', 'Redeemed': 'Ditukarkan', 'Locked member': 'Anggota terkunci', 'None': 'Tidak ada', 'Edit history': 'Riwayat edit', 'Member': 'Anggota', 'Stat': 'Statistik', 'Delta': 'Perubahan', 'Date': 'Tanggal', 'Revoke redemption': 'Cabut penukaran', 'Previous': 'Sebelumnya', 'Next': 'Berikutnya', 'Page': 'Halaman', 'Administrator': 'Administrator', 'Refresh': 'Muat ulang', 'Name': 'Nama', 'Description': 'Deskripsi', 'Total points': 'Total poin', 'Max / stat': 'Maks. / statistik', 'Max / member': 'Maks. / anggota', 'Max redemptions': 'Maks. penukaran', 'Max per user': 'Maks. per pengguna', 'Lifecycle': 'Siklus', 'Valid from': 'Berlaku mulai', 'Expires at': 'Berakhir pada', 'Target user IDs': 'ID pengguna target', 'Allowed stats': 'Statistik yang diizinkan', 'Allow decreases': 'Izinkan penurunan', 'Allow multiple members': 'Izinkan banyak anggota', 'Member stat editor': 'Editor statistik anggota', 'Draft': 'Draf', 'Active': 'Aktif', 'Paused': 'Dijeda', 'Revoked': 'Dicabut', 'Expired': 'Kedaluwarsa', 'Exhausted': 'Habis', 'View': 'Lihat', 'Edit': 'Edit', 'Cancel': 'Batal', 'No redemptions match these filters.': 'Tidak ada penukaran yang cocok dengan filter.', 'No edits match these filters.': 'Tidak ada edit yang cocok dengan filter.',
 });
+
+let activeLanguage = 'en';
+
+export function setActiveLanguage(language = 'en') {
+  activeLanguage = language === 'id' ? 'id' : 'en';
+}
+
+export function getActiveLanguage() {
+  return activeLanguage;
+}
+
+const compactUnits = {
+  en: [['B', 1_000_000_000], ['M', 1_000_000], ['K', 1_000]],
+  id: [['M', 1_000_000_000], ['JT', 1_000_000], ['RB', 1_000]],
+};
+
+export function formatNumber(value, language = activeLanguage) {
+  const locale = language === 'id' ? 'id-ID' : 'en-US';
+  return new Intl.NumberFormat(locale).format(Number(value) || 0);
+}
+
+export function formatMoney(value, language = activeLanguage, { compact = true } = {}) {
+  const numeric = Number(value) || 0;
+  const locale = language === 'id' ? 'id-ID' : 'en-US';
+  const sign = numeric < 0 ? '-' : '';
+  const absolute = Math.abs(numeric);
+  if (!compact || absolute < 1_000) return `Rp ${sign}${new Intl.NumberFormat(locale).format(absolute)}`;
+  const unit = compactUnits[language === 'id' ? 'id' : 'en'].find(([, divisor]) => absolute >= divisor);
+  const amount = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(absolute / unit[1]);
+  return language === 'id' ? `Rp ${sign}${amount} ${unit[0]}` : `Rp ${sign}${amount}${unit[0]}`;
+}
+
+export function formatDate(value, language = activeLanguage, options = {}) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const locale = language === 'id' ? 'id-ID' : 'en-US';
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'Asia/Jakarta', ...options }).format(date);
+}
+
+export function formatDateTime(value, language = activeLanguage, options = {}) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const locale = language === 'id' ? 'id-ID' : 'en-US';
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta', ...options }).format(date);
+}
+
+// The English tree is intentionally identity-based: English source strings
+// are the canonical keys used by the existing DOM translator. Keeping both
+// trees exported lets tests detect missing counterparts as the dictionary
+// grows, without forcing a second copy of every English string.
+export const LOCALIZATION_EN = Object.freeze(Object.fromEntries(Object.keys(ID).map((key) => [key, key])));
+export const LOCALIZATION_ID = Object.freeze({ ...ID });
+
+export function getLocalizationParity() {
+  const englishKeys = new Set(Object.keys(LOCALIZATION_EN));
+  const indonesianKeys = new Set(Object.keys(LOCALIZATION_ID));
+  return {
+    missingEnglish: [...indonesianKeys].filter((key) => !englishKeys.has(key)),
+    missingIndonesian: [...englishKeys].filter((key) => !indonesianKeys.has(key)),
+  };
+}
 
 export function translateIndonesian(value) {
   const text = value.trim();

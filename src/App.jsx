@@ -11,7 +11,7 @@ import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
 import dreamSetlistSongs from './data/DreamSetlist_Songs.js';
 import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, assignActivity, configureMajorCampaign, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberSalary, getNextMajorCampaignType, getRosterDanger, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, punishMember, payDebt, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
-import { localizeDocument, translateIndonesian } from './localization.js';
+import { formatDateTime, formatMoney, formatNumber, localizeDocument, setActiveLanguage, translateIndonesian } from './localization.js';
 import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 import comingSoonImage from './Asset/Pics/Coming_SoonCOPY.png';
@@ -57,8 +57,8 @@ function ConfirmationModal({ title, description, confirmLabel = 'Confirm', cance
   return <ModalPortal><div className="setup-modal-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section className="confirm-week-modal centered-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="centered-confirmation-title" aria-describedby="centered-confirmation-description">{icon ? <div className="confirm-week-icon">{icon}</div> : null}<h2 id="centered-confirmation-title">{title}</h2><p id="centered-confirmation-description">{description}</p>{children}<div className="confirm-week-actions"><button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel}>{cancelLabel}</button><button type="button" className={destructive ? 'remove-member-button' : 'setup-primary'} onClick={onConfirm}>{confirmLabel} <ChevronRight size={18} /></button></div></section></div></ModalPortal>;
 }
 
-const number = new Intl.NumberFormat('en-US');
-const money = (value) => `Rp ${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`;
+const number = { format: (value) => formatNumber(value) };
+const money = (value) => formatMoney(value);
 const randomSeed = () => {
   const values = new Uint32Array(2);
   if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(values);
@@ -333,11 +333,11 @@ function PreGameMenu({ theme, onToggleTheme, language, onToggleLanguage, user, o
       <button type="button" onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}<span>{translate(language, theme === 'dark' ? 'Light mode' : 'Dark mode')}</span></button>
       <button type="button" onClick={onToggleLanguage}><Languages size={18} /><span>{language === 'id' ? 'English' : 'Bahasa Indonesia'}</span></button>
       <button type="button" onClick={() => { setOpen(false); setWikiOpen(true); }}><BookOpen size={18} /><span>{translate(language, 'Wiki')}</span></button>
-      {user ? <><div className="pre-game-account"><Cloud aria-hidden="true" size={18} /><span><strong>{user.username}</strong><small>Cloud save enabled</small></span></div><button type="button" disabled={accountBusy} onClick={() => { setOpen(false); onLogout(); }}><LogOut aria-hidden="true" size={18} /><span>{accountBusy ? 'Saving…' : 'Save and logout'}</span></button></> : <button type="button" onClick={() => { setOpen(false); onOpenAccount(); }}><Cloud aria-hidden="true" size={18} /><span>Login / Register</span></button>}
+      {user ? <><div className="pre-game-account"><Cloud aria-hidden="true" size={18} /><span><strong>{user.username}</strong><small>{translate(language, 'Cloud save enabled')}</small></span></div><button type="button" disabled={accountBusy} onClick={() => { setOpen(false); onLogout(); }}><LogOut aria-hidden="true" size={18} /><span>{translate(language, accountBusy ? 'Saving…' : 'Save and logout')}</span></button></> : <button type="button" onClick={() => { setOpen(false); onOpenAccount(); }}><Cloud aria-hidden="true" size={18} /><span>{translate(language, 'Login / Register')}</span></button>}
       <p>{translate(language, 'Save controls become available after the founding lineup is confirmed.')}</p>
     </aside>
-    {open ? <button className="pre-game-scrim" aria-label="Close menu" type="button" onClick={() => setOpen(false)} /> : null}
-    {wikiOpen ? <div className="pre-game-wiki" role="dialog" aria-modal="true" aria-label="Manager wiki"><IconButton label={translate(language, 'Close wiki')} className="pre-game-wiki-close" onClick={() => setWikiOpen(false)}><ArrowLeft size={20} /></IconButton><Wiki language={language} /></div> : null}
+    {open ? <button className="pre-game-scrim" aria-label={translate(language, 'Close menu')} type="button" onClick={() => setOpen(false)} /> : null}
+    {wikiOpen ? <div className="pre-game-wiki" role="dialog" aria-modal="true" aria-label={translate(language, 'Manager wiki')}><IconButton label={translate(language, 'Close wiki')} className="pre-game-wiki-close" onClick={() => setWikiOpen(false)}><ArrowLeft size={20} /></IconButton><Wiki language={language} /></div> : null}
   </>;
 }
 
@@ -367,11 +367,11 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
   return <div className={desktopCollapsed ? 'app-shell sidebar-collapsed' : 'app-shell'}>
     <aside id="main-sidebar" className={mobileOpen ? 'sidebar open' : 'sidebar'}>
       <IconButton label={translate(language, 'Close menu')} className="sidebar-close-button" onClick={() => setMobileOpen(false)}><X size={20} /></IconButton>
-      <div className="brand"><div className="brand-mark">48</div><div><strong>JKT48</strong><span>{game.managementName || 'Manager'}</span></div></div>
+      <div className="brand"><div className="brand-mark">48</div><div><strong>JKT48</strong><span>{game.managementName || translate(language, 'Manager')}</span></div></div>
       <div className="sidebar-scroll">
-        <nav aria-label="Main navigation">{NAV.map(([id, label, Icon]) => <button key={id} type="button" className={activeView === id ? 'active' : ''} onClick={() => { setActiveView(id); setMobileOpen(false); }}><Icon size={19} /><span>{translate(language, label)}</span></button>)}</nav>
+        <nav aria-label={translate(language, 'Main navigation')}>{NAV.map(([id, label, Icon]) => <button key={id} type="button" className={activeView === id ? 'active' : ''} onClick={() => { setActiveView(id); setMobileOpen(false); }}><Icon size={19} /><span>{translate(language, label)}</span></button>)}</nav>
         <div className="sidebar-footer">
-          {user ? <><div className="sidebar-account"><Cloud aria-hidden="true" size={17} /><span><strong>{user.username}</strong><small>Cloud sync on</small></span></div><button type="button" onClick={onLogout} disabled={accountBusy}><LogOut aria-hidden="true" size={18} />{accountBusy ? 'Saving…' : 'Save and logout'}</button></> : <button type="button" onClick={onOpenAccount}><Cloud aria-hidden="true" size={18} />Login / Register</button>}
+          {user ? <><div className="sidebar-account"><Cloud aria-hidden="true" size={17} /><span><strong>{user.username}</strong><small>{translate(language, 'Cloud sync on')}</small></span></div><button type="button" onClick={onLogout} disabled={accountBusy}><LogOut aria-hidden="true" size={18} />{translate(language, accountBusy ? 'Saving…' : 'Save and logout')}</button></> : <button type="button" onClick={onOpenAccount}><Cloud aria-hidden="true" size={18} />{translate(language, 'Login / Register')}</button>}
           <button type="button" onClick={onManualSave} disabled={manualSaving}><Save aria-hidden="true" size={18} />{translate(language, manualSaving ? 'Saving…' : 'Save run')}</button>
           <button type="button" onClick={onToggleTheme}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}{translate(language, theme === 'dark' ? 'Light mode' : 'Dark mode')}</button>
           <button type="button" onClick={onToggleLanguage}><Languages size={18} />{language === 'id' ? 'English' : 'Bahasa Indonesia'}</button>
@@ -385,13 +385,14 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
       <header className="topbar">
         <IconButton label={translate(language, menuExpanded ? 'Close menu' : 'Open menu')} aria-expanded={menuExpanded} aria-controls="main-sidebar" onClick={toggleMenu}><Menu size={20} /></IconButton>
         <div className="week-title"><span>{translate(language, 'Year')} {game.year}</span><strong>{calendarParts(game.week).month} <small>· {translate(language, 'Week')} {calendarParts(game.week).weekOfMonth}/4</small></strong></div>
-        <div className="topbar-status"><span><CircleDollarSign size={16} />{money(game.money)}</span><span><Users size={16} />{number.format(game.group.fanbase)} fans</span></div>
+        <div className="topbar-status"><span><CircleDollarSign size={16} />{money(game.money)}</span><span><Users size={16} />{number.format(game.group.fanbase)} {translate(language, 'fans')}</span></div>
         <button className="advance-button" type="button" onClick={() => setConfirmAdvance(true)} disabled={advancing}>{translate(language, advancing ? 'Resolving…' : 'Resolve week')} <ChevronRight size={19} /></button>
       </header>
        {children}
+       <footer className="app-footer"><span>{translate(language, 'JKT48 Manager')} · {translate(language, 'Alternate timeline simulator')}</span><small>{translate(language, 'Fictional gameplay data for entertainment.')} · {translate(language, 'All rights reserved.')}</small></footer>
     </main>
     {isMobileViewport && mobileOpen ? <button className="scrim" aria-label={translate(language, 'Close menu')} type="button" onClick={() => setMobileOpen(false)} /> : null}
-    {confirmAdvance ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmAdvance(false); }}><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-week-title"><div className="confirm-week-icon"><Clock3 size={25} /></div><span className="eyebrow">Schedule confirmation</span><h2 id="confirm-week-title">End this week?</h2><p>All scheduled activities will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.</p>{game.week === BALANCE.weeksPerYear ? <p className="fan-target-warning"><ShieldAlert size={18} />The annual fan result resolves after this week. It affects Fan Trust, Reputation, annual grade, and Management Token reward, but does not end the run.</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmAdvance(false)}>Cancel</button><button type="button" className="setup-primary" onClick={() => { setConfirmAdvance(false); onAdvance(); }}>End week <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}
+    {confirmAdvance ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmAdvance(false); }}><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-week-title"><div className="confirm-week-icon"><Clock3 size={25} /></div><span className="eyebrow">{translate(language, 'Schedule confirmation')}</span><h2 id="confirm-week-title">{translate(language, 'End this week?')}</h2><p>{translate(language, 'All scheduled activities will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.')}</p>{game.week === BALANCE.weeksPerYear ? <p className="fan-target-warning"><ShieldAlert size={18} />{translate(language, 'The annual fan result resolves after this week. It affects Fan Trust, Reputation, annual grade, and Management Token reward, but does not end the run.')}</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmAdvance(false)}>{translate(language, 'Cancel')}</button><button type="button" className="setup-primary" onClick={() => { setConfirmAdvance(false); onAdvance(); }}>{translate(language, 'End week')} <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}
   </div>;
 }
 
@@ -1154,7 +1155,7 @@ function Saves({ game, activeSave, onLoad, onDelete, user, syncState, onCloudSav
   return <div className="page saves-page">
     <section className="page-heading"><div><span className="eyebrow">Save operations</span><h1>Save and load</h1><p>Weekly autosaves stay in IndexedDB. Cloud checkpoints run monthly, on manual save, and before logout.</p></div></section>
     <div className="save-operation-grid">
-      <section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>Local browser save</span><h2>{calendarLabel(game.year, game.week)}</h2><p>{game.seed} · {number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${new Date(activeSave.updatedAt).toLocaleString()}` : 'Waiting for next weekly autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload local save</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section>
+    <section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>Local browser save</span><h2>{calendarLabel(game.year, game.week)}</h2><p>{game.seed} · {number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${formatDateTime(activeSave.updatedAt)}` : 'Waiting for next weekly autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload local save</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section>
       <section className={user ? 'cloud-save-panel connected' : 'cloud-save-panel'}><div className="cloud-save-icon"><Cloud size={26} /></div><div><span>Cloud account</span><h2>{user ? user.username : 'Guest mode'}</h2><p>{user ? 'Encrypted snapshot ready for cross-device recovery.' : 'This run exists only in this browser until you register.'}</p>{syncState.updatedAt ? <small>Last cloud confirmation {new Date(syncState.updatedAt).toLocaleString()}</small> : <small>{user ? 'No cloud confirmation this session.' : 'IndexedDB remains active.'}</small>}</div><div className="cloud-save-actions">{user ? <><button type="button" onClick={onCloudSave}><Cloud size={17} />Save to cloud</button><button type="button" className="secondary-button" onClick={onCloudLoad}><Download size={17} />Load cloud save</button></> : <button type="button" onClick={onOpenAccount}>Register and upload this run</button>}</div></section>
     </div>
     <p className="storage-note">Loading cloud data replaces this browser's active run and Management Token profile.</p>
@@ -1422,6 +1423,7 @@ export default function App() {
     try { return localStorage.getItem('jkt48-manager-language') === 'id' ? 'id' : 'en'; }
     catch { return 'en'; }
   });
+  setActiveLanguage(language);
   const advancingRef = useRef(false);
   const rewardingRef = useRef(false);
   const rewardingPromiseRef = useRef(null);
@@ -1626,15 +1628,20 @@ export default function App() {
     }
   };
 
-  const toggleLanguage = () => setLanguage((value) => value === 'id' ? 'en' : 'id');
+  const toggleLanguage = () => setLanguage((value) => {
+    const next = value === 'id' ? 'en' : 'id';
+    setActiveLanguage(next);
+    if (typeof document !== 'undefined') document.documentElement.lang = next;
+    return next;
+  });
   const navigateView = (view) => {
     if (view === 'roster') setSelectedMember(null);
     setActiveView(view);
   };
   const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} user={user} onOpenAccount={openAccount} onLogout={handleLogout} accountBusy={accountBusy} />;
-  const accountLayer = <><SyncOverlay />{accountOpen ? <AuthScreen onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
-  if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>Checking account…</strong><span>Loading browser save status.</span></main><SyncOverlay /></>;
-  if (!user && !guestMode) return <><AuthScreen allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
+  const accountLayer = <><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
+  if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>{translate(language, 'Checking account…')}</strong><span>{translate(language, 'Loading browser save status.')}</span></main><SyncOverlay /></>;
+  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
   if (adminRoute && String(user?.user_id) === '1') {
     const leaveAdminRoute = () => {
       window.history.replaceState({}, '', '/');
