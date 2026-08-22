@@ -15,14 +15,21 @@ export async function onRequestPost({ request, env }) {
   if (password.length < 6) return json({ error: 'Password must be at least 6 characters.' }, 400);
   if (!/^[a-zA-Z0-9_]+$/.test(username)) return json({ error: 'Username may only contain letters, numbers, and underscores.' }, 400);
 
-  const existing = await env.DB.prepare('SELECT user_id FROM user_h WHERE username = ?').bind(username).first();
+  const existing = await env.DB.prepare('SELECT user_id FROM user_h WHERE username = ? COLLATE NOCASE').bind(username).first();
   if (existing) return json({ error: 'Username already taken.' }, 409);
 
   const userId = crypto.randomUUID();
-  await env.DB
-    .prepare('INSERT INTO user_h (user_id, username, password) VALUES (?, ?, ?)')
-    .bind(userId, username, await hashPassword(password))
+  const insert = await env.DB
+    .prepare(
+      `INSERT INTO user_h (user_id, username, password)
+       SELECT ?, ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM user_h WHERE username = ? COLLATE NOCASE
+       )`,
+    )
+    .bind(userId, username, await hashPassword(password), username)
     .run();
+  if ((insert.meta?.changes ?? insert.changes) === 0) return json({ error: 'Username already taken.' }, 409);
 
   const token = generateToken();
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);

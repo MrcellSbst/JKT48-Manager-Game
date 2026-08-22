@@ -12,8 +12,23 @@ export async function onRequestPost({ request, env }) {
   const password = (body.password || '').trim();
   if (!username || !password) return json({ error: 'Username and password are required.' }, 400);
 
-  const user = await env.DB.prepare('SELECT user_id, password FROM user_h WHERE username = ?').bind(username).first();
-  if (!user || !(await verifyPassword(password, user.password))) return json({ error: 'Invalid username or password.' }, 401);
+  const matches = await env.DB
+    .prepare(
+      `SELECT user_id, username, password
+       FROM user_h
+       WHERE username = ? COLLATE NOCASE
+       ORDER BY CASE WHEN username = ? THEN 0 ELSE 1 END, user_id`,
+    )
+    .bind(username, username)
+    .all();
+  let user = null;
+  for (const candidate of matches.results ?? []) {
+    if (await verifyPassword(password, candidate.password)) {
+      user = candidate;
+      break;
+    }
+  }
+  if (!user) return json({ error: 'Invalid username or password.' }, 401);
 
   await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.user_id).run();
   const token = generateToken();
@@ -23,7 +38,7 @@ export async function onRequestPost({ request, env }) {
     .bind(token, user.user_id, expires.toISOString())
     .run();
 
-  return new Response(JSON.stringify({ ok: true, username, user_id: user.user_id }), {
+  return new Response(JSON.stringify({ ok: true, username: user.username, user_id: user.user_id }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Set-Cookie': buildSessionCookie(token, expires, request.url) },
   });
