@@ -9,7 +9,7 @@ import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUP
 import { BONUS_BY_ID, BONUS_TEMPLATES, MAX_BONUS_LEVEL, formatBonusEffect, getBonusUpgradeCost, getBonusValueAtLevel } from './data/bonusTemplates.js';
 import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
 import dreamSetlistSongs from './data/DreamSetlist_Songs.js';
-import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, clearTrainingPlan, configureMajorCampaign, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getRosterDanger, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, punishMember, payDebt, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, clearTrainingPlan, configureMajorCampaign, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getRosterDanger, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, punishMember, payDebt, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { formatDateTime, formatMoney, formatNumber, localizeDocument, setActiveLanguage, translateIndonesian } from './localization.js';
 import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
@@ -148,21 +148,14 @@ function IconButton({ label, children, className = '', ...props }) {
 function TheaterPlanner({ game, setGame, theaterCounts }) {
   const activeDays = DAYS.filter((day) => theaterCounts[day] > 0);
   if (!activeDays.length) return null;
-  const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
   const birthdayCandidates = getSeitansaiCandidates(game);
-  // Graduations this month
-  const graduatingMembers = (game.graduations ?? [])
-    .filter((grad) => grad.year === game.year && Math.ceil(grad.week / BALANCE.weeksPerMonth) === currentMonth)
-    .map((grad) => game.members.find((m) => m.id === grad.memberId))
-    .filter(Boolean);
   // Helper: update theater flags for a day
   const updateFlags = (day, flags) => {
-    const current = game.theaterShows?.[day] ?? { setlistId: SETLISTS[0].id, centerId: null };
     setGame((g) => ({
       ...g,
       theaterShows: {
         ...(g.theaterShows ?? {}),
-        [day]: { ...current, ...flags },
+        [day]: { ...(g.theaterShows?.[day] ?? { setlistId: SETLISTS[0].id, centerId: null }), ...flags },
       },
     }));
   };
@@ -183,7 +176,10 @@ function TheaterPlanner({ game, setGame, theaterCounts }) {
     const seitansaiMemberId = birthdayLineupMembers.some((candidate) => candidate.id === configured.seitansaiMemberId)
       ? configured.seitansaiMemberId
       : (birthdayLineupMembers[0]?.id ?? '');
-    const lastShowMemberId = configured.lastShowMemberId ?? (graduatingMembers.length ? graduatingMembers[0].id : '');
+    const graduatingMembers = getGraduationLastShowCandidates(game, day);
+    const lastShowMemberId = graduatingMembers.some((candidate) => candidate.id === configured.lastShowMemberId)
+      ? configured.lastShowMemberId
+      : (graduatingMembers[0]?.id ?? '');
     const handleSeitansaiToggle = () => updateFlags(day, { isSeitansai: !isSeitansai, seitansaiMemberId: isSeitansai ? '' : seitansaiMemberId });
     const handleLastShowToggle = () => updateFlags(day, { isLastShow: !isLastShow, lastShowMemberId: isLastShow ? '' : lastShowMemberId });
     const handleSeitansaiMemberChange = (e) => updateFlags(day, { seitansaiMemberId: e.target.value });

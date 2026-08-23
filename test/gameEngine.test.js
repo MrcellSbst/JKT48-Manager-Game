@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -1688,6 +1688,25 @@ test('graduation preparation charges once and applies final-event and successor 
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
 });
 
+test('Last Show only accepts prepared graduate on departure-week theater lineup', () => {
+  const draft = createGame('graduation-last-show-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const graduate = game.members[0];
+  const graduation = { id: 'graduation-last-show', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: false };
+  game = prepareGraduation({ ...game, year: 2, week: 1, graduations: [graduation] }, graduation.id, { finalShow: true });
+  game.members.forEach((member) => { game = assignActivity(game, member.id, 'Sat', 'theater'); });
+  game = configureTheaterShow(game, 'Sat', SETLISTS[0].id, graduate.id);
+  game = { ...game, theaterShows: { ...game.theaterShows, Sat: { ...game.theaterShows.Sat, isLastShow: true, lastShowMemberId: graduate.id } } };
+  game = configureTheaterShow(game, 'Sat', SETLISTS[1].id, graduate.id);
+
+  assert.deepEqual(getGraduationLastShowCandidates(game, 'Sat').map((member) => member.id), [graduate.id]);
+  assert.equal(game.theaterShows.Sat.isLastShow, true, 'setlist changes preserve Last Show selection');
+  const resolved = resolveWeek(game);
+  assert.equal(resolved.lastResult.theaterShows[0].isLastShow, true);
+  assert.equal(resolved.lastResult.theaterShows[0].lastShowMemberId, graduate.id);
+  assert.ok(resolved.lastResult.finances.twoShot > 0);
+});
+
 test('member drama resolves from the dedicated fictional scenario catalog', () => {
   const representedCategories = new Set(MEMBER_DRAMA_TEMPLATES.map((item) => item.category));
   assert.deepEqual(MEMBER_DRAMA_CATEGORIES.filter((category) => !representedCategories.has(category)), []);
@@ -1858,16 +1877,18 @@ test('run summary includes development, generation, center, and sales records', 
   ['membersDeveloped', 'newGenerations', 'breakoutStars', 'successfulCenters', 'highestSellingSingle', 'finalMoney', 'finalFanbase', 'finalPopularity', 'finalFanTrust', 'finalReputation', 'totalMembers', 'finalGraduatedMembers', 'dramaSuspensions'].forEach((key) => assert.ok(Object.hasOwn(summary, key)));
 });
 
-test('single selection raises selected oshi sentiment and lowers excluded sentiment', () => {
+test('single selection raises selected oshi sentiment, lowers excluded active sentiment, and protects excluded trainees', () => {
   const draft = createGame('oshi-sentiment-test');
   const selectedIds = draft.members.slice(0, 12).map((member) => member.id);
   const base = finalizeGameSetup(draft, 'community', selectedIds);
   const excluded = { ...draft.members[12], status: 'active' };
+  const excludedTrainee = { ...draft.members[13], status: 'trainee' };
   const single = { id: 'sentiment-single', title: 'Selection Test', centerId: selectedIds[0], memberIds: selectedIds, productionDay: 'Mon', status: 'ready', progressWeeks: 4, durationWeeks: 4, releaseYear: 1, releaseWeek: 1, productionStartYear: 1, productionStartWeek: 1, popularityGain: 3, fanTrustGain: 1 };
-  const next = resolveWeek({ ...base, members: [...base.members, excluded], singles: [single] });
+  const next = resolveWeek({ ...base, members: [...base.members, excluded, excludedTrainee], singles: [single] });
   assert.equal(next.members.find((member) => member.id === selectedIds[0]).oshiSentiment, 4);
   assert.equal(next.members.find((member) => member.id === selectedIds[1]).oshiSentiment, 2);
   assert.equal(next.members.find((member) => member.id === excluded.id).oshiSentiment, -1);
+  assert.equal(next.members.find((member) => member.id === excludedTrainee.id).oshiSentiment, 0);
 });
 
 test('annual fan target curve adds the Year 2+ bonus and caps acceleration', () => {

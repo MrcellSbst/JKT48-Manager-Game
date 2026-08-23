@@ -1145,6 +1145,17 @@ export function getSeitansaiCandidates(state) {
   }).map((member) => ({ ...member, isActualBirthday: member.birthMonth === currentMonth }));
 }
 
+export function getGraduationLastShowCandidates(state, day = null) {
+  const lineupIds = day
+    ? new Set((state.members ?? []).filter((member) => state.schedule?.[`${member.id}:${day}`] === 'theater').map((member) => member.id))
+    : null;
+  return (state.graduations ?? [])
+    .filter((graduation) => graduation.announced && !graduation.completed && graduation.preparation?.finalShow
+      && graduation.departureYear === state.year && graduation.departureWeek === state.week)
+    .map((graduation) => state.members?.find((member) => member.id === graduation.memberId))
+    .filter((member) => member && ['active', 'trainee'].includes(member.status) && (!lineupIds || lineupIds.has(member.id)));
+}
+
 export function payDebt(state, category, amount = Infinity) {
   if (!state.hardMode || !['salary', 'upkeep', 'operations'].includes(category) || state.runStatus === 'ended') return state;
   const debt = state.ledger?.debt?.[category] ?? 0;
@@ -1428,7 +1439,7 @@ export function configureTheaterShow(state, day, setlistId, centerId) {
     ...state,
     theaterShows: {
       ...(state.theaterShows ?? {}),
-      [day]: { setlistId, centerId },
+      [day]: { ...(state.theaterShows?.[day] ?? {}), setlistId, centerId },
     },
   };
 }
@@ -2244,10 +2255,11 @@ export function resolveWeek(state) {
       twoShotRecords.push({ id: `2shot-birthday-${state.year}-${state.week}-${day}`, type: 'twoShotBirthday', year: state.year, week: state.week, day, capacity: birthdayCapacity, demand: birthdayDemand, sold: birthdaySold, unmetDemand: Math.max(0, birthdayDemand - birthdaySold), revenue: birthdayRevenue });
     }
     // 2-Shot Last Show
-    if (configured.isLastShow) {
+    const lastShowMember = getGraduationLastShowCandidates(state, day).find((member) => member.id === configured.lastShowMemberId);
+    if (configured.isLastShow && lastShowMember) {
       const lastShowCapacity = 100;
       const lastShowTicket = 200000;
-      const lastShowDemand = lineup.reduce((sum, member) => sum + Math.max(0, Math.round(getFanEventDemand(member, 'mg1', createRng(hashSeed(`${state.seed}:2shot:lastshow:${state.year}:${state.week}:${day}:${member.id}`))) / 30)), 0);
+      const lastShowDemand = Math.max(0, Math.round(getFanEventDemand(lastShowMember, 'mg1', createRng(hashSeed(`${state.seed}:2shot:lastshow:${state.year}:${state.week}:${day}:${lastShowMember.id}`))) / 30));
       const lastShowSold = Math.min(lastShowCapacity, lastShowDemand);
       const lastShowRevenue = Math.round(lastShowSold * lastShowTicket);
       moneyDelta += lastShowRevenue;
@@ -2560,7 +2572,7 @@ export function resolveWeek(state) {
     members = members.map((member) => {
       const selected = newlyReleasedSingles.filter((single) => single.memberIds.includes(member.id));
       const centered = selected.filter((single) => single.centerId === member.id).length;
-      const excluded = newlyReleasedSingles.length - selected.length;
+      const excluded = member.status === 'trainee' ? 0 : newlyReleasedSingles.length - selected.length;
       return { ...member, oshiSentiment: clamp((member.oshiSentiment ?? 0) + selected.length * 2 + centered * 2 - excluded, -100, 100) };
     });
   }
@@ -2801,7 +2813,8 @@ export function resolveWeek(state) {
     const lineup = members.filter((member) => weekSchedule[`${member.id}:${day}`] === 'theater');
     const center = lineup.find((member) => member.id === configured?.centerId) ?? lineup.toSorted((a, b) => b.performance - a.performance)[0];
     const validSeitansaiMember = lineup.find((member) => member.id === configured?.seitansaiMemberId);
-    return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, isSeitansai: Boolean(configured?.isSeitansai && validSeitansaiMember), seitansaiMemberId: validSeitansaiMember?.id ?? null, isLastShow: Boolean(configured?.isLastShow), lastShowMemberId: configured?.lastShowMemberId ?? null, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
+    const validLastShowMember = getGraduationLastShowCandidates(state, day).find((member) => member.id === configured?.lastShowMemberId);
+    return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, isSeitansai: Boolean(configured?.isSeitansai && validSeitansaiMember), seitansaiMemberId: validSeitansaiMember?.id ?? null, isLastShow: Boolean(configured?.isLastShow && validLastShowMember), lastShowMemberId: validLastShowMember?.id ?? null, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
   });
   lastResult.theaterShows = resolvedTheaterShows;
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult];
