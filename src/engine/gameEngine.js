@@ -764,6 +764,39 @@ function migrateMemberInjuryHistory(member, state) {
   };
 }
 
+export function migrateGraduatedRosterState(state) {
+  if (!state) return state;
+  const graduatedMembers = new Map((state.members ?? [])
+    .filter((member) => member.status === 'graduated')
+    .map((member) => [member.id, member]));
+  if (!graduatedMembers.size) return state;
+
+  const dismissedIds = new Set();
+  const graduations = (state.graduations ?? []).map((graduation) => {
+    const member = graduatedMembers.get(graduation.memberId);
+    if (!member || !graduation.completed) return graduation;
+    dismissedIds.add(member.id);
+    return graduation.memberSnapshot
+      ? graduation
+      : { ...graduation, memberSnapshot: { ...member, status: 'graduated', graduationPending: false } };
+  });
+  if (!dismissedIds.size) return state;
+
+  const schedule = Object.fromEntries(Object.entries(state.schedule ?? {}).filter(([key]) => {
+    const separator = key.lastIndexOf(':');
+    return !dismissedIds.has(separator >= 0 ? key.slice(0, separator) : key);
+  }));
+  const trainingPlans = { ...(state.trainingPlans ?? {}) };
+  dismissedIds.forEach((memberId) => { delete trainingPlans[memberId]; });
+  return {
+    ...state,
+    members: state.members.filter((member) => !dismissedIds.has(member.id)),
+    graduations,
+    schedule,
+    trainingPlans,
+  };
+}
+
 export function migrateInjuryHistoryState(state) {
   if (!state) return state;
   const backfilled = [];
@@ -775,10 +808,11 @@ export function migrateInjuryHistoryState(state) {
   const members = (state.members ?? []).map(migrateMember);
   const unsignedMembers = (state.unsignedMembers ?? []).map(migrateMember);
   const departures = (state.departures ?? []).map((departure) => departure.member ? { ...departure, member: migrateMember(departure.member) } : departure);
+  const graduations = (state.graduations ?? []).map((graduation) => graduation.memberSnapshot ? { ...graduation, memberSnapshot: migrateMember(graduation.memberSnapshot) } : graduation);
   const history = [...(state.history ?? [])];
   const historyIds = new Set(history.map((event) => event.id));
   const migrationEvents = backfilled.map(({ incident, memberName }) => injuryTimelineEvent(incident, memberName, 'onset')).filter((event) => !historyIds.has(event.id));
-  return { ...state, injuryHistorySchemaVersion: INJURY_HISTORY_SCHEMA_VERSION, members, unsignedMembers, departures, history: [...migrationEvents, ...history] };
+  return { ...state, injuryHistorySchemaVersion: INJURY_HISTORY_SCHEMA_VERSION, members, unsignedMembers, departures, graduations, history: [...migrationEvents, ...history] };
 }
 
 export function getTrainingPlanStatus(state, memberId) {
@@ -2172,7 +2206,7 @@ export function endRun(state) {
 
 export function resolveWeek(state) {
   if (state.runStatus === 'ended') return state;
-  state = migrateInjuryHistoryState(state);
+  state = migrateInjuryHistoryState(migrateGraduatedRosterState(state));
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   const activatedPlans = (state.fanEventPlans ?? []).filter((plan) => plan.year === state.year && plan.targetWeek === state.week);
@@ -2427,6 +2461,7 @@ export function resolveWeek(state) {
   const graduationSchedule = scheduleGraduations(state, year, state.week, members, rng);
   let graduations = graduationSchedule.graduations;
   const graduationTargets = graduationSchedule.graduationTargets;
+  const dismissedGraduates = [];
   graduations = graduations.map((graduation) => {
     if (!graduation.announced && graduation.announcementYear === year && graduation.announcementWeek === state.week) {
       notifications.push({ type: 'critical', text: `${graduation.memberName} announces graduation for Year ${graduation.departureYear}, Week ${graduation.departureWeek}.` });
@@ -2444,12 +2479,17 @@ export function resolveWeek(state) {
       graduationTrustDelta += (preparation.finalShow ? 2 : 0) + (preparation.specialSegment ? 1 : 0);
       notifications.push({ type: 'critical', text: `${graduation.memberName} has graduated.` });
       history.unshift({ id: `${graduation.id}-departure`, type: 'member', title: `${graduation.memberName} graduates`, detail: preparation.finalShow ? `The final show closes the member's active career with ${appliedGraduationFans.toLocaleString()} fan growth.` : 'The member leaves the active theater roster.', year, week: state.week });
-      members = members.map((member) => {
-        if (member.id === graduation.memberId) return { ...member, status: 'graduated', theaterEligible: false, canPerformTheater: false, graduationPending: false };
-        if (member.id !== preparation.successorId) return member;
-        return { ...applyNaturalStatChange(applyNaturalStatChange(member, 'performance', 2), 'popularity', 1), successorOf: graduation.memberId };
-      });
-      return { ...graduation, completed: true, outcome: { baseFanGain: graduationFans, fanGain: appliedGraduationFans, merchandiseRevenue, fanTrustGain: graduationTrustDelta } };
+      const graduatingMember = members.find((member) => member.id === graduation.memberId);
+      const memberSnapshot = graduatingMember
+        ? { ...graduatingMember, status: 'graduated', theaterEligible: false, canPerformTheater: false, graduationPending: false }
+        : graduation.memberSnapshot;
+      if (memberSnapshot) dismissedGraduates.push(memberSnapshot);
+      members = members
+        .filter((member) => member.id !== graduation.memberId)
+        .map((member) => member.id === preparation.successorId
+          ? { ...applyNaturalStatChange(applyNaturalStatChange(member, 'performance', 2), 'popularity', 1), successorOf: graduation.memberId }
+          : member);
+      return { ...graduation, completed: true, memberSnapshot, outcome: { baseFanGain: graduationFans, fanGain: appliedGraduationFans, merchandiseRevenue, fanTrustGain: graduationTrustDelta } };
     }
     return graduation;
   });
@@ -2467,7 +2507,7 @@ export function resolveWeek(state) {
     const returnAbsolute = toAbsoluteWeek(graduation.departureYear, graduation.departureWeek) + BALANCE.weeksPerYear * 2;
     if (currentAbsolute + 1 < returnAbsolute) return graduation;
     const poolCalendar = fromAbsoluteWeek(currentAbsolute + 1);
-    const graduatedMember = members.find((member) => member.id === graduation.memberId && member.status === 'graduated');
+    const graduatedMember = graduation.memberSnapshot ?? members.find((member) => member.id === graduation.memberId && member.status === 'graduated');
     if (!graduatedMember) return { ...graduation, returnedToPool: true, poolReturnYear: poolCalendar.year, poolReturnWeek: poolCalendar.week };
     const recycled = recycleMemberForPool(graduatedMember, state, graduation);
     appendMissingInjuryRecoveryEvents(recycled, history);
@@ -2771,7 +2811,8 @@ export function resolveWeek(state) {
   const failureCounters = { negativeCashWeeks: nextMoney < 0 ? (previousFailures.negativeCashWeeks ?? 0) + 1 : 0, lowTrustWeeks: group.fanTrust < 5 ? (previousFailures.lowTrustWeeks ?? 0) + 1 : 0, lowReputationWeeks: group.reputation < 5 ? (previousFailures.lowReputationWeeks ?? 0) + 1 : 0, lowFanbaseWeeks: group.fanbase < 20_000 ? (previousFailures.lowFanbaseWeeks ?? 0) + 1 : 0 };
   const failureReason = eligibleCount < BALANCE.theaterMinimumMembers ? 'THEATER ROSTER FAILURE' : salaryDefault ? 'SALARY DEFAULT' : failureCounters.negativeCashWeeks >= 4 ? 'SUSTAINED BANKRUPTCY' : failureCounters.lowTrustWeeks >= 4 ? 'FAN TRUST COLLAPSE' : failureCounters.lowReputationWeeks >= 4 ? 'REPUTATION COLLAPSE' : failureCounters.lowFanbaseWeeks >= 8 ? 'FANBASE COLLAPSE' : null;
   const ended = Boolean(failureReason);
-  const skillChanges = members.flatMap((member) => {
+  const reportMembers = [...members, ...dismissedGraduates];
+  const skillChanges = reportMembers.flatMap((member) => {
     const previous = state.members.find((item) => item.id === member.id);
     return previous ? SKILLS.filter((skill) => member[skill] !== previous[skill]).map((skill) => ({ memberId: member.id, memberName: member.nickname || member.name, skill, before: previous[skill], after: member[skill], delta: Math.round((member[skill] - previous[skill]) * 10) / 10 })) : [];
   });
@@ -2810,7 +2851,7 @@ export function resolveWeek(state) {
   const resolvedTheaterShows = [...validTheaterDays].map((day) => {
     const configured = state.theaterShows?.[day];
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
-    const lineup = members.filter((member) => weekSchedule[`${member.id}:${day}`] === 'theater');
+    const lineup = reportMembers.filter((member) => weekSchedule[`${member.id}:${day}`] === 'theater');
     const center = lineup.find((member) => member.id === configured?.centerId) ?? [...lineup].sort((a, b) => b.performance - a.performance)[0];
     const validSeitansaiMember = lineup.find((member) => member.id === configured?.seitansaiMemberId);
     const validLastShowMember = getGraduationLastShowCandidates(state, day).find((member) => member.id === configured?.lastShowMemberId);

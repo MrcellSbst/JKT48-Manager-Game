@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -1677,15 +1677,40 @@ test('graduation preparation charges once and applies final-event and successor 
   const prepared = prepareGraduation(staged, graduation.id, { finalShow: true, specialSegment: true, merchandise: true, successorId: successor.id });
   assert.equal(prepared.money, staged.money - 28_000_000);
   assert.equal(prepared.graduations[0].preparation.successorId, successor.id);
+  assert.ok(prepared.members.some((member) => member.id === graduate.id), 'saving graduation plan must not dismiss member early');
   assert.equal(prepareGraduation(prepared, graduation.id, { finalShow: true }), prepared);
   const resolved = resolveWeek(prepared);
   const completed = resolved.graduations[0];
   const promotedSuccessor = resolved.members.find((member) => member.id === successor.id);
   assert.equal(completed.completed, true);
+  assert.equal(resolved.members.some((member) => member.id === graduate.id), false);
+  assert.equal(completed.memberSnapshot.id, graduate.id);
+  assert.equal(completed.memberSnapshot.status, 'graduated');
   assert.equal(completed.outcome.fanGain, 1_650);
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
   assert.equal(promotedSuccessor.popularity, successor.popularity + 1);
+});
+
+test('graduate stays on roster until Last Show week finishes', () => {
+  const draft = createGame('graduation-dismissal-timing-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const graduate = game.members[0];
+  const rosterSupport = { ...game.unsignedMembers[0], status: 'active' };
+  const graduation = { id: 'graduation-timing', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 2, announced: true, completed: false };
+  const staged = prepareGraduation({ ...game, year: 2, week: 1, members: [...game.members, rosterSupport], unsignedMembers: game.unsignedMembers.slice(1), graduations: [graduation], dramaCooldown: 999 }, graduation.id, { finalShow: true });
+
+  const lastShowWeek = resolveWeek(staged);
+  assert.equal(lastShowWeek.year, 2);
+  assert.equal(lastShowWeek.week, 2);
+  assert.ok(lastShowWeek.members.some((member) => member.id === graduate.id));
+  assert.equal(lastShowWeek.graduations[0].completed, false);
+
+  const afterLastShowWeek = resolveWeek(lastShowWeek);
+  assert.equal(afterLastShowWeek.week, 3);
+  assert.equal(afterLastShowWeek.members.some((member) => member.id === graduate.id), false);
+  assert.equal(afterLastShowWeek.graduations[0].completed, true);
+  assert.equal(afterLastShowWeek.graduations[0].memberSnapshot.id, graduate.id);
 });
 
 test('Last Show only accepts prepared graduate on departure-week theater lineup', () => {
@@ -1704,6 +1729,8 @@ test('Last Show only accepts prepared graduate on departure-week theater lineup'
   const resolved = resolveWeek(game);
   assert.equal(resolved.lastResult.theaterShows[0].isLastShow, true);
   assert.equal(resolved.lastResult.theaterShows[0].lastShowMemberId, graduate.id);
+  assert.ok(resolved.lastResult.theaterShows[0].memberIds.includes(graduate.id));
+  assert.equal(resolved.members.some((member) => member.id === graduate.id), false);
   assert.ok(resolved.lastResult.finances.twoShot > 0);
 });
 
@@ -1853,7 +1880,8 @@ test('graduated member returns to the audition pool after exactly two years with
     dramaCooldown: 999,
   };
   const oneWeekEarly = resolveWeek(staged);
-  assert.ok(oneWeekEarly.members.some((member) => member.id === graduate.id));
+  assert.equal(oneWeekEarly.members.some((member) => member.id === graduate.id), false);
+  assert.equal(oneWeekEarly.graduations[0].memberSnapshot.id, graduate.id);
   assert.equal(oneWeekEarly.graduations[0].returnedToPool, undefined);
   const returned = resolveWeek(oneWeekEarly);
   const recycled = returned.unsignedMembers.find((member) => member.identityId === graduate.identityId);
@@ -1868,6 +1896,27 @@ test('graduated member returns to the audition pool after exactly two years with
   assert.deepEqual(recycled.appearances, { theater: 0, center: 0, media: 0, offAir: 0 });
   const skillKeys = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
   assert.notDeepEqual(skillKeys.map((skill) => recycled[skill]), skillKeys.map((skill) => graduate[skill]));
+});
+
+test('legacy graduated roster members migrate into graduation snapshots once', () => {
+  const draft = createGame('graduation-dismissal-migration-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const graduate = game.members[0];
+  const graduation = { id: 'legacy-graduation', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: true };
+  const legacy = {
+    ...game,
+    members: [{ ...graduate, status: 'graduated' }, ...game.members.slice(1)],
+    graduations: [graduation],
+    schedule: { [`${graduate.id}:Mon`]: 'media', [`${game.members[1].id}:Mon`]: 'media' },
+    trainingPlans: { [graduate.id]: ['trainVocalLight'], [game.members[1].id]: ['trainDanceLight'] },
+  };
+  const migrated = migrateGraduatedRosterState(legacy);
+  assert.equal(migrated.members.some((member) => member.id === graduate.id), false);
+  assert.equal(migrated.graduations[0].memberSnapshot.id, graduate.id);
+  assert.equal(migrated.schedule[`${graduate.id}:Mon`], undefined);
+  assert.equal(migrated.trainingPlans[graduate.id], undefined);
+  assert.equal(migrated.schedule[`${game.members[1].id}:Mon`], 'media');
+  assert.deepEqual(migrateGraduatedRosterState(migrated), migrated);
 });
 
 test('run summary includes development, generation, center, and sales records', () => {

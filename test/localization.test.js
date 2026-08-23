@@ -31,6 +31,8 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   assert.equal(translateIndonesian('Generation'), 'Generasi');
   assert.equal(translateIndonesian('Team'), 'Tim');
   assert.equal(translateIndonesian('Stat'), 'Stat');
+  assert.equal(translateIndonesian('Unselect all'), 'Batalkan semua pilihan');
+  assert.equal(translateIndonesian('Empty'), 'Kosongkan');
   assert.equal(translateIndonesian('Festival Invitation'), 'Undangan Festival');
   assert.equal(
     translateIndonesian('New opportunity: Festival Invitation. Respond within two weeks.'),
