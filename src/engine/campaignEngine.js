@@ -144,7 +144,7 @@ function initializeCampaign(config, members, rng) {
   const campaign = {
     id: config.id, type: config.type, campaignYear: config.campaignYear, configuredInYear: config.configuredInYear, held: config.held !== false,
     status: 'configured', currentYear: config.startYear, currentWeek: config.startWeek, progressWeeks: 0, startYear: config.startYear, startWeek: config.startWeek, startAbsoluteWeek: config.startAbsoluteWeek, durationWeeks: config.durationWeeks, endYear: config.endYear, endWeek: config.endWeek, endAbsoluteWeek: config.endAbsoluteWeek, resultYear: config.resultYear, resultWeek: config.resultWeek, resultAbsoluteWeek: config.resultAbsoluteWeek,
-    budget: config.budget, spent: 0, totalVotes: 0, votingRevenue: 0, participants, liveStandings: [], result: null,
+    budget: config.budget, spent: 0, totalVotes: 0, votingRevenue: 0, weeklyVoteHistory: [], participants, liveStandings: [], result: null,
     concertBudgetId: config.concertBudgetId, concertVenueId: config.concertVenueId, concertDay: config.concertDay, mvBudgetId: config.mvBudgetId, rewardConcertId: null, rewardConcertStatus: null, rewardConcertYear: null, rewardConcertWeek: null, rewardConcertMemberIds: [], rewardConcertPerformerCount: 0, rewardConcertCompletedWeek: null, rewardSongId: null, underGirlsSongId: null, mvProjectId: null, underGirlsMvProjectId: null, mvProductionWeeks: 0, mvProductionDurationWeeks: CAMPAIGN_MV_PRODUCTION_WEEKS, bracket: config.type === 'janken' ? makeJankenBracketPreview(participants.memberIds) : null, lifecycle: [{ status: 'configured', year: config.campaignYear, week: config.startWeek }], history: [],
   };
   return campaign;
@@ -174,22 +174,56 @@ function updateSongStandings(campaign) {
     .map((entry, index) => ({ ...entry, rank: index + 1, previousRank: previousRanks.get(entry.songId) ?? null, movement: previousRanks.has(entry.songId) ? previousRanks.get(entry.songId) - (index + 1) : 0 }));
 }
 
+function sampleBinomial(trials, probability, rng) {
+  if (trials <= 2_000) {
+    let successes = 0;
+    for (let index = 0; index < trials; index += 1) if (rng() < probability) successes += 1;
+    return successes;
+  }
+  const mean = trials * probability;
+  const deviation = Math.sqrt(trials * probability * (1 - probability));
+  const normal = Math.sqrt(-2 * Math.log(Math.max(Number.EPSILON, rng()))) * Math.cos(2 * Math.PI * rng());
+  return Math.max(0, Math.min(trials, Math.round(mean + normal * deviation)));
+}
+
 function generateWeeklySupport(campaign, members, group, rng) {
-  if (campaign.type === 'janken') return { participants: campaign.participants, votes: 0, revenue: 0, perVote: 0 };
+  if (campaign.type === 'janken') return { participants: campaign.participants, votes: 0, revenue: 0, perVote: 0, ratePercent: 0, fanbase: group.fanbase ?? 0 };
   const active = activeMembers(members);
   const perVote = campaignRevenuePerVote(group);
-  let votes = 0;
+  const fanbase = Math.max(0, Math.round(group.fanbase ?? 0));
+  const ratePercent = randomInt(rng, 7, 15);
+  const votes = Math.round(fanbase * ratePercent / 100);
   const nextParticipants = { ...campaign.participants, votes: { ...(campaign.participants.votes ?? {}) }, supports: { ...(campaign.participants.supports ?? {}) } };
   if (campaign.type === 'sousenkyo') {
-    active.forEach((member) => { if (nextParticipants.votes[member.id] !== undefined) { const amount = voteMember(member, group, rng, campaign.type); nextParticipants.votes[member.id] += amount; votes += amount; } });
+    // Once SSK voting starts, every registered candidate remains eligible for
+    // votes even when a temporary availability flag keeps them off schedules.
+    const weighted = members
+      .filter((member) => nextParticipants.votes[member.id] !== undefined)
+      .map((member) => ({ id: member.id, weight: voteMember(member, group, rng, campaign.type) }));
+    const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+    const apportioned = weighted.map((entry) => {
+      const exact = totalWeight ? votes * entry.weight / totalWeight : 0;
+      return { ...entry, amount: Math.floor(exact), remainder: exact - Math.floor(exact) };
+    });
+    let remainder = votes - apportioned.reduce((sum, entry) => sum + entry.amount, 0);
+    apportioned.sort((first, second) => second.remainder - first.remainder || first.id.localeCompare(second.id));
+    for (let index = 0; index < remainder; index += 1) apportioned[index % Math.max(1, apportioned.length)].amount += 1;
+    apportioned.forEach(({ id, amount }) => { nextParticipants.votes[id] += amount; });
   } else if (campaign.type === 'request-hour') {
     const songs = campaign.participants.songIds ?? [];
-    const ballots = Math.max(1, Math.round((group.fanbase ?? 0) / 25_000));
-    for (let index = 0; index < ballots; index += 1) { const songId = songs[randomInt(rng, 0, songs.length - 1)]; nextParticipants.votes[songId] += 1; votes += 1; }
+    if (songs.length) {
+      let remainingVotes = votes;
+      songs.forEach((songId, index) => {
+        const remainingSongs = songs.length - index;
+        const amount = remainingSongs === 1 ? remainingVotes : sampleBinomial(remainingVotes, 1 / remainingSongs, rng);
+        nextParticipants.votes[songId] += amount;
+        remainingVotes -= amount;
+      });
+    }
   } else {
-    active.forEach((member) => { if (nextParticipants.supports[member.id] !== undefined) { const amount = voteMember(member, group, rng, campaign.type); nextParticipants.supports[member.id] += amount; votes += amount; } });
+    active.forEach((member) => { if (nextParticipants.supports[member.id] !== undefined) nextParticipants.supports[member.id] += voteMember(member, group, rng, campaign.type); });
   }
-  return { participants: nextParticipants, votes, revenue: votes * perVote, perVote };
+  return { participants: nextParticipants, votes, revenue: votes * perVote, perVote, ratePercent, fanbase };
 }
 
 export function advanceCampaign(state, { year = state.year, week = state.week, members = state.members ?? [], group = state.group ?? {}, rng = createRng(hashSeed(`${state.seed}:campaign:${year}:${week}`)) } = {}) {
@@ -213,7 +247,7 @@ export function advanceCampaign(state, { year = state.year, week = state.week, m
   if (campaign.status === 'registration' && currentAbsoluteWeek > startAbsoluteWeek) campaign = appendLifecycle(campaign, 'active', year, week);
   if (['registration', 'active'].includes(campaign.status) && currentAbsoluteWeek >= startAbsoluteWeek && currentAbsoluteWeek <= endAbsoluteWeek && campaign.status === 'active') {
     const generated = generateWeeklySupport(campaign, members, group, rng);
-    campaign = { ...campaign, participants: generated.participants, totalVotes: (campaign.totalVotes ?? 0) + generated.votes, votingRevenue: (campaign.votingRevenue ?? 0) + generated.revenue, liveStandings: campaign.type === 'request-hour' ? updateSongStandings({ ...campaign, participants: generated.participants }) : campaign.type === 'sousenkyo' ? updateMemberStandings({ ...campaign, participants: generated.participants }, members) : campaign.liveStandings };
+    campaign = { ...campaign, participants: generated.participants, totalVotes: (campaign.totalVotes ?? 0) + generated.votes, votingRevenue: (campaign.votingRevenue ?? 0) + generated.revenue, weeklyVoteHistory: [...(campaign.weeklyVoteHistory ?? []), { year, week, ratePercent: generated.ratePercent, fanbase: generated.fanbase, votes: generated.votes, revenue: generated.revenue, perVote: generated.perVote }], liveStandings: campaign.type === 'request-hour' ? updateSongStandings({ ...campaign, participants: generated.participants }) : campaign.type === 'sousenkyo' ? updateMemberStandings({ ...campaign, participants: generated.participants }, members) : campaign.liveStandings };
     revenue += generated.revenue;
     perVote = generated.perVote;
     if (currentAbsoluteWeek >= endAbsoluteWeek) campaign = appendLifecycle(campaign, 'locked', year, week);

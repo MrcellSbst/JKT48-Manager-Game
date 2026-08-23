@@ -528,14 +528,14 @@ Examples:
 
 ```text
 English
-Rp 850K
-Rp 1.2M
-Rp 2.5B
+$850K
+$1.2M
+$2.5B
 
 Indonesian
-Rp 850 RB
-Rp 1,2 JT
-Rp 2,5 M
+$850 RB
+$1,2 JT
+$2,5 M
 ```
 
 Important:
@@ -576,10 +576,10 @@ Examples:
 
 ```text
 English:
-Rp 1.5M
+$1.5M
 
 Indonesian:
-Rp 1,5 JT
+$1,5 JT
 ```
 
 ### Full Number Formatting
@@ -588,10 +588,10 @@ When compact formatting is not used:
 
 ```text
 English:
-Rp 1,500,000
+$1,500,000
 
 Indonesian:
-Rp 1.500.000
+$1.500.000
 ```
 
 Use the project’s shared formatter or locale-aware formatting such as:
@@ -634,7 +634,7 @@ Audit money formatting in:
 Do not leave components with manual formatting such as:
 
 ```js
-`Rp ${value / 1_000_000}M`
+`$${value / 1_000_000}M`
 ```
 
 because that will produce incorrect Indonesian output.

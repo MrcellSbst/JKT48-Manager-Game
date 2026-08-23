@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
-import { BALANCE, DAYS, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
+import { BALANCE, CONCERT_VENUES, DAYS, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
@@ -18,7 +18,7 @@ const finalizeGameSetup = (draft, theaterId, memberIds, ...args) => {
 
 test('active roster includes current members, including JKT48V', () => {
   const roster = getActiveRoster();
-  assert.equal(roster.length, 62);
+  assert.equal(roster.length, 61);
   assert.equal(roster.some((member) => member.graduated), false);
   assert.ok(roster.some((member) => member.generation.startsWith('JKT48V')));
 });
@@ -28,15 +28,15 @@ test('roster scopes select current members, ex-members, or both, including JKT48
   const ex = getRosterPool('ex');
   const all = getRosterPool('all');
   assert.deepEqual(active, getActiveRoster());
-  assert.equal(active.length, 62);
-  assert.equal(ex.length, 194);
+  assert.equal(active.length, 61);
+  assert.equal(ex.length, 195);
   assert.equal(all.length, active.length + ex.length);
   assert.ok(ex.every((member) => member.graduated && member.rosterScope === 'ex'));
   assert.ok(active.every((member) => !member.graduated && member.rosterScope === 'active'));
   assert.ok(all.some((member) => member.generation.toUpperCase().startsWith('JKT48V')));
   // Current members lead the pool so the prebuilt chemistry subset stays a contiguous prefix.
   assert.deepEqual(all.slice(0, active.length), active);
-  assert.equal(getRosterPool('nonsense').length, 62);
+  assert.equal(getRosterPool('nonsense').length, 61);
 });
 
 test('every identity carries a portrait path the asset glob can resolve', () => {
@@ -48,7 +48,7 @@ test('roster scope drives the founding pool and the leftover audition pool', () 
   const activeRun = createGame('scope-test', 'active');
   const allRun = createGame('scope-test', 'all');
   assert.equal(activeRun.rosterScope, 'active');
-  assert.equal(activeRun.members.length, 62);
+  assert.equal(activeRun.members.length, 61);
   assert.equal(allRun.rosterScope, 'all');
   assert.equal(allRun.members.length, 256);
   const finalized = finalizeGameSetup(allRun, 'community', allRun.members.slice(0, 12).map((member) => member.id), 'Scope Office', [], { rosterScope: 'all' });
@@ -56,7 +56,7 @@ test('roster scope drives the founding pool and the leftover audition pool', () 
   assert.equal(finalized.members.length, 12);
   assert.equal(finalized.unsignedMembers.length, 244);
   assert.ok(finalized.unsignedMembers.some((member) => member.rosterScope === 'ex'));
-  assert.equal(createGame('scope-test', 'ex').members.length, 194);
+  assert.equal(createGame('scope-test', 'ex').members.length, 195);
 });
 
 test('an ex-member founding pick gets persisted chemistry despite the lazy prebuild', () => {
@@ -160,7 +160,7 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Management Token'), 'Management Token');
   assert.equal(translateIndonesian('Theater results'), 'Hasil teater');
   assert.equal(translateIndonesian('3 unmet'), '3 tidak terpenuhi');
-  assert.equal(translateIndonesian('Save plan · Rp 28m'), 'Simpan rencana · Rp 28m');
+  assert.equal(translateIndonesian('Save plan · $28m'), 'Simpan rencana · $28m');
   assert.equal(translateIndonesian('Fan target grade'), 'Nilai target penggemar');
   assert.equal(translateIndonesian('Annual fan result: Exceptional (120.5%).'), 'Hasil target penggemar tahunan: Luar biasa (120.5%).');
   assert.equal(translateIndonesian('Statistics'), 'Statistik');
@@ -246,11 +246,11 @@ test('setup purchases theater and creates exactly 16-member founding roster', ()
   const selectedIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const game = finalizeGameSetupEngine(draft, 'city', selectedIds, '  Senayan Stage Office  ');
   const offer = draft.theaterOffers.find((theater) => theater.id === 'city');
-  assert.deepEqual(game.theater, { ...offer, renovationLevel: 0 });
+  assert.deepEqual(game.theater, { ...offer, marketValue: offer.price, acquisitionCost: offer.price, renovationLevel: 0 });
   assert.equal(game.members.length, BALANCE.foundingRosterSize);
-  // Default scope is current members only: 62 identities minus the founding 16.
+  // Default scope is current members only: 61 identities minus the founding 16.
   assert.equal(game.rosterScope, 'active');
-  assert.equal(game.unsignedMembers.length, 62 - BALANCE.foundingRosterSize);
+  assert.equal(game.unsignedMembers.length, 61 - BALANCE.foundingRosterSize);
   assert.equal(game.money, draft.money - offer.price);
   assert.equal(game.managementName, 'Senayan Stage Office');
 });
@@ -390,6 +390,114 @@ test('renovation is unavailable before December Week 4', () => {
   const draft = createGame('early-renovation-test');
   const game = finalizeGameSetup(draft, 'city', draft.members.slice(0, 12).map((member) => member.id));
   assert.equal(renovateTheater(game), game);
+});
+
+test('annual tax rates use whole-profit brackets in both difficulties', () => {
+  assert.equal(getAnnualTaxRate(500_000_000, false), 0.05);
+  assert.equal(getAnnualTaxRate(500_000_001, false), 0.10);
+  assert.equal(getAnnualTaxRate(1_500_000_001, false), 0.15);
+  assert.equal(getAnnualTaxRate(3_000_000_001, false), 0.20);
+  assert.equal(getAnnualTaxRate(500_000_000, true), 0.10);
+  assert.equal(getAnnualTaxRate(3_000_000_001, true), 0.25);
+  assert.equal(getAnnualTaxRate(0, true), 0);
+});
+
+test('annual tax includes operating records and excludes financing or facility events', () => {
+  const state = {
+    ...createGame('tax-calculation-test'),
+    taxTrackingStartYear: 1,
+    weeklyReports: [{ year: 1, finances: { theater: 900_000_000, campaign: 600_000_000, activityCosts: 200_000_000, refunds: 20_000_000, salary: 100_000_000, debtPayments: 30_000_000, generalOperations: 50_000_000, theaterUpkeep: 25_000_000 } }],
+    financialEvents: [
+      { year: 1, income: 100_000_000, expense: 10_000_000 },
+      { year: 1, income: 500_000_000, expense: 500_000_000, taxable: false },
+    ],
+  };
+  const tax = calculateAnnualTax(state, 1);
+  assert.equal(tax.operatingIncome, 1_600_000_000);
+  assert.equal(tax.deductibleExpenses, 435_000_000);
+  assert.equal(tax.taxableProfit, 1_165_000_000);
+  assert.equal(tax.rate, 0.10);
+  assert.equal(tax.taxDue, 116_500_000);
+});
+
+test('annual tax never charges a loss and prior tax-debt payments are deductible', () => {
+  const base = { ...createGame('tax-loss-test'), taxTrackingStartYear: 1, hardMode: false };
+  const loss = calculateAnnualTax({ ...base, weeklyReports: [{ year: 1, finances: { theater: 100_000_000, activityCosts: 150_000_000 } }] }, 1);
+  assert.equal(loss.taxableProfit, 0);
+  assert.equal(loss.taxDue, 0);
+
+  const paid = payDebt({ ...base, runStatus: 'active', year: 2, money: 40_000_000, ledger: { debt: { salary: 0, upkeep: 0, operations: 0, tax: 60_000_000 } } }, 'tax');
+  assert.equal(paid.money, 0);
+  assert.equal(paid.ledger.debt.tax, 20_000_000);
+  const nextTax = calculateAnnualTax({ ...paid, financialEvents: [...paid.financialEvents, { id: 'income', year: 2, income: 100_000_000, expense: 0 }] }, 2);
+  assert.equal(nextTax.taxableProfit, 60_000_000);
+});
+
+test('legacy economy migration upgrades unbooked venues once and exempts the partial year', () => {
+  const base = createGame('economy-migration-test');
+  const legacy = { ...base, economySchemaVersion: 0, taxTrackingStartYear: undefined, runStatus: 'active', week: 20, theater: { ...base.theaterOffers[0], price: 200_000_000 }, concertVenueOffers: [{ id: 'legacy-offer', cost: 100_000_000, capacity: 2_000 }] };
+  const migrated = migrateEconomyState(legacy);
+  assert.equal(migrated.concertVenueOffers[0].cost, 150_000_000);
+  assert.equal(migrated.taxTrackingStartYear, 2);
+  assert.equal(migrated.theater.marketValue, 200_000_000);
+  assert.equal(migrated.ledger.debt.tax, 0);
+  assert.deepEqual(migrateEconomyState(migrated), migrated);
+});
+
+test('Week 48 creates a persistent settlement and blocks another resolve until completion', () => {
+  const draft = createGame('year-end-settlement-test');
+  let game = finalizeGameSetup({ ...draft, week: 48 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = resolveWeek(game);
+  assert.equal(game.year, 1);
+  assert.equal(game.week, 48);
+  assert.equal(game.pendingYearEndSettlement.closingYear, 1);
+  const blocked = resolveWeek(game);
+  assert.equal(blocked.year, 1);
+  assert.equal(blocked.week, 48);
+  game = settleAnnualTax(game);
+  assert.equal(game.pendingYearEndSettlement.stage, 'theater');
+  game = completeYearEndSettlement(game, 'keep');
+  assert.equal(game.pendingYearEndSettlement, null);
+  assert.equal(game.year, 2);
+  assert.equal(game.week, 1);
+  assert.equal(game.yearEndSettlements.length, 1);
+  assert.ok(game.history.some((entry) => entry.id === 'year-2'));
+});
+
+test('tax shortage becomes interest-free debt and theater replacement applies resale credit', () => {
+  const draft = createGame('tax-debt-theater-change-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = { ...game, money: 30_000_000, pendingYearEndSettlement: { id: 'year-end-settlement-1', closingYear: 1, nextYear: 2, stage: 'tax', tax: { year: 1, taxDue: 100_000_000 } } };
+  game = settleAnnualTax(game);
+  assert.equal(game.money, 0);
+  assert.equal(game.ledger.debt.tax, 70_000_000);
+  assert.equal(game.pendingYearEndSettlement.stage, 'theater');
+  game = { ...game, money: 2_000_000_000 };
+  const offers = getTheaterChangeOffers(game);
+  assert.deepEqual(offers.map((offer) => offer.id), ['expanded', 'metropolitan', 'grand']);
+  assert.ok(offers.every((offer) => offer.grossPrice > game.theater.marketValue && offer.capacity > game.theater.capacity));
+  const offer = offers[0];
+  const oldTicketPrice = game.theater.ticketPrice;
+  game = completeYearEndSettlement(game, 'change', offer.id);
+  assert.equal(game.theater.capacity, offer.capacity);
+  assert.equal(game.theater.marketValue, offer.grossPrice);
+  assert.equal(game.theater.ticketPrice, oldTicketPrice);
+  assert.equal(game.theater.renovationLevel, 0);
+  assert.equal(game.money, 2_000_000_000 - offer.netPayment);
+  assert.equal(game.theaterChanges[0].resaleCredit, offer.resaleCredit);
+});
+
+test('theater replacement applies purchase and upkeep perks after gross offer calculation', () => {
+  const draft = createGame('theater-change-perk-test');
+  const ids = draft.members.slice(0, 12).map((member) => member.id);
+  const base = finalizeGameSetup(draft, 'community', ids, 'Base theater');
+  const perked = finalizeGameSetup(draft, 'community', ids, 'Perked theater', ['B001', 'B002']);
+  const baseOffer = getTheaterChangeOffers(base)[2];
+  const perkedOffer = getTheaterChangeOffers(perked)[2];
+  assert.equal(perkedOffer.grossPrice, baseOffer.grossPrice);
+  assert.equal(perkedOffer.capacity, baseOffer.capacity);
+  assert.ok(perkedOffer.netPayment < baseOffer.netPayment);
+  assert.ok(perkedOffer.weeklyUpkeep < baseOffer.weeklyUpkeep);
 });
 
 test('setup rejects incomplete founding lineup', () => {
@@ -1225,7 +1333,7 @@ test('resolved schedule snapshots remain authoritative over confirmed reservatio
   assert.deepEqual(snapshot.schedule, { [`${memberId}:Mon`]: 'media' });
 });
 
-test('live stream uses the direct Rp40k income rate', () => {
+test('live stream uses the direct $40k income rate', () => {
   const draft = createGame('live-stream-income-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const member = game.members[0];
@@ -1307,7 +1415,7 @@ test('concert tickets sell through D-2 and the target week locks every member', 
   const startingMoney = game.money;
   game = announceConcert(game, 'Sat', 1, 2);
   assert.equal(game.concerts[0].status, 'selling');
-  assert.equal(game.money, startingMoney - 180_000_000);
+  assert.equal(game.money, startingMoney - 270_000_000);
   assert.equal(game.concerts[0].sold, 0);
   for (let index = 0; index < 6; index += 1) game = resolveWeek(game);
   assert.equal(game.week, 7);
@@ -1327,6 +1435,7 @@ test('concert tickets sell through D-2 and the target week locks every member', 
 });
 
 test('concert venue offers are seeded and venue perks alter choices and costs', () => {
+  assert.deepEqual(CONCERT_VENUES.map((venue) => venue.cost), [90_000_000, 180_000_000, 405_000_000]);
   assert.deepEqual(generateConcertVenueOffers('venue-seed', 2), generateConcertVenueOffers('venue-seed', 2));
   const draft = createGame('concert-perk-test');
   const ids = draft.members.slice(0, 12).map((member) => member.id);
@@ -1395,8 +1504,8 @@ test('concert announcement persists selected budget and venue size', () => {
   assert.equal(announced.concerts[0].budgetId, 'standard');
   assert.equal(announced.concerts[0].venueId, 'arena');
   assert.equal(announced.concerts[0].capacity, 4_500);
-  assert.equal(announced.concerts[0].upfrontCost, 420_000_000);
-  assert.equal(announced.money, game.money - 420_000_000);
+  assert.equal(announced.concerts[0].upfrontCost, 480_000_000);
+  assert.equal(announced.money, game.money - 480_000_000);
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
@@ -1664,7 +1773,10 @@ test('member chemistry is deterministic, symmetric, and persisted in run state',
 test('year rollover creates a persistent annual review', () => {
   const base = { ...createGame('annual-review-test'), week: BALANCE.weeksPerYear, fanTarget: createAnnualFanTarget(1, 125_000, 125_000) };
   const game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
-  const next = resolveWeek(game);
+  const pending = resolveWeek(game);
+  assert.equal(pending.year, 1);
+  assert.equal(pending.week, BALANCE.weeksPerYear);
+  const next = completeYearEndSettlement(settleAnnualTax(pending), 'keep');
   assert.equal(next.year, 2);
   assert.equal(next.week, 1);
   assert.equal(next.annualReviews.length, 1);
@@ -1678,7 +1790,8 @@ test('year rollover creates a persistent annual review', () => {
 test('runs do not end at a fixed five-year limit', () => {
   const base = { ...createGame('open-ended-run-test'), year: 5, week: BALANCE.weeksPerYear, dramaCooldown: 999, fanTarget: { year: 5, startingFanbase: 100_000, requiredGain: 20_000, targetFanbase: 120_000 } };
   const game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
-  const next = resolveWeek(game);
+  const pending = resolveWeek(game);
+  const next = completeYearEndSettlement(settleAnnualTax(pending), 'keep');
   assert.equal(next.year, 6);
   assert.equal(next.runStatus, 'active');
 });
@@ -2037,7 +2150,8 @@ test('graduated member returns to the audition pool after exactly two years with
   assert.equal(oneWeekEarly.members.some((member) => member.id === graduate.id), false);
   assert.equal(oneWeekEarly.graduations[0].memberSnapshot.id, graduate.id);
   assert.equal(oneWeekEarly.graduations[0].returnedToPool, undefined);
-  const returned = resolveWeek(oneWeekEarly);
+  const yearEnd = resolveWeek(oneWeekEarly);
+  const returned = completeYearEndSettlement(settleAnnualTax(yearEnd), 'keep');
   const recycled = returned.unsignedMembers.find((member) => member.identityId === graduate.identityId);
   assert.equal(returned.year, 4);
   assert.equal(returned.week, 1);
@@ -2112,7 +2226,8 @@ test('missing the annual fan target applies review penalties without ending the 
   const draft = createGame('missed-fan-target-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const target = { formulaVersion: 2, year: 1, baseTarget: 125_000, startingFanbase: base.group.fanbase, requiredGain: 999_875_000, targetFanbase: 1_000_000_000 };
-  const next = resolveWeek({ ...base, week: BALANCE.weeksPerYear, fanTarget: target });
+  const pending = resolveWeek({ ...base, week: BALANCE.weeksPerYear, fanTarget: target });
+  const next = completeYearEndSettlement(settleAnnualTax(pending), 'keep');
   assert.equal(next.runStatus, 'active');
   assert.equal(next.year, 2);
   assert.equal(next.fanTargetHistory.at(-1).id, 'majorFailure');
@@ -2126,7 +2241,8 @@ test('overperforming creates the next target from the previous target, not actua
   const draft = createGame('achieved-fan-target-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const target = createAnnualFanTarget(1, 100_000, 100_000);
-  const next = resolveWeek({ ...base, week: BALANCE.weeksPerYear, group: { ...base.group, fanbase: 500_000 }, fanTarget: target });
+  const pending = resolveWeek({ ...base, week: BALANCE.weeksPerYear, group: { ...base.group, fanbase: 500_000 }, fanTarget: target });
+  const next = completeYearEndSettlement(settleAnnualTax(pending), 'keep');
   assert.equal(next.runStatus, 'active');
   assert.equal(next.year, 2);
   assert.equal(next.week, 1);

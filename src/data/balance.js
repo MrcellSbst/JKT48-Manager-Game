@@ -164,9 +164,9 @@ export const SINGLE_BUDGETS = [
 ];
 
 export const CONCERT_VENUES = [
-  { id: 'hall', name: 'Concert hall', capacity: 2_000, cost: 0 },
-  { id: 'arena', name: 'City arena', capacity: 4_500, cost: 120_000_000 },
-  { id: 'stadium', name: 'National stadium', capacity: 7_500, cost: 270_000_000 },
+  { id: 'hall', name: 'Concert hall', capacity: 2_000, cost: 90_000_000 },
+  { id: 'arena', name: 'City arena', capacity: 4_500, cost: 180_000_000 },
+  { id: 'stadium', name: 'National stadium', capacity: 7_500, cost: 405_000_000 },
 ];
 
 export const OPPORTUNITIES = [

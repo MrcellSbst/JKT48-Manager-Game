@@ -4,3 +4,6 @@ dist/
 .wrangler-pages.*.log
 *.log
 *.csv
+*.csv
+*.csv
+output.csv

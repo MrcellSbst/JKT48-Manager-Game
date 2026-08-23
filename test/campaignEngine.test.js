@@ -148,6 +148,22 @@ test('campaign revenue per vote stays within configured trust and reputation ran
   assert.equal(campaignRevenuePerVote({ fanTrust: 100, reputation: 100 }), 10_000);
 });
 
+test('SSK and Request Hour generate an exact seeded 7-15 percent fanbase vote pool', () => {
+  const roster = members(24);
+  const group = { fanTrust: 55, reputation: 60, fanbase: 1_234_567 };
+  for (const type of ['sousenkyo', 'request-hour']) {
+    const base = { seed: `vote-pool-${type}`, year: 2, week: 1, members: roster, group, campaign: null, nextCampaignConfig: null, campaignHistory: [], runStatus: 'active' };
+    let state = startCampaign(base, { members: roster, type, startWeek: 1, durationWeeks: 8 });
+    state = advanceCampaign(state, { year: 2, week: 1, members: roster, group, rng: createRng(hashSeed(`${type}-registration`)) });
+    state = advanceCampaign({ ...base, ...state }, { year: 2, week: 2, members: roster, group, rng: createRng(hashSeed(`${type}-voting`)) });
+    const weekly = state.campaign.weeklyVoteHistory[0];
+    assert.ok(weekly.ratePercent >= 7 && weekly.ratePercent <= 15);
+    assert.equal(weekly.votes, Math.round(group.fanbase * weekly.ratePercent / 100));
+    assert.equal(weekly.revenue, weekly.votes * weekly.perVote);
+    assert.equal(Object.values(state.campaign.participants.votes).reduce((sum, value) => sum + value, 0), weekly.votes);
+  }
+});
+
 test('campaign advance creates Year 2 registration, active voting, and result lifecycle', () => {
   const roster = members(16);
   const base = { seed: 'campaign-lifecycle', year: 2, week: 1, members: roster, group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, nextCampaignConfig: null, campaignHistory: [] };

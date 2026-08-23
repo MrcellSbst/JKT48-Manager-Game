@@ -435,3 +435,29 @@ main { min-width:0; }
 .drama-decision-actions{flex-wrap:wrap}
 .drama-decision-actions button{min-width:0;flex:1 1 auto;white-space:nowrap}
 @media(max-width:520px){.drama-decision-modal{max-height:calc(100dvh - 24px);padding:20px}.drama-response-choice{grid-template-columns:1fr}.drama-decision-actions{align-items:stretch;flex-direction:column}.drama-decision-actions button{width:100%}}
+
+/* Mandatory annual close: tax is settled before the theater decision. */
+.year-end-settlement-backdrop{z-index:120;padding:20px;overflow:auto}
+.year-end-settlement{width:min(980px,100%);max-height:calc(100dvh - 40px);margin:auto;overflow:auto;background:var(--paper);color:var(--ink);border:1px solid var(--line)}
+.year-end-settlement>header{position:sticky;top:0;z-index:2;padding:22px 24px;border-bottom:1px solid var(--line);background:var(--paper);display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.year-end-settlement>header h2{margin:0;font-size:2em;line-height:1}
+.year-end-settlement>header p{max-width:65ch;margin:7px 0 0;color:var(--muted);line-height:1.45}
+.year-end-settlement>header>span{padding:6px 9px;border:1px solid var(--line);color:var(--muted);font-size:.6875em;font-weight:800;text-transform:uppercase;white-space:nowrap}
+.settlement-tax-stage,.settlement-theater-stage{padding:24px}
+.settlement-tax-stage{display:grid;gap:16px}
+.settlement-ledger{margin:0;border:1px solid var(--line)}
+.settlement-ledger>div{min-height:48px;padding:10px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:18px}
+.settlement-ledger>div:last-child{border-bottom:0}.settlement-ledger dt{color:var(--muted)}.settlement-ledger dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
+.settlement-ledger .settlement-total{background:var(--ink);color:var(--paper)}.settlement-ledger .settlement-total dt{color:inherit;font-weight:700}.settlement-ledger .settlement-total dd{font:800 1.5em 'Barlow Condensed',sans-serif}
+.settlement-note,.settlement-warning{margin:0;padding:12px 13px;background:var(--soft);color:var(--muted);line-height:1.45}.settlement-warning{display:flex;align-items:flex-start;gap:9px;background:color-mix(in srgb,var(--critical) 9%,var(--paper));color:var(--critical);font-weight:700}.settlement-warning svg{flex:0 0 auto}
+.settlement-tax-stage>.setup-primary{justify-self:end;min-height:44px}
+.current-theater-summary{min-height:66px;padding:12px 14px;border:1px solid var(--line);display:flex;align-items:center;gap:12px}.current-theater-summary>span{min-width:0;flex:1}.current-theater-summary strong,.current-theater-summary small{display:block}.current-theater-summary small{margin-top:3px;color:var(--muted)}.current-theater-summary>b{font-variant-numeric:tabular-nums}
+.settlement-options{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border:1px solid var(--line);background:var(--line);gap:1px}
+.settlement-options>article{min-width:0;padding:16px;background:var(--paper);display:flex;flex-direction:column;align-items:flex-start}
+.settlement-options h3{margin:0 0 5px;font-size:1.25em}.settlement-options p{min-height:42px;margin:0 0 14px;color:var(--muted);line-height:1.4}
+.settlement-options dl{width:100%;margin:4px 0 14px}.settlement-options dl>div{padding:5px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px}.settlement-options dt{color:var(--muted)}.settlement-options dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums}
+.settlement-options>article>strong{margin:auto 0 9px;font:800 1.25em 'Barlow Condensed',sans-serif;font-variant-numeric:tabular-nums}
+.settlement-options button{min-height:40px;padding:0 12px;border:0;border-radius:4px;background:var(--red);color:#fff;font-weight:700}.settlement-options .secondary-button{border:1px solid var(--line);background:var(--paper);color:var(--ink)}
+:root[data-theme='dark'] .year-end-settlement-backdrop{background:rgba(0,0,0,.78)}
+.timeline-mark.finance{background:var(--warning)}
+@media(max-width:700px){.year-end-settlement-backdrop{padding:0}.year-end-settlement{width:100%;min-height:100dvh;max-height:none;border:0}.year-end-settlement>header{padding:18px 16px}.year-end-settlement>header{flex-direction:column}.settlement-tax-stage,.settlement-theater-stage{padding:16px}.settlement-options{grid-template-columns:1fr}.current-theater-summary{align-items:flex-start;flex-wrap:wrap}.current-theater-summary>b{width:100%;padding-left:34px}.settlement-tax-stage>.setup-primary{width:100%;justify-content:center}}

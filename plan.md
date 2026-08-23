@@ -1330,19 +1330,19 @@ Example:
 ```text
 Venue A
 Capacity: 1,850
-Rental Cost: Rp 240m
+Rental Cost: $240m
 Production Ceiling: LOW
 Popularity Gain Potential: LOW
 
 Venue B
 Capacity: 4,200
-Rental Cost: Rp 620m
+Rental Cost: $620m
 Production Ceiling: MEDIUM
 Popularity Gain Potential: MEDIUM
 
 Venue C
 Capacity: 8,750
-Rental Cost: Rp 1.45b
+Rental Cost: $1.45b
 Production Ceiling: HIGH
 Popularity Gain Potential: HIGH
 Financial Risk: HIGH
