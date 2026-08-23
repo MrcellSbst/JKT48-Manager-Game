@@ -89,3 +89,9 @@ test('Campaign UI explains annual campaign and mutual MV locks', async () => {
   assert.match(source, /singleProjectBlocked/);
   assert.match(source, /Only one Sousenkyo, Request Hour, or Janken can run in a calendar year/);
 });
+
+test('year-end event Review checks the full target month', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /type: 'yearEndMeetGreet', day: mgDay, monthScope: true/);
+  assert.match(source, /type: 'concert', days: \[anniversaryDay, 'Tue', 'Thu'\], monthScope: true/);
+});

@@ -1502,14 +1502,42 @@ test('anniversary concert booking is unavailable before Month 7 Week 1', () => {
   assert.equal(blocked, game);
 });
 
-test('anniversary conflict checks use the selected week instead of December week four', () => {
+test('anniversary conflict checks the full selected month', () => {
   const draft = createGame('anniversary-target-week-conflict-test');
   let game = finalizeGameSetup({ ...draft, week: 43 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
   game = scheduleFanCampaign(game, 'meetGreet', 'Mon', [], 48);
   const venueId = game.concertVenueOffers[0].id;
-  const announced = announceAnniversaryConcert(game, 45, 'Sat', 'Early Anniversary', 'standard', venueId, ['Tue', 'Thu']);
-  assert.equal(announced.concerts.length, 1);
-  assert.equal(announced.concerts[0].targetWeek, 45);
+  const blocked = announceAnniversaryConcert(game, 45, 'Sat', 'Early Anniversary', 'standard', venueId, ['Tue', 'Thu']);
+  assert.equal(blocked.concerts.length, 0);
+  assert.match(blocked.notifications[0].text, /Meet & Greet already occupies this month/);
+});
+
+test('year-end Meet & Greet and Anniversary Concert require a clear target month', () => {
+  const draft = createGame('annual-event-month-conflict-test');
+  const game = finalizeGameSetup({ ...draft, week: 37 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberIds = game.members.map((member) => member.id);
+
+  const octoberVideoCall = scheduleFanCampaign(game, 'videoCall', 'Thu', memberIds, 38);
+  const blockedMeetGreet = scheduleYearEndMeetGreet(octoberVideoCall, 39, 'Sat', 37);
+  assert.equal(blockedMeetGreet.yearEndMeetGreets.length, 0);
+  assert.match(blockedMeetGreet.notifications[0].text, /Video Call already occupies this month/);
+
+  const decemberVideoCall = scheduleFanCampaign(game, 'videoCall', 'Thu', memberIds, 46);
+  const venueId = game.concertVenueOffers[0].id;
+  const blockedAnniversary = announceAnniversaryConcert(decemberVideoCall, 45, 'Sat', 'Anniversary Night', 'standard', venueId, ['Tue', 'Thu']);
+  assert.equal(blockedAnniversary.concerts.length, 0);
+  assert.match(blockedAnniversary.notifications[0].text, /Video Call already occupies this month/);
+});
+
+test('booked annual events prevent later campaigns anywhere in their month', () => {
+  const draft = createGame('annual-event-reverse-month-conflict-test');
+  const game = finalizeGameSetup({ ...draft, week: 37 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberIds = game.members.map((member) => member.id);
+  const annualMeetGreet = scheduleYearEndMeetGreet(game, 39, 'Sat', 37);
+  const blockedVideoCall = scheduleFanCampaign(annualMeetGreet, 'videoCall', 'Thu', memberIds, 38);
+
+  assert.equal(blockedVideoCall.fanEventPlans.length, 0);
+  assert.match(blockedVideoCall.notifications[0].text, /Year-end Meet & Greet already occupies this month/);
 });
 
 test('concert announcement persists selected budget and venue size', () => {

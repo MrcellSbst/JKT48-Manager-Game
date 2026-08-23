@@ -81,15 +81,25 @@ const claimScheduleSlot = (schedule, key, activityId) => {
   if (!currentActivity || currentActivity === activityId || (!isCampaignActivity(currentActivity) && isCampaignActivity(activityId))) schedule[key] = activityId;
   return schedule[key] === activityId;
 };
-const campaignConflictLabel = (type) => type === 'concert'
-  ? 'Concert already occupies the requested schedule.'
-  : type === 'yearEndMeetGreet' ? 'Year-end Meet & Greet already occupies the requested schedule.'
-    : type === 'meetGreet' ? 'Meet & Greet already occupies the requested schedule.'
-      : type === 'videoCall' ? 'Video Call already occupies this member and day.'
-        : 'MV production already occupies this member and day.';
+const campaignConflictLabel = (type, scope = 'schedule') => {
+  if (scope === 'month') {
+    if (type === 'concert') return 'Concert already occupies this month.';
+    if (type === 'yearEndMeetGreet') return 'Year-end Meet & Greet already occupies this month.';
+    if (type === 'meetGreet') return 'Meet & Greet already occupies this month.';
+    if (type === 'videoCall') return 'Video Call already occupies this month.';
+    return 'MV production already occupies this month.';
+  }
+  return type === 'concert'
+    ? 'Concert already occupies the requested schedule.'
+    : type === 'yearEndMeetGreet' ? 'Year-end Meet & Greet already occupies the requested schedule.'
+      : type === 'meetGreet' ? 'Meet & Greet already occupies the requested schedule.'
+        : type === 'videoCall' ? 'Video Call already occupies this member and day.'
+          : 'MV production already occupies this member and day.';
+};
 const campaignEventDays = (event) => [...new Set([event.day, ...(event.rehearsalDays ?? [])].filter(Boolean))];
 const campaignDaysOverlap = (requestedDays, existingDays) => !requestedDays.length || !existingDays.length || requestedDays.some((day) => existingDays.includes(day));
 const campaignMemberOverlap = (requestedMembers, existingMembers) => requestedMembers.size > 0 && existingMembers.some((memberId) => requestedMembers.has(memberId));
+const sameCampaignMonth = (firstAbsolute, secondAbsolute) => Math.floor((firstAbsolute - 1) / BALANCE.weeksPerMonth) === Math.floor((secondAbsolute - 1) / BALANCE.weeksPerMonth);
 const conflictNotification = (state, reasons) => ({
   ...state,
   notifications: [{ type: 'critical', text: `Campaign blocked: ${reasons[0]}` }, ...(state.notifications ?? [])].slice(0, 20),
@@ -101,32 +111,37 @@ export function getCampaignConflictReasons(state, options = {}) {
   if (!Number.isInteger(targetYear) || !Number.isInteger(targetWeek)) return [];
   const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
   const type = options.type ?? 'meetGreet';
+  const monthScope = options.monthScope === true;
   const requestedDays = [...new Set([...(options.days ?? []), options.day].filter(Boolean))];
   const requestedMembers = new Set(options.memberIds ?? []);
   const reasons = [];
-  const addReason = (conflictType) => {
-    const label = campaignConflictLabel(conflictType);
+  const addReason = (conflictType, scope = 'schedule') => {
+    const label = campaignConflictLabel(conflictType, scope);
     if (!reasons.includes(label)) reasons.push(label);
   };
-  const matchesStoredCampaign = ({ absolute, type: existingType, days = [], memberIds = [] }) => {
+  const matchesStoredCampaign = ({ absolute, type: existingType, days = [], memberIds = [], monthScope: existingMonthScope = false }) => {
+    if ((monthScope || existingMonthScope) && sameCampaignMonth(absolute, targetAbsolute)) return 'month';
     if (absolute !== targetAbsolute) return false;
     // Meet & Greet is a single group campaign per target week; other campaign
     // types remain slot-aware and only conflict when their day/member overlaps.
-    if (type === 'meetGreet' && existingType === 'meetGreet') return true;
+    if (type === 'meetGreet' && existingType === 'meetGreet') return 'schedule';
     if (!campaignDaysOverlap(requestedDays, days)) return false;
     if (type === 'videoCall' || type === 'mv') {
-      if (isGroupCampaignType(existingType)) return true;
-      return campaignMemberOverlap(requestedMembers, memberIds);
+      if (isGroupCampaignType(existingType)) return 'schedule';
+      return campaignMemberOverlap(requestedMembers, memberIds) ? 'schedule' : false;
     }
-    return true;
+    return 'schedule';
   };
   const storedCampaigns = [
-    ...(state.concerts ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: 'concert', days: campaignEventDays(event), memberIds: event.memberIds ?? [] })),
-    ...(state.yearEndMeetGreets ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: 'yearEndMeetGreet', days: [event.day].filter(Boolean), memberIds: (event.memberSessions ?? []).map((session) => session.memberId) })),
+    ...(state.concerts ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: 'concert', days: campaignEventDays(event), memberIds: event.memberIds ?? [], monthScope: event.eventType === 'anniversary' })),
+    ...(state.yearEndMeetGreets ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: 'yearEndMeetGreet', days: [event.day].filter(Boolean), memberIds: (event.memberSessions ?? []).map((session) => session.memberId), monthScope: true })),
     ...(state.fanEventPlans ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: event.type, days: [event.day].filter(Boolean), memberIds: event.memberIds ?? [] })),
     ...(state.activityEvents ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.week), type: event.type, days: [], memberIds: event.memberId ? [event.memberId] : [] })),
   ];
-  storedCampaigns.forEach((campaign) => { if (matchesStoredCampaign(campaign)) addReason(campaign.type); });
+  storedCampaigns.forEach((campaign) => {
+    const scope = matchesStoredCampaign(campaign);
+    if (scope) addReason(campaign.type, scope);
+  });
   // Meet & Greet is limited to one event per four-week month, not merely one
   // target week. Check resolved events and future plans before opening the
   // confirmation flow so a second week in the same month cannot become a
@@ -147,6 +162,13 @@ export function getCampaignConflictReasons(state, options = {}) {
     const startWeek = Number.isInteger(single.productionStartWeek) ? single.productionStartWeek : single.week;
     if (!Number.isInteger(startYear) || !Number.isInteger(startWeek)) return;
     const startAbsolute = toAbsoluteWeek(startYear, startWeek);
+    if (monthScope) {
+      const targetMonthStart = targetAbsolute - ((targetWeek - 1) % BALANCE.weeksPerMonth);
+      const targetMonthEnd = targetMonthStart + BALANCE.weeksPerMonth - 1;
+      const productionEnd = startAbsolute + (single.durationWeeks ?? 4) - 1;
+      if (startAbsolute <= targetMonthEnd && productionEnd >= targetMonthStart) addReason('mv', 'month');
+      return;
+    }
     if (targetAbsolute < startAbsolute || targetAbsolute >= startAbsolute + (single.durationWeeks ?? 4) || !campaignDaysOverlap(requestedDays, [single.productionDay].filter(Boolean))) return;
     if ((type === 'videoCall' || type === 'mv') && !campaignMemberOverlap(requestedMembers, single.memberIds ?? [])) return;
     addReason('mv');
@@ -1810,7 +1832,7 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
 export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}) {
   if (state.runStatus === 'ended' || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
   if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year)) return state;
-  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day });
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day, monthScope: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const cost = 40_000_000;
   if (state.money < cost) return state;
@@ -1824,7 +1846,7 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
   if (state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
-  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays] });
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;
   const chosenVenueId = venueId ?? state.concertVenueOffers?.[0]?.id ?? CONCERT_VENUES[0].id;

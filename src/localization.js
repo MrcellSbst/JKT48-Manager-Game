@@ -387,10 +387,16 @@ Object.assign(ID, {
   'Low budget': 'Anggaran rendah', 'Medium budget': 'Anggaran menengah', 'High budget': 'Anggaran tinggi',
   'Lean production': 'Produksi hemat', 'Standard production': 'Produksi standar', 'Major production': 'Produksi besar',
   'sousenkyo': 'Sousenkyo', 'requestHour': 'Request Hour', 'janken': 'Janken',
-  'yes': 'ya', 'no': 'tidak', 'Former member': 'Mantan anggota'
+  'yes': 'ya', 'no': 'tidak', 'Former member': 'Mantan anggota',
+  'Concert already occupies this month.': 'Konser sudah mengisi bulan ini.',
+  'Year-end Meet & Greet already occupies this month.': 'Meet & Greet akhir tahun sudah mengisi bulan ini.',
+  'Meet & Greet already occupies this month.': 'Meet & Greet sudah mengisi bulan ini.',
+  'Video Call already occupies this month.': 'Video Call sudah mengisi bulan ini.',
+  'MV production already occupies this month.': 'Produksi MV sudah mengisi bulan ini.'
 });
 
 const patterns = [
+  [/^Campaign blocked: (.+)$/, (_, reason) => `Kampanye diblokir: ${ID[reason] ?? reason}`],
   [/^Level (\d+)\/5$/, 'Level $1/5'], [/^Level (\d+) · (.+)$/, 'Level $1 · $2'],
   [/^Current effect (.+) · locked into equipped runs$/, 'Efek saat ini $1 · terkunci dalam permainan yang memasangnya'], [/^Unlock Level 1 effect (.+)$/, 'Buka efek Level 1 $1'],
   [/^Review (\d+) recruits?$/, 'Tinjau $1 rekrutan'], [/^Confirm (\d+) recruits?$/, 'Konfirmasi $1 rekrutan'],

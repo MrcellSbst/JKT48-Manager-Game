@@ -923,14 +923,14 @@ function FixedAnnualEvents({ game, setGame }) {
   const yearEndMeetGreetLockReason = game.week < 25
     ? `Year-end Meet & Greet bookings open from ${monthWeekLabel(25)}.`
     : game.money < 40_000_000 ? `Requires ${money(40_000_000)}; current funds: ${money(game.money)}.` : '';
-  const mgScheduleConflicts = mgWeek ? eventConflictsForWeek(game, mgWeek, 'yearEndMeetGreet', mgDay) : [];
+  const mgScheduleConflicts = mgWeek ? getCampaignConflictReasons(game, { year: game.year, week: mgWeek, type: 'yearEndMeetGreet', day: mgDay, monthScope: true }) : [];
   const mgConflicts = yearEndMeetGreetLockReason ? [yearEndMeetGreetLockReason] : mgScheduleConflicts;
   const anniversaryBookingLockReason = game.week < 25
     ? `Anniversary Concert bookings open from ${monthWeekLabel(25)}.`
     : !anniversaryWeeks.length
       ? 'Anniversary Concert requires a future date with at least two weeks of lead time.'
     : game.money < anniversaryUpfrontCost ? `Requires ${money(anniversaryUpfrontCost)}; current funds: ${money(game.money)}.` : '';
-  const anniversaryScheduleConflicts = anniversaryWeek ? eventConflictsForWeek(game, anniversaryWeek, 'concert', anniversaryDay, [], ['Tue', 'Thu']) : [];
+  const anniversaryScheduleConflicts = anniversaryWeek ? getCampaignConflictReasons(game, { year: game.year, week: anniversaryWeek, type: 'concert', days: [anniversaryDay, 'Tue', 'Thu'], monthScope: true }) : [];
   const anniversaryConflicts = anniversaryBookingLockReason ? [anniversaryBookingLockReason] : anniversaryScheduleConflicts;
   useEffect(() => { if (!mgWeeks.includes(mgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]); }, [game.week]);
   useEffect(() => { if (!anniversaryWeeks.includes(anniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]); }, [game.week]);

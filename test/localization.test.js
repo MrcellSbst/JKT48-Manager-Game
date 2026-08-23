@@ -42,6 +42,10 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   assert.equal(translateIndonesian('Unassigned day restores energy'), 'Hari tanpa penugasan memulihkan energi');
   assert.equal(translateIndonesian('Intensive Dance training'), 'Latihan tari intensif');
   assert.equal(
+    translateIndonesian('Campaign blocked: Video Call already occupies this month.'),
+    'Kampanye diblokir: Video Call sudah mengisi bulan ini.',
+  );
+  assert.equal(
     translateIndonesian("Fans argue that Fiony's ability deserves more attention."),
     'Penggemar menilai kemampuan Fiony layak mendapat lebih banyak perhatian.',
   );
