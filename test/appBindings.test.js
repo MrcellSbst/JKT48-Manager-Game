@@ -49,6 +49,8 @@ test('founding member selection filters by generation beside search', async () =
 
 test('MV lineup dropdowns stay editable and swap occupied positions', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /\{ year: selectedRelease\.year, week: selectedRelease\.targetWeek \}/);
+  assert.doesNotMatch(source, /const eligibilityDate = selectedRelease \?\?/);
   assert.match(source, /const selectMvPosition = \(positionIndex, memberId\) =>/);
   assert.match(source, /\[next\[positionIndex\], next\[occupiedIndex\]\] = \[next\[occupiedIndex\], next\[positionIndex\]\]/);
   assert.match(source, /onChange=\{\(event\) => selectMvPosition\(0, event\.target\.value\)\}/);

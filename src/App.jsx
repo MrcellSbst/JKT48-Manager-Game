@@ -1149,7 +1149,9 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
   const [inspectingCandidateId, setInspectingCandidateId] = useState(null);
   const [confirmRenovation, setConfirmRenovation] = useState(false);
   const selectedRelease = releaseOptions.find((option) => option.value === releaseTarget);
-  const eligibilityDate = selectedRelease ?? { year: game.year, week: game.week };
+  const eligibilityDate = selectedRelease
+    ? { year: selectedRelease.year, week: selectedRelease.targetWeek }
+    : { year: game.year, week: game.week };
   const eligibleMembers = getSingleEligibleMembers(game, eligibilityDate.year, eligibilityDate.week);
   const mvRosterMembers = game.members
     .filter((member) => ['active', 'trainee'].includes(member.status))
