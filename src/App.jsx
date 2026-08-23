@@ -161,7 +161,7 @@ function TheaterPlanner({ game, setGame, theaterCounts }) {
   };
   return <section className="theater-planner"><div className="theater-planner-head"><div><span className="eyebrow">Theater production</span><h3>Setlist and center</h3></div><small>Familiarity improves after every complete 12-member show. Repeating a setlist reduces its demand.</small></div><div className="theater-show-configs">{activeDays.map((day) => {
     const lineup = game.members.filter((member) => game.schedule[`${member.id}:${day}`] === 'theater');
-    const fallbackCenter = lineup.toSorted((a, b) => b.performance - a.performance)[0];
+    const fallbackCenter = [...lineup].sort((a, b) => b.performance - a.performance)[0];
     const configured = game.theaterShows?.[day] ?? {};
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
     const centerId = lineup.some((member) => member.id === configured?.centerId) ? configured.centerId : fallbackCenter?.id;

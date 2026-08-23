@@ -253,7 +253,7 @@ function applyMemberAbsenceToCommitments(state, memberId, durationWeeks) {
   delete trainingPlans[memberId];
   const replacementFor = (lineup, activityId) => (state.members ?? [])
     .filter((candidate) => candidate.id !== memberId && !lineup.includes(candidate.id) && canMemberPerform(candidate, activityId))
-    .toSorted((first, second) => (second.performance ?? 0) - (first.performance ?? 0))[0];
+    .sort((first, second) => (second.performance ?? 0) - (first.performance ?? 0))[0];
   const replacementNotices = [];
   let refund = 0;
 
@@ -643,7 +643,7 @@ export function migrateTrainingState(state) {
     .filter(([, sessions]) => sessions.length));
   legacyByMember.forEach((sessions, memberId) => {
     if (trainingPlanFor({ trainingPlans }, memberId).length) return;
-    trainingPlans[memberId] = sessions.toSorted((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day)).map((session) => session.activityId).slice(0, BALANCE.training.maxSessionsPerMember);
+    trainingPlans[memberId] = [...sessions].sort((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day)).map((session) => session.activityId).slice(0, BALANCE.training.maxSessionsPerMember);
   });
 
   const trainingTemplates = (state.trainingTemplates ?? []).map((template) => ({
@@ -660,7 +660,7 @@ export function migrateTrainingState(state) {
     const id = `training-${template.id ?? `legacy-${templateIndex}`}`;
     if (trainingTemplateIds.has(id)) return;
     const plans = new Map();
-    trainingEntries.toSorted((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day)).forEach((entry) => {
+    [...trainingEntries].sort((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day)).forEach((entry) => {
       const sessions = plans.get(entry.memberId) ?? [];
       if (sessions.length < BALANCE.training.maxSessionsPerMember) sessions.push(entry.activityId);
       plans.set(entry.memberId, sessions);
@@ -2811,7 +2811,7 @@ export function resolveWeek(state) {
     const configured = state.theaterShows?.[day];
     const setlist = SETLIST_BY_ID[configured?.setlistId] ?? SETLISTS[0];
     const lineup = members.filter((member) => weekSchedule[`${member.id}:${day}`] === 'theater');
-    const center = lineup.find((member) => member.id === configured?.centerId) ?? lineup.toSorted((a, b) => b.performance - a.performance)[0];
+    const center = lineup.find((member) => member.id === configured?.centerId) ?? [...lineup].sort((a, b) => b.performance - a.performance)[0];
     const validSeitansaiMember = lineup.find((member) => member.id === configured?.seitansaiMemberId);
     const validLastShowMember = getGraduationLastShowCandidates(state, day).find((member) => member.id === configured?.lastShowMemberId);
     return { id: `theater-${state.year}-${state.week}-${day}`, year: state.year, week: state.week, day, setlistId: setlist.id, setlistTitle: setlist.title, centerId: center?.id, centerName: center?.nickname || center?.name, memberIds: lineup.map((member) => member.id), songs: setlist.songs, isSeitansai: Boolean(configured?.isSeitansai && validSeitansaiMember), seitansaiMemberId: validSeitansaiMember?.id ?? null, isLastShow: Boolean(configured?.isLastShow && validLastShowMember), lastShowMemberId: validLastShowMember?.id ?? null, twoShot: twoShotRecords.find((record) => record.type === 'twoShotRoulette' && record.day === day) ?? null, ...theaterEconomics[day] };
