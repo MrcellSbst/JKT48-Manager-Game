@@ -6,7 +6,9 @@ import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
 import { BONUS_BY_ID, getBonusValueAtLevel, normalizeBonusLevel } from '../data/bonusTemplates.js';
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 import { appendManagementContext, getManagementDramaChanceMultiplier, getManagementDramaContext, personalizeDramaText, selectManagementDramaTemplate } from './dramaEngine.js';
-import { advanceCampaign, CAMPAIGN_DEFAULT_CONCERT_DAY, clampCampaignDuration, configureNextCampaign, nextCampaignType, startCampaign } from './campaignEngine.js';
+import { advanceCampaign, CAMPAIGN_DEFAULT_CONCERT_DAY, clampCampaignDuration, configureNextCampaign, isMajorCampaignActive, nextCampaignType, startCampaign } from './campaignEngine.js';
+
+export { getMajorCampaignStartBlockReason, isMajorCampaignActive } from './campaignEngine.js';
 
 const ARCHETYPES = ['Performer', 'Vocalist', 'Entertainer', 'All-Rounder', 'Specialist', 'Raw Prospect', 'Prodigy', 'Late Bloomer'];
 const TRAITS = ['Quick Learner', 'Big Stage Performer', 'Theater Specialist', 'Reliable Performer', 'Versatile', 'Crowd Magnet'];
@@ -416,6 +418,25 @@ export function getRosterDanger(count) {
   if (count >= 13) return 'DANGER';
   if (count === 12) return 'MINIMUM THEATER ROSTER';
   return 'THEATER CANNOT OPERATE';
+}
+
+export function getRunEndWarnings(state) {
+  if (!state || state.runStatus === 'ended') return [];
+  const counters = state.failureCounters ?? {};
+  const eligibleMembers = getTheaterEligibleMembers(state).length;
+  const unpaidSalaryMonths = state.ledger?.unpaidSalaryMonths ?? 0;
+  const fanTrust = state.group?.fanTrust ?? 0;
+  const reputation = state.group?.reputation ?? 0;
+  const fanbase = state.group?.fanbase ?? 0;
+  const warnings = [];
+
+  if (eligibleMembers <= BALANCE.theaterMinimumMembers + 1) warnings.push({ id: 'theaterRoster', severity: eligibleMembers <= BALANCE.theaterMinimumMembers ? 'critical' : 'warning', value: eligibleMembers, limit: BALANCE.theaterMinimumMembers });
+  if (state.hardMode && unpaidSalaryMonths > 0) warnings.push({ id: 'salaryDefault', severity: unpaidSalaryMonths >= BALANCE.salary.unpaidMonthsToEnd ? 'critical' : 'warning', value: unpaidSalaryMonths, limit: BALANCE.salary.unpaidMonthsToEnd + 1 });
+  if ((counters.negativeCashWeeks ?? 0) > 0 || state.money < 0) warnings.push({ id: 'bankruptcy', severity: 'critical', value: Math.max(counters.negativeCashWeeks ?? 0, state.money < 0 ? 1 : 0), limit: 4 });
+  if (fanTrust <= 10 || (counters.lowTrustWeeks ?? 0) > 0) warnings.push({ id: 'fanTrust', severity: fanTrust < 5 || (counters.lowTrustWeeks ?? 0) > 0 ? 'critical' : 'warning', active: fanTrust < 5, value: fanTrust, weeks: counters.lowTrustWeeks ?? 0, limit: 4 });
+  if (reputation <= 10 || (counters.lowReputationWeeks ?? 0) > 0) warnings.push({ id: 'reputation', severity: reputation < 5 || (counters.lowReputationWeeks ?? 0) > 0 ? 'critical' : 'warning', active: reputation < 5, value: reputation, weeks: counters.lowReputationWeeks ?? 0, limit: 4 });
+  if (fanbase <= 25_000 || (counters.lowFanbaseWeeks ?? 0) > 0) warnings.push({ id: 'fanbase', severity: fanbase < 20_000 || (counters.lowFanbaseWeeks ?? 0) > 0 ? 'critical' : 'warning', active: fanbase < 20_000, value: fanbase, weeks: counters.lowFanbaseWeeks ?? 0, limit: 8 });
+  return warnings;
 }
 
 function makeStats(rng, archetype, hardMode = false) {
@@ -1563,7 +1584,7 @@ export function getTheaterRenovationOffer(state) {
 export function startSingleProduction(state, centerId, productionDay, selectedMemberIds = null, releaseYear = null, releaseMonth = null, requestedTitle = '', budgetId = 'medium') {
   const budget = SINGLE_BUDGETS.find((option) => option.id === budgetId);
   const productionCost = applyRate(budget?.cost ?? 0, bonusValue(state, 'B005'));
-  if (!budget || state.runStatus === 'ended' || state.money < productionCost || state.singles.some((single) => single.status !== 'released')) return state;
+  if (!budget || state.runStatus === 'ended' || state.money < productionCost || isMajorCampaignActive(state) || state.singles.some((single) => single.status !== 'released')) return state;
   if (!DAYS.includes(productionDay)) return state;
   const scheduledRelease = Number.isInteger(releaseYear) && Number.isInteger(releaseMonth);
   const releaseWeek = scheduledRelease ? releaseMonth * BALANCE.weeksPerMonth : null;

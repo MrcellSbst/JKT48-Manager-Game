@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -312,6 +312,32 @@ test('sustained bankruptcy ends only after four consecutive weeks', () => {
   assert.equal(game.runSummary.cause, 'SUSTAINED BANKRUPTCY');
   assert.ok(Number.isFinite(game.runSummary.score));
   assert.match(game.runSummary.rank, /^[SABCD]$/);
+});
+
+test('run-end warnings expose near thresholds, active counters, and recovery progress', () => {
+  const game = createGame('run-end-warning-test');
+  const safeGame = { ...game, group: { ...game.group, fanbase: 50_000 } };
+  assert.deepEqual(getRunEndWarnings(safeGame), []);
+
+  const endangered = {
+    ...safeGame,
+    hardMode: true,
+    members: game.members.slice(0, 13),
+    money: -1,
+    group: { ...game.group, fanTrust: 4, reputation: 8, fanbase: 19_500 },
+    ledger: { ...game.ledger, unpaidSalaryMonths: 2 },
+    failureCounters: { negativeCashWeeks: 2, lowTrustWeeks: 1, lowReputationWeeks: 0, lowFanbaseWeeks: 3 },
+  };
+  const warnings = Object.fromEntries(getRunEndWarnings(endangered).map((warning) => [warning.id, warning]));
+
+  assert.equal(warnings.theaterRoster.severity, 'warning');
+  assert.equal(warnings.salaryDefault.severity, 'critical');
+  assert.deepEqual([warnings.bankruptcy.value, warnings.bankruptcy.limit], [2, 4]);
+  assert.deepEqual([warnings.fanTrust.weeks, warnings.fanTrust.limit], [1, 4]);
+  assert.equal(warnings.fanTrust.active, true);
+  assert.equal(warnings.reputation.severity, 'warning');
+  assert.deepEqual([warnings.fanbase.weeks, warnings.fanbase.limit], [3, 8]);
+  assert.deepEqual(getRunEndWarnings({ ...endangered, runStatus: 'ended' }), []);
 });
 
 test('graduation planning runs at the start of each month once members pass their tenure cooldown', () => {
@@ -818,6 +844,21 @@ test('campaign rewards run result concert before the configured MV budget', () =
   assert.equal(rewardMv.budgetId, 'high');
   assert.equal(rewardMv.durationWeeks, 4);
   assert.ok(rewardMv.productionCost > 0);
+});
+
+test('active major campaign blocks regular MV production in both directions', () => {
+  const draft = createGame('major-campaign-mv-lock-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const ready = { ...base, year: 2, week: 1, money: 2_000_000_000 };
+  const campaign = startMajorCampaign(ready, { durationWeeks: 8 });
+  const lineupIds = campaign.members.slice(0, 12).map((member) => member.id);
+
+  assert.equal(startSingleProduction(campaign, lineupIds[0], 'Mon', lineupIds), campaign);
+
+  const completedCampaign = { ...campaign.campaign, status: 'completed', completedYear: 2, completedWeek: 20 };
+  const campaignComplete = { ...campaign, campaign: completedCampaign };
+  const single = startSingleProduction(campaignComplete, lineupIds[0], 'Mon', lineupIds);
+  assert.equal(single.singles.length, campaignComplete.singles.length + 1);
 });
 
 test('SSK creates separate Senbatsu and Undergirls MV projects', () => {

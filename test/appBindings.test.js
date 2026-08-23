@@ -59,3 +59,33 @@ test('MV lineup dropdowns stay editable and swap occupied positions', async () =
   assert.doesNotMatch(source, /eligibleMembers\.length > 12 \? <div className="mv-roster-select">/);
   assert.doesNotMatch(source, /className="mv-auto-lineup"/);
 });
+
+test('Wiki documents every run-ending threshold and counter reset', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /text\('Run-ending conditions', 'Kondisi akhir permainan'\)/);
+  assert.match(source, /four consecutive resolved weeks with negative cash, Fan Trust below 5, or Reputation below 5/);
+  assert.match(source, /eight consecutive resolved weeks below 20,000 fans/);
+  assert.match(source, /fewer than \$\{BALANCE\.theaterMinimumMembers\} theater-eligible members/);
+  assert.match(source, /more than \$\{BALANCE\.salary\.unpaidMonthsToEnd\} months of unpaid current salary/);
+  assert.match(source, /resets that condition's consecutive-week counter/);
+});
+
+test('Command Center renders localized run-ending risk warnings', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /function RunEndRiskWarnings\(\{ game, language = 'en' \}\)/);
+  assert.match(source, /const warnings = getRunEndWarnings\(game\)/);
+  assert.match(source, /aria-live="polite"/);
+  assert.match(source, /<RunEndRiskWarnings game=\{game\} language=\{language\} \/>/);
+  assert.match(source, /Peringatan risiko akhir permainan/);
+});
+
+test('Campaign UI explains annual campaign and mutual MV locks', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const blockReason = getMajorCampaignStartBlockReason\(game\)/);
+  assert.match(source, /A major campaign has already run in Year/);
+  assert.match(source, /Finish .* before starting a major campaign/);
+  assert.match(source, /const activeMajorCampaign = isMajorCampaignActive\(game\)/);
+  assert.match(source, /Finish the current major campaign before producing a regular MV/);
+  assert.match(source, /singleProjectBlocked/);
+  assert.match(source, /Only one Sousenkyo, Request Hour, or Janken can run in a calendar year/);
+});

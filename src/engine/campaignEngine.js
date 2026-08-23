@@ -13,6 +13,35 @@ export const CAMPAIGN_MAX_DURATION = 16;
 export const CAMPAIGN_WEEKS_PER_YEAR = 48;
 export const CAMPAIGN_MV_PRODUCTION_WEEKS = 4;
 export const CAMPAIGN_DEFAULT_CONCERT_DAY = 'Sat';
+export const CAMPAIGN_TERMINAL_STATUSES = ['completed', 'cancelled', 'skipped'];
+
+export function isMajorCampaignActive(state = {}) {
+  return Boolean(state.campaign && !CAMPAIGN_TERMINAL_STATUSES.includes(state.campaign.status));
+}
+
+function campaignRanDuringYear(campaign, year) {
+  if (!campaign || campaign.held === false) return false;
+  const startYear = campaign.startYear ?? campaign.campaignYear;
+  if (!Number.isInteger(startYear)) return false;
+  if (!CAMPAIGN_TERMINAL_STATUSES.includes(campaign.status)) return startYear <= year;
+  const lifecycleEndYear = [...(campaign.lifecycle ?? [])].reverse().find((entry) => Number.isInteger(entry?.year))?.year;
+  const endYear = campaign.completedYear ?? campaign.archivedAt?.year ?? lifecycleEndYear ?? startYear;
+  return startYear <= year && year <= endYear;
+}
+
+export function hasMajorCampaignRunInYear(state = {}, year = state.year) {
+  if (!Number.isInteger(year)) return false;
+  return [...(state.campaignHistory ?? []), state.campaign].some((campaign) => campaignRanDuringYear(campaign, year));
+}
+
+export function getMajorCampaignStartBlockReason(state = {}) {
+  if (state.runStatus === 'ended') return 'run-ended';
+  if ((state.year ?? 0) < (state.firstCampaignYear ?? CAMPAIGN_FIRST_YEAR)) return 'campaigns-locked';
+  if (isMajorCampaignActive(state)) return 'campaign-in-progress';
+  if (hasMajorCampaignRunInYear(state)) return 'campaign-held-this-year';
+  if ((state.singles ?? []).some((single) => single.status !== 'released')) return 'mv-in-progress';
+  return null;
+}
 
 export const clampCampaignDuration = (durationWeeks) => Math.max(CAMPAIGN_MIN_DURATION, Math.min(CAMPAIGN_MAX_DURATION, Math.round(Number(durationWeeks) || 12)));
 export const campaignTypeForYear = (campaignYear, firstCampaignYear = CAMPAIGN_FIRST_YEAR) => campaignYear < firstCampaignYear ? null : CAMPAIGN_ROTATION[(campaignYear - firstCampaignYear) % CAMPAIGN_ROTATION.length];
@@ -97,7 +126,7 @@ export function nextCampaignType(state = {}) {
 
 export function startCampaign(state, { members = state.members ?? [], type = nextCampaignType(state), startWeek = state.week, durationWeeks = 12, budget = 0, concertBudgetId = 'standard', concertVenueId = 'hall', mvBudgetId = 'medium', concertDay = CAMPAIGN_DEFAULT_CONCERT_DAY } = {}) {
   const firstCampaignYear = state.firstCampaignYear ?? CAMPAIGN_FIRST_YEAR;
-  if (state.runStatus === 'ended' || state.year < firstCampaignYear || !CAMPAIGN_ROTATION.includes(type) || (state.campaign && !['completed', 'cancelled', 'skipped'].includes(state.campaign.status))) return state;
+  if (state.year < firstCampaignYear || !CAMPAIGN_ROTATION.includes(type) || getMajorCampaignStartBlockReason(state)) return state;
   const config = createCampaignConfig({ campaignYear: state.year, configuredInYear: state.year, type, startWeek: Math.max(state.week, startWeek), durationWeeks, budget, concertBudgetId, concertVenueId, mvBudgetId, concertDay, held: true });
   const rng = createRng(hashSeed(`${state.seed}:campaign:${state.year}:${state.week}:${type}:${(state.campaignHistory ?? []).length}`));
   const campaign = initializeCampaign(config, members, rng);

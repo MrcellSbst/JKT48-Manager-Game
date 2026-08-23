@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CAMPAIGN_ROTATION, advanceCampaign, campaignRevenuePerVote, campaignTypeForYear, clampCampaignDuration, configureNextCampaign, createCampaignConfig, nextCampaignType, startCampaign } from '../src/engine/campaignEngine.js';
+import { CAMPAIGN_ROTATION, advanceCampaign, campaignRevenuePerVote, campaignTypeForYear, clampCampaignDuration, configureNextCampaign, createCampaignConfig, getMajorCampaignStartBlockReason, hasMajorCampaignRunInYear, nextCampaignType, startCampaign } from '../src/engine/campaignEngine.js';
 import { resolveJanken, resolveJankenBracket } from '../src/engine/campaigns/jankenEngine.js';
 import { resolveRequestHour } from '../src/engine/campaigns/requestHourEngine.js';
 import { resolveSousenkyo } from '../src/engine/campaigns/sousenkyoEngine.js';
@@ -50,6 +50,39 @@ test('campaigns are optional and waiting does not auto-open or advance rotation'
   assert.equal(started.campaign.status, 'configured');
   const heldThenWaited = { ...started, campaign: { ...started.campaign, status: 'completed' }, year: 20, week: 48 };
   assert.equal(nextCampaignType(heldThenWaited), 'request-hour');
+});
+
+test('only one major campaign can run in a calendar year', () => {
+  const roster = members(16);
+  const base = { seed: 'annual-campaign-lock', year: 2, week: 2, members: roster, singles: [], group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, nextCampaignConfig: null, campaignHistory: [], lastCampaignType: null, runStatus: 'active' };
+  const first = startCampaign(base, { members: roster, type: 'sousenkyo', durationWeeks: 8 });
+  const completedCampaign = { ...first.campaign, status: 'completed', completedYear: 2, completedWeek: 14, lifecycle: [...first.campaign.lifecycle, { status: 'completed', year: 2, week: 14 }] };
+  const completed = { ...first, year: 2, week: 24, campaign: completedCampaign, campaignHistory: [{ ...completedCampaign, archivedAt: { year: 2, week: 14 } }] };
+
+  assert.equal(hasMajorCampaignRunInYear(completed, 2), true);
+  assert.equal(getMajorCampaignStartBlockReason(completed), 'campaign-held-this-year');
+  assert.equal(startCampaign(completed, { members: roster, type: 'request-hour', durationWeeks: 8 }), completed);
+
+  const nextYear = { ...completed, year: 3, week: 1 };
+  assert.equal(hasMajorCampaignRunInYear(nextYear, 3), false);
+  const second = startCampaign(nextYear, { members: roster, type: 'request-hour', durationWeeks: 8 });
+  assert.equal(second.campaign.type, 'request-hour');
+  assert.equal(second.campaign.campaignYear, 3);
+});
+
+test('campaign years consumed by a cross-year campaign cannot host another campaign', () => {
+  const crossYear = { id: 'cross-year', type: 'sousenkyo', held: true, status: 'completed', campaignYear: 2, startYear: 2, completedYear: 3, lifecycle: [{ status: 'configured', year: 2, week: 46 }, { status: 'completed', year: 3, week: 12 }] };
+  const state = { year: 3, week: 20, campaign: crossYear, campaignHistory: [crossYear], singles: [], runStatus: 'active' };
+  assert.equal(hasMajorCampaignRunInYear(state, 2), true);
+  assert.equal(hasMajorCampaignRunInYear(state, 3), true);
+  assert.equal(getMajorCampaignStartBlockReason(state), 'campaign-held-this-year');
+});
+
+test('unreleased regular MV blocks a major campaign start', () => {
+  const roster = members(16);
+  const state = { seed: 'mv-blocks-campaign', year: 2, week: 1, members: roster, singles: [{ id: 'single-active', status: 'production' }], group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, campaignHistory: [], runStatus: 'active' };
+  assert.equal(getMajorCampaignStartBlockReason(state), 'mv-in-progress');
+  assert.equal(startCampaign(state, { members: roster, type: 'sousenkyo', durationWeeks: 8 }), state);
 });
 
 test('every major campaign persists its member entrants and roster snapshots', () => {
