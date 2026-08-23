@@ -25,19 +25,34 @@ export function campaignRevenuePerVote(group = {}) {
 }
 
 const canonicalSong = (songId) => dreamSetlistSongs.find((song) => song.id === songId) ?? null;
-const activeMembers = (members = []) => members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.graduationPending && !member.temporarilyUnavailable);
+const activeMembers = (members = []) => members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.temporarilyUnavailable);
 const randomSongId = (rng) => dreamSetlistSongs[randomInt(rng, 0, dreamSetlistSongs.length - 1)]?.id ?? dreamSetlistSongs[0]?.id;
 const validBudgetId = (catalog, id, fallback) => catalog.some((option) => option.id === id) ? id : fallback;
 const appendLifecycle = (campaign, status, year, week) => ({ ...campaign, status, lifecycle: [...(campaign.lifecycle ?? []), { status, year, week }] });
 
 function makeParticipants(type, members, rng) {
   const eligible = activeMembers(members);
-  if (type === 'sousenkyo') return { memberIds: eligible.map((member) => member.id), votes: Object.fromEntries(eligible.map((member) => [member.id, 0])) };
-  if (type === 'request-hour') return { songIds: dreamSetlistSongs.map((song) => song.id), votes: Object.fromEntries(dreamSetlistSongs.map((song) => [song.id, 0])) };
+  const memberIds = eligible.map((member) => member.id);
+  const memberSnapshots = eligible.map((member) => ({
+    memberId: member.id,
+    name: member.name,
+    nickname: member.nickname,
+    photo: member.photo,
+    generation: member.generation,
+    team: member.team,
+    vocal: member.vocal,
+    dance: member.dance,
+    performance: member.performance,
+    mc: member.mc,
+    variety: member.variety,
+    stamina: member.stamina,
+  }));
+  if (type === 'sousenkyo') return { memberIds, memberSnapshots, votes: Object.fromEntries(memberIds.map((memberId) => [memberId, 0])) };
+  if (type === 'request-hour') return { memberIds, memberSnapshots, songIds: dreamSetlistSongs.map((song) => song.id), votes: Object.fromEntries(dreamSetlistSongs.map((song) => [song.id, 0])) };
   const shuffled = [...eligible].sort(() => rng() - 0.5);
   // Janken is a pure luck bracket: there are no votes, support points, or
   // member-stat modifiers. The shuffled entrant order is the only setup input.
-  return { memberIds: shuffled.map((member) => member.id) };
+  return { memberIds: shuffled.map((member) => member.id), memberSnapshots };
 }
 
 function makeJankenBracketPreview(memberIds = []) {

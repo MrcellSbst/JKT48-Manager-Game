@@ -6,7 +6,7 @@ import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
 import { BONUS_BY_ID, getBonusValueAtLevel, normalizeBonusLevel } from '../data/bonusTemplates.js';
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 import { appendManagementContext, getManagementDramaChanceMultiplier, getManagementDramaContext, personalizeDramaText, selectManagementDramaTemplate } from './dramaEngine.js';
-import { advanceCampaign, CAMPAIGN_DEFAULT_CONCERT_DAY, configureNextCampaign, nextCampaignType, startCampaign } from './campaignEngine.js';
+import { advanceCampaign, CAMPAIGN_DEFAULT_CONCERT_DAY, clampCampaignDuration, configureNextCampaign, nextCampaignType, startCampaign } from './campaignEngine.js';
 
 const ARCHETYPES = ['Performer', 'Vocalist', 'Entertainer', 'All-Rounder', 'Specialist', 'Raw Prospect', 'Prodigy', 'Late Bloomer'];
 const TRAITS = ['Quick Learner', 'Big Stage Performer', 'Theater Specialist', 'Reliable Performer', 'Versatile', 'Crowd Magnet'];
@@ -238,6 +238,61 @@ export function canMemberPerform(member, activityId) {
   const blocks = member.injury.blocks ?? ['all'];
   if (blocks.includes('all')) return false;
   return !blocks.includes(getActivityCategory(activityId));
+}
+
+function announcedGraduationFor(state, memberId) {
+  return (state.graduations ?? []).find((graduation) => graduation.memberId === memberId && graduation.announced && !graduation.completed) ?? null;
+}
+
+// A member remains available through her announced Last Show week. Any campaign
+// dated after that week must exclude her, even while she still appears in the roster.
+export function memberAvailableOnCampaignDate(state, memberOrId, targetYear, targetWeek) {
+  const memberId = typeof memberOrId === 'string' ? memberOrId : memberOrId?.id;
+  if (!memberId || !Number.isInteger(targetYear) || !Number.isInteger(targetWeek)) return false;
+  const graduation = announcedGraduationFor(state, memberId);
+  return !graduation || toAbsoluteWeek(targetYear, targetWeek) <= toAbsoluteWeek(graduation.departureYear, graduation.departureWeek);
+}
+
+function campaignEligibleMembers(state, activityId, targetYear, targetWeek) {
+  return getSchedulableMembers(state, activityId).filter((member) => memberAvailableOnCampaignDate(state, member, targetYear, targetWeek));
+}
+
+function mvParticipantSnapshot(member, centerId) {
+  if (!member) return null;
+  return {
+    memberId: member.id,
+    name: member.name,
+    nickname: member.nickname,
+    photo: member.photo,
+    generation: member.generation,
+    team: member.team,
+    role: member.id === centerId ? 'center' : 'member',
+    vocal: member.vocal,
+    dance: member.dance,
+    performance: member.performance,
+    mc: member.mc,
+    variety: member.variety,
+    stamina: member.stamina,
+  };
+}
+
+function historicalMemberById(state, memberId) {
+  return (state.members ?? []).find((member) => member.id === memberId)
+    ?? (state.graduations ?? []).find((graduation) => graduation.memberId === memberId)?.memberSnapshot
+    ?? (state.departures ?? []).find((departure) => departure.memberId === memberId)?.member
+    ?? (state.unsignedMembers ?? []).find((member) => member.id === memberId)
+    ?? null;
+}
+
+export function getSingleParticipants(state, single) {
+  if (!single) return [];
+  const snapshots = new Map((single.participants ?? []).map((participant) => [participant.memberId, participant]));
+  return (single.memberIds ?? []).map((memberId) => {
+    const stored = snapshots.get(memberId);
+    if (stored) return { ...stored, role: memberId === single.centerId ? 'center' : 'member' };
+    return mvParticipantSnapshot(historicalMemberById(state, memberId), single.centerId)
+      ?? { memberId, name: memberId, role: memberId === single.centerId ? 'center' : 'member' };
+  });
 }
 
 function applyMemberAbsenceToCommitments(state, memberId, durationWeeks) {
@@ -550,6 +605,7 @@ export function getConfirmedScheduleForWeek(state, targetYear, targetWeek) {
   const canAttend = (memberId) => {
     const member = membersById.get(memberId);
     if (!member || member.status === 'graduated') return false;
+    if (!memberAvailableOnCampaignDate(state, memberId, targetYear, targetWeek)) return false;
     if (['active', 'trainee'].includes(member.status)) return true;
     return member.status === 'suspended' && (member.suspensionWeeks ?? Infinity) <= weeksUntilTarget;
   };
@@ -1407,7 +1463,7 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type, day, memberIds });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const activityId = type === 'videoCall' ? 'vc1' : 'mg1';
-  const eligibleIds = getSchedulableMembers(state, activityId).map((member) => member.id);
+  const eligibleIds = campaignEligibleMembers(state, activityId, state.year, targetWeek).map((member) => member.id);
   if (!eligibleIds.length) return state;
   if (type === 'videoCall') {
     const requestedIds = [...new Set(memberIds)].filter((memberId) => eligibleIds.includes(memberId));
@@ -1462,7 +1518,11 @@ export function getNextMajorCampaignType(state) {
 
 export function startMajorCampaign(state, options = {}) {
   if (state.runStatus === 'ended') return state;
-  return startCampaign(state, { ...options, members: state.members });
+  const startWeek = Math.max(state.week, Math.round(Number(options.startWeek) || state.week));
+  const resultAbsolute = toAbsoluteWeek(state.year, startWeek) + clampCampaignDuration(options.durationWeeks);
+  const resultDate = fromAbsoluteWeek(resultAbsolute);
+  const members = (state.members ?? []).filter((member) => memberAvailableOnCampaignDate(state, member, resultDate.year, resultDate.week));
+  return startCampaign(state, { ...options, members });
 }
 
 export function configureTheaterShow(state, day, setlistId, centerId) {
@@ -1500,7 +1560,12 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const productionCost = applyRate(budget?.cost ?? 0, bonusValue(state, 'B005'));
   if (!budget || state.runStatus === 'ended' || state.money < productionCost || state.singles.some((single) => single.status !== 'released')) return state;
   if (!DAYS.includes(productionDay)) return state;
-  const eligible = getSchedulableMembers(state, 'mvProduction');
+  const scheduledRelease = Number.isInteger(releaseYear) && Number.isInteger(releaseMonth);
+  const releaseWeek = scheduledRelease ? releaseMonth * BALANCE.weeksPerMonth : null;
+  const releaseAbsolute = scheduledRelease ? toAbsoluteWeek(releaseYear, releaseWeek) : null;
+  const productionStartAbsolute = scheduledRelease ? releaseAbsolute - 5 : toAbsoluteWeek(state.year, state.week);
+  const campaignDate = scheduledRelease ? { year: releaseYear, week: releaseWeek } : fromAbsoluteWeek(productionStartAbsolute + 3);
+  const eligible = campaignEligibleMembers(state, 'mvProduction', campaignDate.year, campaignDate.week);
   const center = eligible.find((member) => member.id === centerId);
   if (!center || eligible.length < 12) return state;
   const score = (member) => member.vocal + member.dance + member.performance + member.mc + member.variety;
@@ -1508,10 +1573,6 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const requestedIds = eligible.length === 12 ? automaticIds : selectedMemberIds ? [centerId, ...selectedMemberIds.filter((memberId) => memberId !== centerId)] : automaticIds;
   const memberIds = [...new Set(requestedIds)];
   if (memberIds.length !== 12 || memberIds.some((memberId) => !eligible.some((member) => member.id === memberId))) return state;
-  const scheduledRelease = Number.isInteger(releaseYear) && Number.isInteger(releaseMonth);
-  const releaseWeek = scheduledRelease ? releaseMonth * BALANCE.weeksPerMonth : null;
-  const releaseAbsolute = scheduledRelease ? toAbsoluteWeek(releaseYear, releaseWeek) : null;
-  const productionStartAbsolute = scheduledRelease ? releaseAbsolute - 5 : toAbsoluteWeek(state.year, state.week);
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   if (scheduledRelease && (releaseMonth < 1 || releaseMonth > 12 || productionStartAbsolute < currentAbsolute)) return state;
   const startsNow = productionStartAbsolute === currentAbsolute;
@@ -1532,7 +1593,8 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const qualityRng = createRng(hashSeed(`${state.seed}:mv-quality:${state.year}:${state.singles.length + 1}`));
   const qualityRoll = randomInt(qualityRng, -10 + qualityFloorBonus, 10);
   const productionQuality = clamp(Math.round(lineupQuality * 0.45 + budget.quality * 0.55 + qualityRoll));
-  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: customTitle || `Single ${state.singles.length + 1}`, centerId, memberIds, productionDay, budgetId: budget.id, budgetName: budget.name, productionCost, productionQuality, qualityRoll, qualityFloorBonus, popularityGain: budget.popularityGain, fanTrustGain: budget.fanTrustGain, week: state.week, year: state.year, status: startsNow ? 'production' : 'planned', progressWeeks: 0, durationWeeks: 4, ...(scheduledRelease ? { releaseYear, releaseMonth, releaseWeek, productionStartYear: productionStart.year, productionStartWeek: productionStart.week } : {}) };
+  const participants = lineup.map((member) => mvParticipantSnapshot(member, centerId));
+  const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: customTitle || `Single ${state.singles.length + 1}`, centerId, memberIds, participants, productionDay, budgetId: budget.id, budgetName: budget.name, productionCost, productionQuality, qualityRoll, qualityFloorBonus, popularityGain: budget.popularityGain, fanTrustGain: budget.fanTrustGain, week: state.week, year: state.year, status: startsNow ? 'production' : 'planned', progressWeeks: 0, durationWeeks: 4, ...(scheduledRelease ? { releaseYear, releaseMonth, releaseWeek, productionStartYear: productionStart.year, productionStartWeek: productionStart.week } : {}) };
   return { ...state, money: state.money - productionCost, schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
@@ -1550,7 +1612,7 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
   if (targetAbsolute - currentAbsolute < 2 || state.concerts.some((concert) => concert.targetYear === targetYear && concert.targetMonth === targetMonth)) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: targetYear, week: targetWeek, type: 'concert', day: concertDay });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
-  const memberIds = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0).map((member) => member.id);
+  const memberIds = campaignEligibleMembers(state, 'concert', targetYear, targetWeek).map((member) => member.id);
   if (memberIds.length < BALANCE.theaterMinimumMembers) return state;
   const salesMultiplier = 1 + bonusValue(state, 'B028');
   const demand = Math.round(state.group.fanbase * (state.group.popularity / 100) * 0.045 * budget.demandMultiplier * salesMultiplier);
@@ -1571,7 +1633,7 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const cost = 40_000_000;
   if (state.money < cost) return state;
-  const eligible = state.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0);
+  const eligible = campaignEligibleMembers(state, 'yearEndMeetGreet', state.year, targetWeek);
   if (eligible.length < BALANCE.theaterMinimumMembers) return state;
   const normalMeetGreet = BALANCE.activities.mg1;
   const memberSessions = eligible.map((member) => ({ memberId: member.id, sessions: 1, capacity: normalMeetGreet.capacity, sold: 0 }));
@@ -1652,8 +1714,8 @@ function mvViewGain(single, group, viewWeek) {
 
 const activeCampaignMembers = (members = []) => members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0 && !member.temporarilyUnavailable);
 
-function campaignRewardMemberIds(campaign, members) {
-  const eligible = activeCampaignMembers(members);
+function campaignRewardMemberIds(state, campaign, members, target) {
+  const eligible = activeCampaignMembers(members).filter((member) => memberAvailableOnCampaignDate(state, member, target.year, target.week));
   const byId = new Set(eligible.map((member) => member.id));
   const result = campaign.result ?? {};
   if (campaign.type === 'sousenkyo') {
@@ -1698,7 +1760,7 @@ function campaignRewardConcert({ state, campaign, members, concerts, yearEndMeet
   const budget = CONCERT_BUDGETS.find((option) => option.id === campaign.concertBudgetId) ?? CONCERT_BUDGETS.find((option) => option.id === 'standard') ?? CONCERT_BUDGETS[0];
   const venue = [...(state.concertVenueOffers ?? []), ...CONCERT_VENUES].find((option) => option.id === campaign.concertVenueId) ?? CONCERT_VENUES[0];
   const target = campaignConcertTarget({ state, campaign, concerts, yearEndMeetGreets, singles });
-  const performerIds = campaignRewardMemberIds(campaign, members);
+  const performerIds = target ? campaignRewardMemberIds(state, campaign, members, target) : [];
   if (!target || performerIds.length < 1) return { campaign, concert: null, upfrontCost: 0 };
   const productionCost = applyRate(budget.cost, bonusValue(state, 'B006'));
   const venueCost = applyRate(venue.cost, bonusValue(state, 'B008'));
@@ -2051,6 +2113,26 @@ function rollInjury(member, assignments, rng, state) {
   return { severity: severity.id, label: severity.label, weeksRemaining: severity.weeks, weeks: severity.weeks, blocks: [...severity.blocks], causedBy: { year: state.year, week: state.week, load, assignments: normalizeInjuryAssignments(contributingAssignments) } };
 }
 
+const CLEARED_CAMPAIGN_STATUSES = new Set(['completed', 'cancelled', 'skipped']);
+
+function protectedCampaignParticipantIds(state, members) {
+  const campaign = state.campaign;
+  if (!campaign || CLEARED_CAMPAIGN_STATUSES.has(campaign.status)) return new Set();
+  const explicitIds = campaign.participants?.memberIds ?? campaign.participants?.participantMemberIds;
+  if (explicitIds?.length) return new Set(explicitIds);
+  const resultIds = [
+    ...(campaign.rewardConcertMemberIds ?? []),
+    ...(campaign.result?.senbatsu ?? []),
+    ...(campaign.result?.undergirls ?? []),
+    campaign.result?.winnerMemberId,
+  ].filter(Boolean);
+  if (resultIds.length) return new Set(resultIds);
+  // Legacy Request Hour saves did not persist member entrants. Every available
+  // roster member participated, so protect that roster until campaign clears.
+  if (campaign.type === 'request-hour') return new Set(members.filter((member) => ['active', 'trainee'].includes(member.status)).map((member) => member.id));
+  return new Set();
+}
+
 function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
   const config = BALANCE.graduation;
   const existing = state.graduations ?? [];
@@ -2061,6 +2143,7 @@ function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
     graduationTargets[targetYear] = { year: targetYear, targetCount: randomInt(budgetRng, BALANCE.graduation.normalMin, BALANCE.graduation.normalMax), scheduledCount: existing.filter((item) => item.planYear === targetYear).length };
   }
   const alreadyPlannedIds = new Set(existing.filter((item) => !item.completed).map((item) => item.memberId));
+  const campaignParticipantIds = protectedCampaignParticipantIds(state, members);
   const eligible = members.map((member) => {
     const joinedYear = Number.isFinite(member.joinedYear) ? member.joinedYear : 1;
     const joinedWeek = Number.isFinite(member.joinedWeek) ? member.joinedWeek : 1;
@@ -2068,6 +2151,7 @@ function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
   }).filter(({ member, tenureWeeks }) => {
     if (!['active', 'trainee'].includes(member.status) || member.graduationPending) return false;
     if (alreadyPlannedIds.has(member.id)) return false;
+    if (campaignParticipantIds.has(member.id)) return false;
     return tenureWeeks >= config.minimumTenureYears * BALANCE.weeksPerYear;
   });
   const maximum = graduationTargets[targetYear].targetCount;
@@ -2764,7 +2848,8 @@ export function resolveWeek(state) {
   if (campaignMv && campaignHasMissingMv) {
     const campaign = campaignResult.campaign;
     const result = campaign.result ?? {};
-    const eligible = members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.temporarilyUnavailable);
+    const campaignMvLastWeek = fromAbsoluteWeek(toAbsoluteWeek(year, week) + (campaign.mvProductionDurationWeeks ?? 4));
+    const eligible = members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.temporarilyUnavailable && memberAvailableOnCampaignDate(state, member, campaignMvLastWeek.year, campaignMvLastWeek.week));
     const centerId = result.centerMemberId ?? result.winnerMemberId ?? [...eligible].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))[0]?.id ?? null;
     const preferredIds = campaign.type === 'sousenkyo'
       ? (result.senbatsu ?? [])
@@ -2791,6 +2876,7 @@ export function resolveWeek(state) {
       const lineupPerformance = lineupMembers.reduce((sum, member) => sum + (member.performance ?? 0), 0) / Math.max(1, lineupMembers.length);
       return {
         id, title, songId, centerId: center ?? memberIds[0] ?? null, memberIds, productionDay: campaignProductionDay,
+        participants: lineupMembers.map((member) => mvParticipantSnapshot(member, center ?? memberIds[0] ?? null)),
         productionCost: singleProductionCost, budgetId: mvBudget?.id ?? 'medium', budgetName: mvBudget?.name ?? 'Medium budget',
         popularityGain: mvBudget?.popularityGain ?? 3, fanTrustGain: mvBudget?.fanTrustGain ?? 1,
         productionQuality: clamp(Math.round((mvBudget?.quality ?? 74) * 0.75 + lineupPerformance * 0.25)), qualityRoll: 0, qualityFloorBonus: 0,

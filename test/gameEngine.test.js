@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleParticipants, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -839,6 +839,8 @@ test('SSK creates separate Senbatsu and Undergirls MV projects', () => {
   const campaignMvs = next.singles.filter((single) => single.campaignId === campaign.id);
   assert.equal(campaignMvs.length, 2);
   assert.deepEqual(new Set(campaignMvs.map((single) => single.memberIds.length)), new Set([12]));
+  assert.equal(campaignMvs.every((single) => single.participants.length === 12), true);
+  assert.equal(campaignMvs.every((single) => single.participants.filter((participant) => participant.role === 'center').length === 1), true);
   assert.notEqual(campaignMvs[0].songId, campaignMvs[1].songId);
   assert.ok(campaignMvs.some((single) => single.memberIds.every((memberId) => senbatsu.includes(memberId))));
   assert.ok(campaignMvs.some((single) => single.memberIds.every((memberId) => undergirls.includes(memberId))));
@@ -994,6 +996,62 @@ test('single production respects a selected 12-member lineup from a larger roste
   assert.deepEqual(new Set(started.singles[0].memberIds), new Set(selectedIds));
   assert.equal(Object.values(started.schedule).filter((activity) => activity === 'mvProduction').length, 12);
   assert.equal(startSingleProduction(game, selectedIds[0], 'Fri', selectedIds.slice(0, 11)), game);
+});
+
+test('MV projects persist detailed participant snapshots and center role', () => {
+  const game = createGame('mv-participant-snapshot-test');
+  const selected = game.members.slice(0, 12);
+  const started = startSingleProduction(game, selected[0].id, 'Fri', selected.map((member) => member.id));
+  const participants = getSingleParticipants(started, started.singles[0]);
+
+  assert.equal(participants.length, 12);
+  assert.equal(participants[0].memberId, selected[0].id);
+  assert.equal(participants[0].role, 'center');
+  assert.equal(participants[0].name, selected[0].name);
+  assert.equal(participants[0].generation, selected[0].generation);
+  assert.equal(participants[0].vocal, selected[0].vocal);
+  assert.equal(participants.slice(1).every((participant) => participant.role === 'member'), true);
+});
+
+test('announced graduates remain eligible through Last Show week and are blocked afterward', () => {
+  const game = createGame('graduation-campaign-cutoff-test');
+  const graduate = game.members[0];
+  const withGraduation = {
+    ...game,
+    graduations: [{ id: 'graduation-cutoff', memberId: graduate.id, memberName: graduate.name, announced: true, completed: false, departureYear: 1, departureWeek: 8 }],
+    members: game.members.map((member) => member.id === graduate.id ? { ...member, graduationPending: true } : member),
+  };
+
+  assert.equal(memberAvailableOnCampaignDate(withGraduation, graduate, 1, 8), true);
+  assert.equal(memberAvailableOnCampaignDate(withGraduation, graduate, 1, 9), false);
+  const onCutoff = scheduleFanCampaign(withGraduation, 'videoCall', 'Fri', [graduate.id], 8);
+  assert.equal(onCutoff.fanEventPlans[0].memberIds.includes(graduate.id), true);
+  const afterCutoff = scheduleFanCampaign(withGraduation, 'videoCall', 'Fri', [graduate.id], 9);
+  assert.equal(afterCutoff, withGraduation);
+
+  const concert = announceConcert(withGraduation, 'Sat', 1, 3, 'After Last Show');
+  assert.equal(concert.concerts[0].memberIds.includes(graduate.id), false);
+  const legacyFuture = { ...withGraduation, concerts: [{ ...concert.concerts[0], memberIds: [graduate.id, ...concert.concerts[0].memberIds] }] };
+  assert.equal(getConfirmedScheduleForWeek(legacyFuture, 1, 12)[`${graduate.id}:Sat`], undefined);
+});
+
+test('MV releases and major campaign entrants enforce announced graduation cutoff', () => {
+  const game = createGame('graduation-mv-major-campaign-test');
+  const graduate = game.members[0];
+  const withGraduation = {
+    ...game,
+    year: 2,
+    graduations: [{ id: 'graduation-before-release', memberId: graduate.id, memberName: graduate.name, announced: true, completed: false, departureYear: 2, departureWeek: 7 }],
+    members: game.members.map((member) => member.id === graduate.id ? { ...member, graduationPending: true } : member),
+  };
+  const selectedWithGraduate = withGraduation.members.slice(0, 12).map((member) => member.id);
+  assert.equal(startSingleProduction(withGraduation, graduate.id, 'Fri', selectedWithGraduate, 2, 2), withGraduation);
+  const eligibleIds = withGraduation.members.slice(1, 13).map((member) => member.id);
+  const started = startSingleProduction(withGraduation, eligibleIds[0], 'Fri', eligibleIds, 2, 2);
+  assert.equal(started.singles[0].memberIds.includes(graduate.id), false);
+
+  const campaign = startMajorCampaign(withGraduation, { durationWeeks: 8 });
+  assert.equal(campaign.campaign.participants.memberIds.includes(graduate.id), false);
 });
 
 test('single production auto-locks every member when exactly 12 are eligible', () => {
@@ -1862,6 +1920,45 @@ test('graduation planning protects Year 1 and budgets four to six eligible depar
   assert.equal(planned.length, target.targetCount);
   assert.equal(target.scheduledCount, target.targetCount);
   assert.ok(planned.every((graduation) => graduation.annualTarget === target.targetCount));
+});
+
+test('active SSK, Request Hour, and Janken entrants cannot receive a graduation roll until the campaign clears', () => {
+  for (const type of ['sousenkyo', 'request-hour', 'janken']) {
+    const draft = createGame(`campaign-graduation-protection-${type}`);
+    const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+    const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
+    const veteranMembers = base.members.map((member) => ({ ...member, joinedYear: 0, joinedWeek: 1 }));
+    const staged = startMajorCampaign({
+      ...base,
+      year: 3,
+      week: 1,
+      money: 9_000_000_000_000,
+      members: veteranMembers,
+      graduationTargets: { 3: { year: 3, targetCount: 12, scheduledCount: 0 } },
+    }, { type, durationWeeks: 8 });
+    const protectedResult = resolveWeek(staged);
+    assert.equal(protectedResult.graduations.filter((graduation) => graduation.planYear === 3).length, 0, `${type} entrants must remain protected`);
+
+    const clearedResult = resolveWeek({ ...staged, campaign: { ...staged.campaign, status: 'completed' } });
+    assert.equal(clearedResult.graduations.filter((graduation) => graduation.planYear === 3).length, 1, `${type} entrants become eligible after campaign completion`);
+  }
+});
+
+test('legacy active Request Hour saves without member IDs protect the current roster from graduation rolls', () => {
+  const draft = createGame('legacy-request-hour-graduation-protection');
+  const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
+  const staged = startMajorCampaign({
+    ...base,
+    year: 3,
+    week: 1,
+    money: 9_000_000_000_000,
+    members: base.members.map((member) => ({ ...member, joinedYear: 0, joinedWeek: 1 })),
+    graduationTargets: { 3: { year: 3, targetCount: 12, scheduledCount: 0 } },
+  }, { type: 'request-hour', durationWeeks: 8 });
+  const { memberIds, memberSnapshots, ...legacyParticipants } = staged.campaign.participants;
+  const result = resolveWeek({ ...staged, campaign: { ...staged.campaign, participants: legacyParticipants } });
+  assert.equal(result.graduations.filter((graduation) => graduation.planYear === 3).length, 0);
 });
 
 test('graduated member returns to the audition pool after exactly two years with reset stats', () => {

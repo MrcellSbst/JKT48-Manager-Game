@@ -52,6 +52,18 @@ test('campaigns are optional and waiting does not auto-open or advance rotation'
   assert.equal(nextCampaignType(heldThenWaited), 'request-hour');
 });
 
+test('every major campaign persists its member entrants and roster snapshots', () => {
+  const roster = members(16);
+  const expectedIds = roster.map((member) => member.id).sort();
+  for (const type of CAMPAIGN_ROTATION) {
+    const started = startCampaign({ seed: `participant-snapshot-${type}`, year: 2, week: 1, runStatus: 'active', members: roster, group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, campaignHistory: [] }, { type, durationWeeks: 8 });
+    assert.deepEqual([...started.campaign.participants.memberIds].sort(), expectedIds);
+    assert.equal(started.campaign.participants.memberSnapshots.length, roster.length);
+    assert.deepEqual(started.campaign.participants.memberSnapshots.map((member) => member.memberId).sort(), expectedIds);
+    assert.equal(started.campaign.participants.memberSnapshots[0].name, roster[0].name);
+  }
+});
+
 test('Sousenkyo ranks members, creates Senbatsu and only creates Undergirls with 24 participants', () => {
   const campaign = { participants: { votes: Object.fromEntries(members(30).map((member, index) => [member.id, index])) } };
   const result = resolveSousenkyo(campaign, members(30), createRng(hashSeed('ssk')));
