@@ -38,3 +38,22 @@ test('Roster never renders legacy graduated members', async () => {
   assert.match(source, /const rosterMembers = useMemo\(\(\) => game\.members\.filter\(\(member\) => member\.status !== 'graduated'\)/);
   assert.match(source, /const selected = rosterMembers\.find\(\(member\) => member\.id === selectedMember\)/);
 });
+
+test('founding member selection filters by generation beside search', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const \[generationFilter, setGenerationFilter\] = useState\('all'\)/);
+  assert.match(source, /member\.generation !== generationFilter/);
+  assert.match(source, /aria-label="Filter founding members by generation"/);
+  assert.match(source, /<option value="all">All generations<\/option>/);
+});
+
+test('MV lineup dropdowns stay editable and swap occupied positions', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const selectMvPosition = \(positionIndex, memberId\) =>/);
+  assert.match(source, /\[next\[positionIndex\], next\[occupiedIndex\]\] = \[next\[occupiedIndex\], next\[positionIndex\]\]/);
+  assert.match(source, /onChange=\{\(event\) => selectMvPosition\(0, event\.target\.value\)\}/);
+  assert.match(source, /onChange=\{\(event\) => selectMvPosition\(index \+ 1, event\.target\.value\)\}/);
+  assert.match(source, /disabled=\{!eligibleMemberIds\.has\(member\.id\)\}/);
+  assert.doesNotMatch(source, /eligibleMembers\.length > 12 \? <div className="mv-roster-select">/);
+  assert.doesNotMatch(source, /className="mv-auto-lineup"/);
+});

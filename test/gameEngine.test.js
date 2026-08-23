@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleParticipants, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -996,6 +996,22 @@ test('single production respects a selected 12-member lineup from a larger roste
   assert.deepEqual(new Set(started.singles[0].memberIds), new Set(selectedIds));
   assert.equal(Object.values(started.schedule).filter((activity) => activity === 'mvProduction').length, 12);
   assert.equal(startSingleProduction(game, selectedIds[0], 'Fri', selectedIds.slice(0, 11)), game);
+});
+
+test('MV eligibility exposes all valid choices when fourteen members can participate', () => {
+  const draft = createGame('fourteen-member-mv-choice-test');
+  const finalized = finalizeGameSetupEngine(
+    draft,
+    'community',
+    draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id),
+  );
+  const game = { ...finalized, members: finalized.members.slice(0, 14) };
+  const eligible = getSingleEligibleMembers(game, game.year, game.week);
+  const selectedIds = eligible.slice(0, 12).map((member) => member.id);
+  const started = startSingleProduction(game, selectedIds[0], 'Fri', selectedIds);
+
+  assert.equal(eligible.length, 14);
+  assert.deepEqual(new Set(started.singles[0].memberIds), new Set(selectedIds));
 });
 
 test('MV projects persist detailed participant snapshots and center role', () => {

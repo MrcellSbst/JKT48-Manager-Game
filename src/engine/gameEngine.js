@@ -257,6 +257,11 @@ function campaignEligibleMembers(state, activityId, targetYear, targetWeek) {
   return getSchedulableMembers(state, activityId).filter((member) => memberAvailableOnCampaignDate(state, member, targetYear, targetWeek));
 }
 
+export function getSingleEligibleMembers(state, targetYear, targetWeek) {
+  if (!Number.isInteger(targetYear) || !Number.isInteger(targetWeek)) return [];
+  return campaignEligibleMembers(state, 'mvProduction', targetYear, targetWeek);
+}
+
 function mvParticipantSnapshot(member, centerId) {
   if (!member) return null;
   return {
@@ -1565,7 +1570,7 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const releaseAbsolute = scheduledRelease ? toAbsoluteWeek(releaseYear, releaseWeek) : null;
   const productionStartAbsolute = scheduledRelease ? releaseAbsolute - 5 : toAbsoluteWeek(state.year, state.week);
   const campaignDate = scheduledRelease ? { year: releaseYear, week: releaseWeek } : fromAbsoluteWeek(productionStartAbsolute + 3);
-  const eligible = campaignEligibleMembers(state, 'mvProduction', campaignDate.year, campaignDate.week);
+  const eligible = getSingleEligibleMembers(state, campaignDate.year, campaignDate.week);
   const center = eligible.find((member) => member.id === centerId);
   if (!center || eligible.length < 12) return state;
   const score = (member) => member.vocal + member.dance + member.performance + member.mc + member.variety;
