@@ -24,6 +24,7 @@ All member ratings, traits, archetypes, and simulation outcomes are fictional ga
 - One active run stored locally in browser IndexedDB
 - Manual saves and weekly autosaves
 - Optional account login with encrypted D1 cloud checkpoints
+- UTC+7-scheduled bilingual patchnotes with one-time update notices
 
 ## Requirements
 
@@ -94,7 +95,7 @@ npm run pages:deploy
 
 The configured Pages project name is `jkt48-manager-game`. Change `name` in `wrangler.jsonc` if a different Cloudflare Pages project name is required.
 
-The voucher administration dashboard has no navigation link. Open `/admin/vouchers` directly while signed in with administrator account `user_id = 1`; other accounts are redirected away, and admin API endpoints enforce the same check server-side.
+Administration dashboards have no player-facing navigation links. Open `/admin/vouchers` or `/admin/patchnotes` directly while signed in with administrator account `user_id = 1`; other accounts are redirected away, and admin API endpoints enforce the same check server-side. Patchnote dates entered in the editor are interpreted as Asia/Jakarta (UTC+7), stored as UTC, and become public only when that publication time arrives.
 
 ## Save Data
 
@@ -118,14 +119,15 @@ src/
   state/                 IndexedDB persistence
   context/               Authentication, encrypted cloud sync, and voucher inventory
   components/AuthScreen  Login, registration, guest entry, and sync status
+  components/Patchnote*  Admin editor and player update notice
   App.jsx                Main React application and views
   localization.js        English-to-Indonesian localization
   styles.css             Responsive light and dark theme styles
 test/                    Node test suite
 public/                  Cloudflare Pages static configuration
 wrangler.jsonc           Cloudflare Pages configuration
-schema.sql               Manager save, voucher, redemption, and audit tables
-functions/api/           Same-origin auth, save, voucher, and admin endpoints
+schema.sql               Manager save, voucher, patchnote, redemption, and audit tables
+functions/api/           Same-origin auth, save, voucher, patchnote, and admin endpoints
 ```
 
 ## Game Calendar

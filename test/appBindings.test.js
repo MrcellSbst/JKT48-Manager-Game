@@ -92,6 +92,12 @@ test('Campaign UI explains annual campaign and mutual MV locks', async () => {
 
 test('year-end event Review checks the full target month', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /type: 'yearEndMeetGreet', day: mgDay, monthScope: true/);
-  assert.match(source, /type: 'concert', days: \[anniversaryDay, 'Tue', 'Thu'\], monthScope: true/);
+  assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(requestedMgWeek\) \? requestedMgWeek : mgWeeks\[0\] \?\? null/);
+  assert.match(source, /const selectedAnniversaryWeek = anniversaryWeeks\.includes\(requestedAnniversaryWeek\) \? requestedAnniversaryWeek : anniversaryWeeks\[0\] \?\? null/);
+  assert.match(source, /const mgWeek = selectedMgWeek/);
+  assert.match(source, /const anniversaryWeek = selectedAnniversaryWeek/);
+  assert.match(source, /week: selectedMgWeek, type: 'yearEndMeetGreet', day: mgDay, monthScope: true/);
+  assert.match(source, /week: selectedAnniversaryWeek, type: 'concert', days: \[anniversaryDay, 'Tue', 'Thu'\], monthScope: true/);
+  assert.match(source, /scheduleYearEndMeetGreet\(current, selectedMgWeek, mgDay, current\.week\)/);
+  assert.match(source, /announceAnniversaryConcert\(current, selectedAnniversaryWeek, anniversaryDay/);
 });

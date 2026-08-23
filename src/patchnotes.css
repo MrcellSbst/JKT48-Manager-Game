@@ -1,0 +1,413 @@
+.patchnote-notice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 180;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(9, 9, 8, .7);
+  overscroll-behavior: contain;
+}
+
+.patchnote-notice {
+  width: min(620px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, .28);
+  animation: patchnote-enter 200ms cubic-bezier(.16, 1, .3, 1) both;
+  overscroll-behavior: contain;
+}
+
+.patchnote-notice > header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 13px;
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.patchnote-notice-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  background: var(--red);
+  color: #fff;
+}
+
+.patchnote-notice > header > div > span,
+.patchnotes-admin-heading > div > span {
+  display: block;
+  color: var(--red);
+  font: 800 0.75em 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+}
+
+.patchnote-notice h2 {
+  margin: 2px 0 0;
+  font-size: 2em;
+  line-height: 1;
+  text-wrap: balance;
+}
+
+.patchnote-notice-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 14px 22px 0;
+  color: var(--muted);
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+}
+
+.patchnote-notice-meta strong {
+  padding: 4px 7px;
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.patchnote-notice-content {
+  padding: 18px 22px 10px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.patchnote-refresh-hint {
+  margin: 0;
+  padding: 0 22px 24px;
+  color: var(--muted);
+  font-size: 0.875em;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.patchnote-notice > footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  padding: 15px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.patchnote-notice > footer button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.patchnotes-admin-heading {
+  align-items: flex-start;
+}
+
+.patchnotes-back-button {
+  width: max-content;
+  margin-bottom: 14px;
+}
+
+.patchnotes-admin-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.patchnotes-admin-heading-actions .secondary-button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  text-decoration: none;
+}
+
+.patchnotes-message {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--success) 30%, var(--line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--success) 10%, var(--paper));
+  color: var(--success);
+  font-size: 0.75em;
+  font-weight: 700;
+}
+
+.patchnotes-message.error {
+  border-color: color-mix(in srgb, var(--critical) 32%, var(--line));
+  background: color-mix(in srgb, var(--critical) 10%, var(--paper));
+  color: var(--critical);
+}
+
+.patchnotes-editor,
+.patchnotes-inventory {
+  margin-bottom: 18px;
+}
+
+.patchnotes-editor > header,
+.patchnotes-inventory > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.patchnotes-editor > header h2,
+.patchnotes-inventory > header h2 {
+  margin: 0 0 5px;
+  font-size: 1.625em;
+}
+
+.patchnotes-editor > header p,
+.patchnotes-inventory > header p {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--muted);
+}
+
+.patchnotes-inventory > header > strong {
+  font: 700 1.75em 'Barlow Condensed', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.patchnotes-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.patchnotes-form-grid label {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.75em;
+  font-weight: 700;
+}
+
+.patchnotes-form-grid input,
+.patchnotes-form-grid select,
+.patchnotes-form-grid textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 10px 12px;
+  font: 500 1.333333em 'Barlow', sans-serif;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.patchnotes-form-grid select,
+.patchnotes-form-grid input[type='datetime-local'] {
+  padding-block: 0;
+}
+
+.patchnotes-form-grid textarea {
+  min-height: 220px;
+}
+
+.patchnotes-form-grid input:focus-visible,
+.patchnotes-form-grid select:focus-visible,
+.patchnotes-form-grid textarea:focus-visible {
+  border-color: var(--red);
+  outline: 3px solid color-mix(in srgb, var(--red) 18%, transparent);
+  outline-offset: 0;
+}
+
+.patchnotes-admin-page button,
+.patchnotes-admin-page a,
+.patchnote-notice button {
+  touch-action: manipulation;
+}
+
+.patchnotes-form-grid small {
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.patchnotes-wide {
+  grid-column: 1 / -1;
+}
+
+.patchnotes-language-field {
+  grid-column: span 1;
+}
+
+.patchnotes-language-field:nth-last-child(2) {
+  grid-column: 1 / span 2;
+}
+
+.patchnotes-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.patchnotes-form-actions button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.patchnotes-list {
+  border-top: 1px solid var(--line);
+}
+
+.patchnotes-list article {
+  display: grid;
+  grid-template-columns: minmax(150px, .6fr) minmax(0, 2fr) auto;
+  gap: 20px;
+  align-items: start;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.patchnotes-list-date {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+}
+
+.patchnote-status {
+  padding: 4px 7px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.916667em;
+  text-transform: uppercase;
+}
+
+.patchnote-status.published { background: color-mix(in srgb, var(--success) 12%, var(--paper)); color: var(--success); }
+.patchnote-status.scheduled { background: color-mix(in srgb, var(--warning) 13%, var(--paper)); color: var(--warning); }
+
+.patchnotes-list-copy {
+  min-width: 0;
+}
+
+.patchnotes-list-copy > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+}
+
+.patchnotes-list-copy span {
+  color: var(--red);
+  font-size: 0.6875em;
+  font-weight: 800;
+}
+
+.patchnotes-list-copy h3 {
+  margin: 0;
+  font-size: 1.125em;
+}
+
+.patchnotes-list-copy p {
+  display: -webkit-box;
+  margin: 7px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.patchnotes-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.patchnotes-list-actions button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0 10px;
+  font-weight: 700;
+}
+
+.patchnotes-list-actions .danger-link {
+  color: var(--critical);
+}
+
+.patchnotes-empty,
+.patchnotes-loading {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.spinning {
+  animation: patchnote-spin 800ms linear infinite;
+}
+
+@keyframes patchnote-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes patchnote-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 820px) {
+  .patchnotes-form-grid { grid-template-columns: 1fr 1fr; }
+  .patchnotes-language-field,
+  .patchnotes-language-field:nth-last-child(2) { grid-column: 1 / -1; }
+  .patchnotes-list article { grid-template-columns: 1fr; gap: 12px; }
+  .patchnotes-list-actions { justify-content: flex-start; }
+}
+
+@media (max-width: 560px) {
+  .patchnote-notice-backdrop { padding: 0; align-items: end; }
+  .patchnote-notice { width: 100%; max-height: 92dvh; border-width: 1px 0 0; border-radius: 6px 6px 0 0; }
+  .patchnote-notice > header,
+  .patchnote-notice-meta,
+  .patchnote-notice-content,
+  .patchnote-refresh-hint,
+  .patchnote-notice > footer { padding-inline: 16px; }
+  .patchnote-notice > footer { display: grid; grid-template-columns: 1fr 1.5fr; }
+  .patchnotes-admin-heading { display: grid; }
+  .patchnotes-admin-heading-actions { justify-content: flex-start; }
+  .patchnotes-form-grid { grid-template-columns: 1fr; }
+  .patchnotes-wide,
+  .patchnotes-language-field,
+  .patchnotes-language-field:nth-last-child(2) { grid-column: 1; }
+  .patchnotes-form-actions { display: grid; grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .patchnote-notice { animation: none; }
+  .spinning { animation-duration: 1.4s; }
+}

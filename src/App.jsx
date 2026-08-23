@@ -19,6 +19,8 @@ import { getMemberOverall, ROSTER_SORT_OPTIONS, SORT_DIRECTIONS, SQUAD_SORT_OPTI
 import { formatHistoryEventDetail } from './engine/historyPresentation.js';
 import { VoucherEditModal, VoucherInventory } from './components/VoucherUI.jsx';
 import VoucherAdminDashboard from './components/VoucherAdminDashboard.jsx';
+import PatchnoteNotice from './components/PatchnoteNotice.jsx';
+import PatchnotesAdminDashboard from './components/PatchnotesAdminDashboard.jsx';
 
 const portraitModules = import.meta.glob([
   './Asset/member_active/*',
@@ -38,8 +40,14 @@ const NAV = [
   ['history', 'History', History], ['wiki', 'Wiki', BookOpen], ['saves', 'Saves', Archive],
 ];
 const ADMIN_VOUCHER_PATH = '/admin/vouchers';
-const isAdminVoucherPath = () => typeof window !== 'undefined'
-  && (window.location.pathname.replace(/\/+$/, '') || '/') === ADMIN_VOUCHER_PATH;
+const ADMIN_PATCHNOTES_PATH = '/admin/patchnotes';
+const getAdminRoute = () => {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (path === ADMIN_VOUCHER_PATH) return 'vouchers';
+  if (path === ADMIN_PATCHNOTES_PATH) return 'patchnotes';
+  return null;
+};
 const translate = (language, text) => language === 'id' ? translateIndonesian(text) : text;
 
 function ModalPortal({ children }) {
@@ -908,14 +916,21 @@ function FixedAnnualEvents({ game, setGame }) {
   const mgWeeks = Array.from({ length: 8 }, (_, index) => 37 + index).filter((week) => week > game.week);
   const anniversaryWeeks = [45, 46, 47, 48].filter((week) => week - game.week >= 2);
   const venues = game.concertVenueOffers?.length ? game.concertVenueOffers : CONCERT_VENUES;
-  const [mgWeek, setMgWeek] = useState(mgWeeks[0] ?? 44);
+  const [requestedMgWeek, setMgWeek] = useState(mgWeeks[0] ?? 44);
   const [mgDay, setMgDay] = useState('Sat');
-  const [anniversaryWeek, setAnniversaryWeek] = useState(anniversaryWeeks[0] ?? 48);
+  const [requestedAnniversaryWeek, setAnniversaryWeek] = useState(anniversaryWeeks[0] ?? 48);
   const [anniversaryDay, setAnniversaryDay] = useState('Sat');
   const [anniversaryBudget, setAnniversaryBudget] = useState('standard');
   const [anniversaryVenue, setAnniversaryVenue] = useState(venues[0]?.id ?? 'hall');
   const [anniversaryTitle, setAnniversaryTitle] = useState('');
   const [confirm, setConfirm] = useState(null);
+  // A controlled select whose saved value is no longer in its options renders
+  // the first option while React keeps the stale value. Use the visible week
+  // for conflict checks, confirmation copy, and the eventual engine action.
+  const selectedMgWeek = mgWeeks.includes(requestedMgWeek) ? requestedMgWeek : mgWeeks[0] ?? null;
+  const selectedAnniversaryWeek = anniversaryWeeks.includes(requestedAnniversaryWeek) ? requestedAnniversaryWeek : anniversaryWeeks[0] ?? null;
+  const mgWeek = selectedMgWeek;
+  const anniversaryWeek = selectedAnniversaryWeek;
   const runBonusValue = (id) => game.bonusLoadout?.includes(id) ? getBonusValueAtLevel(BONUS_BY_ID[id], game.bonusLevels?.[id] ?? 1) : 0;
   const selectedAnniversaryBudget = CONCERT_BUDGETS.find((budget) => budget.id === anniversaryBudget) ?? CONCERT_BUDGETS[0];
   const selectedAnniversaryVenue = venues.find((venue) => venue.id === anniversaryVenue) ?? venues[0];
@@ -923,17 +938,17 @@ function FixedAnnualEvents({ game, setGame }) {
   const yearEndMeetGreetLockReason = game.week < 25
     ? `Year-end Meet & Greet bookings open from ${monthWeekLabel(25)}.`
     : game.money < 40_000_000 ? `Requires ${money(40_000_000)}; current funds: ${money(game.money)}.` : '';
-  const mgScheduleConflicts = mgWeek ? getCampaignConflictReasons(game, { year: game.year, week: mgWeek, type: 'yearEndMeetGreet', day: mgDay, monthScope: true }) : [];
+  const mgScheduleConflicts = selectedMgWeek ? getCampaignConflictReasons(game, { year: game.year, week: selectedMgWeek, type: 'yearEndMeetGreet', day: mgDay, monthScope: true }) : [];
   const mgConflicts = yearEndMeetGreetLockReason ? [yearEndMeetGreetLockReason] : mgScheduleConflicts;
   const anniversaryBookingLockReason = game.week < 25
     ? `Anniversary Concert bookings open from ${monthWeekLabel(25)}.`
     : !anniversaryWeeks.length
       ? 'Anniversary Concert requires a future date with at least two weeks of lead time.'
     : game.money < anniversaryUpfrontCost ? `Requires ${money(anniversaryUpfrontCost)}; current funds: ${money(game.money)}.` : '';
-  const anniversaryScheduleConflicts = anniversaryWeek ? getCampaignConflictReasons(game, { year: game.year, week: anniversaryWeek, type: 'concert', days: [anniversaryDay, 'Tue', 'Thu'], monthScope: true }) : [];
+  const anniversaryScheduleConflicts = selectedAnniversaryWeek ? getCampaignConflictReasons(game, { year: game.year, week: selectedAnniversaryWeek, type: 'concert', days: [anniversaryDay, 'Tue', 'Thu'], monthScope: true }) : [];
   const anniversaryConflicts = anniversaryBookingLockReason ? [anniversaryBookingLockReason] : anniversaryScheduleConflicts;
-  useEffect(() => { if (!mgWeeks.includes(mgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]); }, [game.week]);
-  useEffect(() => { if (!anniversaryWeeks.includes(anniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]); }, [game.week]);
+  useEffect(() => { if (!mgWeeks.includes(requestedMgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]); }, [game.year, game.week]);
+  useEffect(() => { if (!anniversaryWeeks.includes(requestedAnniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]); }, [game.year, game.week]);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
   const commitAnnualEvent = (action, failureText, failureCode, succeeded) => {
     setGame((current) => {
@@ -945,18 +960,18 @@ function FixedAnnualEvents({ game, setGame }) {
     setConfirm(null);
   };
   const scheduleMg = () => {
-    if (mgConflicts.length) return;
+    if (!selectedMgWeek || mgConflicts.length) return;
     commitAnnualEvent(
-      (current) => scheduleYearEndMeetGreet(current, mgWeek, mgDay, current.week),
+      (current) => scheduleYearEndMeetGreet(current, selectedMgWeek, mgDay, current.week),
       YEAR_END_MEET_GREET_FAILURE,
       YEAR_END_MEET_GREET_FAILURE_CODE,
       (next, current) => (next.yearEndMeetGreets ?? []).length > (current.yearEndMeetGreets ?? []).length,
     );
   };
   const scheduleAnniversary = () => {
-    if (anniversaryConflicts.length) return;
+    if (!selectedAnniversaryWeek || anniversaryConflicts.length) return;
     commitAnnualEvent(
-      (current) => announceAnniversaryConcert(current, anniversaryWeek, anniversaryDay, anniversaryTitle, anniversaryBudget, anniversaryVenue, ['Tue', 'Thu']),
+      (current) => announceAnniversaryConcert(current, selectedAnniversaryWeek, anniversaryDay, anniversaryTitle, anniversaryBudget, anniversaryVenue, ['Tue', 'Thu']),
       ANNIVERSARY_CONCERT_FAILURE,
       ANNIVERSARY_CONCERT_FAILURE_CODE,
       (next, current) => (next.concerts ?? []).length > (current.concerts ?? []).length,
@@ -1777,7 +1792,7 @@ export default function App() {
   const [setupDraft, setSetupDraft] = useState(null);
   const [saves, setSaves] = useState([]);
   const [activeView, setActiveView] = useState('dashboard');
-  const [adminRoute, setAdminRoute] = useState(isAdminVoucherPath);
+  const [adminRoute, setAdminRoute] = useState(getAdminRoute);
   const [selectedMember, setSelectedMember] = useState(null);
   const [advancing, setAdvancing] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
@@ -1843,7 +1858,7 @@ export default function App() {
   useEffect(() => {
     if (!adminRoute || authLoading || (!user && !guestMode) || String(user?.user_id) === '1') return;
     window.history.replaceState({}, '', '/');
-    setAdminRoute(false);
+    setAdminRoute(null);
   }, [adminRoute, authLoading, guestMode, user]);
 
   const start = (seed) => { setSetupDraft(createGame(seed.trim() || randomSeed())); };
@@ -2037,16 +2052,17 @@ export default function App() {
     setActiveView(view);
   };
   const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} user={user} onOpenAccount={openAccount} onLogout={handleLogout} accountBusy={accountBusy} />;
-  const accountLayer = <><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
-  if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>{translate(language, 'Checking account…')}</strong><span>{translate(language, 'Loading browser save status.')}</span></main><SyncOverlay /></>;
-  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
+  const patchnoteLayer = <PatchnoteNotice language={language} />;
+  const accountLayer = <>{patchnoteLayer}<SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
+  if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>{translate(language, 'Checking account…')}</strong><span>{translate(language, 'Loading browser save status.')}</span></main>{patchnoteLayer}<SyncOverlay /></>;
+  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} />{patchnoteLayer}<SyncOverlay /></>;
   if (adminRoute && String(user?.user_id) === '1') {
     const leaveAdminRoute = () => {
       window.history.replaceState({}, '', '/');
-      setAdminRoute(false);
+      setAdminRoute(null);
       setActiveView('dashboard');
     };
-    return <><VoucherAdminDashboard onBack={leaveAdminRoute} />{accountLayer}</>;
+    return <>{adminRoute === 'patchnotes' ? <PatchnotesAdminDashboard language={language} onBack={leaveAdminRoute} /> : <VoucherAdminDashboard onBack={leaveAdminRoute} />}{accountLayer}</>;
   }
   if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}</>;
   if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{accountLayer}</>;
