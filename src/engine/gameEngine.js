@@ -259,9 +259,12 @@ function applyMemberAbsenceToCommitments(state, memberId, durationWeeks) {
 
   const yearEndMeetGreets = (state.yearEndMeetGreets ?? []).map((event) => {
     if (!absentAt(event.year, event.targetWeek)) return event;
+    const sessions = event.memberSessions ?? [];
+    const hasRefundableAssignment = sessions.some((session) => session.memberId === memberId && (session.sold ?? 0) > 0);
+    if (!hasRefundableAssignment) return event;
     let eventRefund = 0;
-    const memberSessions = event.memberSessions.map((session) => {
-      if (session.memberId !== memberId || session.sold <= 0) return session;
+    const memberSessions = sessions.map((session) => {
+      if (session.memberId !== memberId || (session.sold ?? 0) <= 0) return session;
       eventRefund += session.sold * event.ticketPrice;
       return { ...session, refunded: (session.refunded ?? 0) + session.sold, sold: 0 };
     });

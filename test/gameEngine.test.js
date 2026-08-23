@@ -1730,9 +1730,11 @@ test('Let it be resolves member drama without punishment or commitment changes',
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const member = game.members[0];
   const schedule = { [`${member.id}:Mon`]: 'media' };
+  const event = { id: 'no-punishment-event', year: game.year, targetWeek: game.week, day: 'Sat', ticketPrice: 50_000, revenue: 500_000, memberSessions: [{ memberId: member.id, sold: 10, capacity: 300 }] };
   const staged = {
     ...game,
     schedule,
+    yearEndMeetGreets: [event],
     activeDrama: { dramaSource: 'member', memberId: member.id, name: member.name, dramaId: 'careless-social-post', severity: 'Moderate', originalStatus: 'active', response: 'pending', startedWeek: game.week },
   };
   const resolved = resolveMemberDramaWithoutPunishment(staged, member.id);
@@ -1741,7 +1743,9 @@ test('Let it be resolves member drama without punishment or commitment changes',
   assert.equal(resolvedMember.suspensionWeeks, 0);
   assert.equal(resolved.activeDrama, null);
   assert.deepEqual(resolved.schedule, schedule);
+  assert.deepEqual(resolved.yearEndMeetGreets, [event]);
   assert.equal(resolved.money, staged.money);
+  assert.equal(resolved.notifications.some((notification) => notification.text.includes('refunded')), false);
   assert.ok(resolved.memberDramaCooldown >= BALANCE.dramaCooldown[0] && resolved.memberDramaCooldown <= BALANCE.dramaCooldown[1]);
   assert.equal(resolved.records.dramaSuspensions, 0);
   assert.match(resolved.history[0].title, /receives no punishment/);
@@ -1770,6 +1774,30 @@ test('drama popup punishment duration controls suspension and affected commitmen
   assert.equal(punished.trainingPlans[member.id], undefined);
   assert.equal(punished.yearEndMeetGreets[0].memberSessions[0].sold, 0);
   assert.equal(punished.money, staged.money - 500_000);
+});
+
+test('punishment and release do not refund events without an affected-member assignment', () => {
+  const draft = createGame('unassigned-refund-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const [affectedMember, assignedMember] = game.members;
+  const event = { id: 'unassigned-event', year: game.year, targetWeek: game.week, day: 'Sat', ticketPrice: 50_000, revenue: 500_000, memberSessions: [{ memberId: assignedMember.id, sold: 10, capacity: 300 }] };
+  const staged = {
+    ...game,
+    yearEndMeetGreets: [event],
+    activeDrama: { dramaSource: 'member', memberId: affectedMember.id, name: affectedMember.name, dramaId: 'unassigned-drama', severity: 'Moderate', originalStatus: 'active', response: 'pending', startedWeek: game.week },
+  };
+
+  const punished = punishMember(staged, affectedMember.id, 4);
+  assert.deepEqual(punished.yearEndMeetGreets, [event]);
+  assert.equal(punished.money, staged.money);
+  assert.equal(punished.notifications.some((notification) => notification.text.includes('refunded')), false);
+
+  const rosterSupport = { ...game.unsignedMembers[0], status: 'active' };
+  const releaseState = { ...staged, members: [...game.members, rosterSupport] };
+  const released = fireMember(releaseState, affectedMember.id);
+  assert.deepEqual(released.yearEndMeetGreets, [event]);
+  assert.equal(released.money, releaseState.money - BALANCE.fire.flatSeverance);
+  assert.equal(released.notifications.some((notification) => notification.text.includes('refunded')), false);
 });
 
 test('graduation planning protects Year 1 and budgets four to six eligible departures per later year', () => {
