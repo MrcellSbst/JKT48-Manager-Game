@@ -816,6 +816,29 @@ const splitScheduleKey = (key) => {
   return { memberId: key.slice(0, separator), day: key.slice(separator + 1) };
 };
 
+export function getReportSkillChanges(report = {}) {
+  const changesBySkill = new Map();
+  (Array.isArray(report.skillChanges) ? report.skillChanges : []).forEach((change) => {
+    if (!change?.memberId || !change?.skill) return;
+    changesBySkill.set(`${change.memberId}:${change.skill}`, change);
+  });
+  const trainingChanges = new Map();
+  (Array.isArray(report.trainingSessions) ? report.trainingSessions : []).forEach((session) => {
+    const before = Number(session?.before);
+    const after = Number(session?.after);
+    if (session?.status !== 'completed' || !session.memberId || !session.skill || !Number.isFinite(before) || !Number.isFinite(after) || after <= before) return;
+    const key = `${session.memberId}:${session.skill}`;
+    const current = trainingChanges.get(key);
+    trainingChanges.set(key, current
+      ? { ...current, after, delta: Math.round((after - current.before) * 10) / 10 }
+      : { memberId: session.memberId, memberName: session.memberName, skill: session.skill, before, after, delta: Math.round((after - before) * 10) / 10 });
+  });
+  trainingChanges.forEach((change, key) => {
+    if (!changesBySkill.has(key)) changesBySkill.set(key, change);
+  });
+  return [...changesBySkill.values()];
+}
+
 function migrateTrainingReport(report) {
   if (!report) return report;
   const scheduleEntries = Object.entries(report.schedule ?? {});
@@ -827,10 +850,10 @@ function migrateTrainingReport(report) {
       const activity = BALANCE.activities[activityId];
       return { memberId, activityId, skill: activity.skill, intensity: activity.type, order: index, day, status: 'completed', cost: activity.cost, energyUsed: null, before: null, after: null, delta: null, legacy: true };
     });
-  if (!legacySessions.length) return { ...report, trainingSessions: report.trainingSessions ?? [] };
   const schedule = Object.fromEntries(scheduleEntries.filter(([, activityId]) => !TRAINING_ACTIVITY_SET.has(activityId)));
   const existingKeys = new Set((report.trainingSessions ?? []).map((session) => `${session.memberId}:${session.day}:${session.activityId}`));
-  return { ...report, schedule, trainingSessions: [...(report.trainingSessions ?? []), ...legacySessions.filter((session) => !existingKeys.has(`${session.memberId}:${session.day}:${session.activityId}`))] };
+  const migrated = { ...report, schedule, trainingSessions: [...(report.trainingSessions ?? []), ...legacySessions.filter((session) => !existingKeys.has(`${session.memberId}:${session.day}:${session.activityId}`))] };
+  return { ...migrated, skillChanges: getReportSkillChanges(migrated) };
 }
 
 export function migrateTrainingState(state) {
@@ -2421,7 +2444,7 @@ const gradeForScore = (score) => score >= 95 ? 'S' : score >= 88 ? 'A+' : score 
 function createAnnualReview(state, { group, members, lastResult, concerts, auditions, fanTargetPerformance, fanTarget }) {
   const reports = [...(state.weeklyReports ?? []).filter((report) => report.year === state.year), lastResult];
   const netCash = reports.reduce((sum, report) => sum + (report.moneyDelta ?? 0), 0);
-  const trainingGrowth = reports.flatMap((report) => report.skillChanges ?? []).reduce((sum, change) => sum + Math.max(0, change.delta ?? 0), 0);
+  const trainingGrowth = reports.flatMap(getReportSkillChanges).reduce((sum, change) => sum + Math.max(0, change.delta ?? 0), 0);
   const theaterShows = reports.reduce((sum, report) => sum + (report.theaterShows?.length ?? 0), 0);
   const releasedSingles = concerts ? state.singles.filter((single) => single.releasedYear === state.year).length : 0;
   const anniversary = concerts.find((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year);

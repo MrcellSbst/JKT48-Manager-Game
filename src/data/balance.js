@@ -108,7 +108,9 @@ export const SCHEDULE_ACTIVITY_GROUPS = [
   { label: 'Show', activities: ['theater', 'offAir'] },
 ];
 
-export const SCHEDULE_STANDALONE_ACTIVITIES = ['rest', 'liveStream'];
+// Empty calendar days already provide recovery, so Rest remains engine-compatible
+// for existing saves but is no longer offered as a Schedule assignment.
+export const SCHEDULE_STANDALONE_ACTIVITIES = ['liveStream'];
 
 export const FAN_BALANCE = {
   startingFans: 10_000,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -173,14 +173,14 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('2 training session(s) skipped. Review free days, member availability, and Energy.'), '2 sesi latihan dilewati. Periksa hari kosong, ketersediaan anggota, dan Energi.');
 });
 
-test('schedule activity groups are ordered and cover every schedulable activity once', () => {
+test('schedule activity groups are ordered and cover every player-selectable activity once', () => {
   assert.deepEqual(TRAINING_ACTIVITY_GROUPS.map((group) => group.label), ['Light training', 'Regular training', 'Intensive training']);
   assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS.map((group) => group.label), ['Media', 'Show']);
   assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[0].activities, ['photoshoot', 'media']);
   assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[1].activities, ['theater', 'offAir']);
-  assert.deepEqual(SCHEDULE_STANDALONE_ACTIVITIES, ['rest', 'liveStream']);
+  assert.deepEqual(SCHEDULE_STANDALONE_ACTIVITIES, ['liveStream']);
   const configured = [...SCHEDULE_ACTIVITY_GROUPS.flatMap((group) => group.activities), ...SCHEDULE_STANDALONE_ACTIVITIES];
-  const schedulable = Object.entries(BALANCE.activities).filter(([, activity]) => activity.schedulable !== false).map(([id]) => id);
+  const schedulable = Object.entries(BALANCE.activities).filter(([id, activity]) => id !== 'rest' && activity.schedulable !== false).map(([id]) => id);
   assert.equal(new Set(configured).size, configured.length);
   assert.deepEqual(new Set(configured), new Set(schedulable));
   assert.deepEqual(new Set(TRAINING_ACTIVITY_GROUPS.flatMap((group) => group.activities)), new Set(Object.entries(BALANCE.activities).filter(([, activity]) => activity.skill).map(([id]) => id)));
@@ -676,6 +676,21 @@ test('legacy training migration splits schedules, templates, and reports once', 
   assert.deepEqual(migrated.weeklyReports[0].schedule, { [`${memberId}:Tue`]: 'media' });
   assert.equal(migrated.weeklyReports[0].trainingSessions[0].legacy, true);
   assert.deepEqual(migrateTrainingState(migrated), migrated);
+});
+
+test('completed training sessions backfill missing Skill Growth report entries', () => {
+  const report = {
+    skillChanges: [],
+    trainingSessions: [
+      { memberId: 'member-1', memberName: 'Member One', skill: 'vocal', status: 'completed', before: 60, after: 60.2, delta: 0.2 },
+      { memberId: 'member-1', memberName: 'Member One', skill: 'vocal', status: 'completed', before: 60.2, after: 60.5, delta: 0.3 },
+      { memberId: 'member-1', memberName: 'Member One', skill: 'dance', status: 'skipped', before: 50, after: 50, delta: 0 },
+    ],
+  };
+  assert.deepEqual(getReportSkillChanges(report), [
+    { memberId: 'member-1', memberName: 'Member One', skill: 'vocal', before: 60, after: 60.5, delta: 0.5 },
+  ]);
+  assert.deepEqual(migrateTrainingState({ trainingPlans: {}, schedule: {}, scheduleTemplates: [], trainingTemplates: [], weeklyReports: [report], lastResult: report }).lastResult.skillChanges, getReportSkillChanges(report));
 });
 
 test('moderate injuries include every minor restriction plus their own limits', () => {

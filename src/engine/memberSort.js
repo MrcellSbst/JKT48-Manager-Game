@@ -1,5 +1,5 @@
 export const ROSTER_SORT_OPTIONS = Object.freeze(['name', 'birthday', 'generation', 'team']);
-export const SQUAD_SORT_OPTIONS = Object.freeze(['visible-stat', 'name', 'generation', 'birthday']);
+export const SQUAD_SORT_OPTIONS = Object.freeze(['visible-stat', 'status', 'name', 'generation', 'birthday']);
 export const SORT_DIRECTIONS = Object.freeze(['asc', 'desc']);
 
 // Keep this registry shared with the Schedule member-stat panel. Overall is derived
@@ -40,6 +40,9 @@ const primaryValue = (member, sortKey, visibleStat = 'overall') => {
   if (sortKey === 'birthday') return birthdayValue(member);
   if (sortKey === 'generation') return generationValue(member);
   if (sortKey === 'team') return textValue(member?.team);
+  // Schedule treats every current-roster member who is not a trainee as a
+  // regular member, including a regular member who is temporarily suspended.
+  if (sortKey === 'status') return member?.status === 'trainee' ? 1 : 0;
   if (sortKey === 'visible-stat') return visibleStat === 'overall' ? getMemberOverall(member) : numericValue(member?.[visibleStat], Number.NEGATIVE_INFINITY);
   // Retain the roster's legacy metric sorts while routing them through the same
   // immutable comparator used by the new controls.
