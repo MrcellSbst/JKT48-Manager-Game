@@ -1,6 +1,8 @@
-const trainingActivity = (label, skill, energy, cost, intensity, type) => ({ label, skill, energy, cost, intensity, type });
+const trainingActivity = (label, skill, energy, cost, intensity, type) => ({ label, skill, energy, cost, intensity, type, schedulable: false });
 
-const TRAINING_ACTIVITIES = Object.fromEntries(['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'].flatMap((skill) => {
+export const TRAINING_SKILLS = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
+
+const TRAINING_ACTIVITIES = Object.fromEntries(TRAINING_SKILLS.flatMap((skill) => {
   const label = skill === 'mc' ? 'MC' : `${skill[0].toUpperCase()}${skill.slice(1)}`;
   return [
     [`${skill}Light`, trainingActivity(`Light ${label} training`, skill, 8, 1_050_000, 0.6, 'light')],
@@ -59,6 +61,7 @@ export const BALANCE = {
     minimumTheaterAppearances: 4,
     trainingProgressPerIntensity: 5,
   },
+  training: { maxSessionsPerMember: 7 },
   mentorship: {
     durationWeeks: 8,
     developmentBonus: 0.2,
@@ -92,12 +95,15 @@ export const BALANCE = {
   },
 };
 
-const TRAINING_SKILLS = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
-
-export const SCHEDULE_ACTIVITY_GROUPS = [
+export const TRAINING_ACTIVITY_GROUPS = [
   { label: 'Light training', activities: TRAINING_SKILLS.map((skill) => `${skill}Light`) },
   { label: 'Regular training', activities: TRAINING_SKILLS },
   { label: 'Intensive training', activities: TRAINING_SKILLS.map((skill) => `${skill}Intensive`) },
+];
+
+export const TRAINING_ACTIVITY_IDS = TRAINING_ACTIVITY_GROUPS.flatMap((group) => group.activities);
+
+export const SCHEDULE_ACTIVITY_GROUPS = [
   { label: 'Media', activities: ['photoshoot', 'media'] },
   { label: 'Show', activities: ['theater', 'offAir'] },
 ];

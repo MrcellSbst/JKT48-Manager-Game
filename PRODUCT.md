@@ -24,14 +24,15 @@ Real active-member identity anchors each run while seeded fictional stats, devel
 
 ## Operating Context
 
-Play happens in weekly turns across a seven-day calendar. Players repeatedly compare roster condition, schedule activities, resolve the week, and review operational and fan outcomes across multiple in-game years.
+Play happens in weekly turns across a seven-day calendar. Players repeatedly compare roster condition, schedule activities, queue standalone training, resolve the week, and review operational and fan outcomes across multiple in-game years.
 
 ## Capabilities and Constraints
 
 - Current active members come from `src/data/newmemberdata.js`.
 - Member portraits come from `src/Asset/member_active/`.
 - Real names and images provide identity only. Skills, potential, ego, chemistry, performance, and story outcomes are fictional per-run values.
-- One game year contains 52 weekly turns.
+- One game year contains 48 weekly turns: twelve four-week months.
+- Schedule owns fixed daily work and campaigns. Training owns ordered per-member development queues of up to seven sessions, which resolve onto the earliest otherwise-free days.
 - Energy is capped at 100 and recovers by 40 at the start of a new week.
 - Guest saves remain local to browser IndexedDB. Signed-in saves retain IndexedDB as the local source and add monthly, manual, and logout cloud checkpoints.
 - Features are implemented in modular stages following `plan.md`, with balance values stored outside UI components.

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, prepareGraduation, promoteTrainee, renovateTheater, resolveWeek, respondToOpportunity, runAudition, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getRosterPool, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
-import { BALANCE, DAYS, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES } from '../src/data/balance.js';
+import { BALANCE, DAYS, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
@@ -169,17 +169,21 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Off-air performance requires 12 members'), 'Penampilan off-air membutuhkan 12 anggota');
   assert.equal(translateIndonesian('24 pool members available'), '24 anggota tersedia di kumpulan');
   assert.equal(translateIndonesian('Fiony returns to the talent pool'), 'Fiony kembali ke kumpulan talenta');
+  assert.equal(translateIndonesian('Training History'), 'Riwayat Latihan');
+  assert.equal(translateIndonesian('2 training session(s) skipped. Review free days, member availability, and Energy.'), '2 sesi latihan dilewati. Periksa hari kosong, ketersediaan anggota, dan Energi.');
 });
 
 test('schedule activity groups are ordered and cover every schedulable activity once', () => {
-  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS.map((group) => group.label), ['Light training', 'Regular training', 'Intensive training', 'Media', 'Show']);
-  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[3].activities, ['photoshoot', 'media']);
-  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[4].activities, ['theater', 'offAir']);
+  assert.deepEqual(TRAINING_ACTIVITY_GROUPS.map((group) => group.label), ['Light training', 'Regular training', 'Intensive training']);
+  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS.map((group) => group.label), ['Media', 'Show']);
+  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[0].activities, ['photoshoot', 'media']);
+  assert.deepEqual(SCHEDULE_ACTIVITY_GROUPS[1].activities, ['theater', 'offAir']);
   assert.deepEqual(SCHEDULE_STANDALONE_ACTIVITIES, ['rest', 'liveStream']);
   const configured = [...SCHEDULE_ACTIVITY_GROUPS.flatMap((group) => group.activities), ...SCHEDULE_STANDALONE_ACTIVITIES];
   const schedulable = Object.entries(BALANCE.activities).filter(([, activity]) => activity.schedulable !== false).map(([id]) => id);
   assert.equal(new Set(configured).size, configured.length);
   assert.deepEqual(new Set(configured), new Set(schedulable));
+  assert.deepEqual(new Set(TRAINING_ACTIVITY_GROUPS.flatMap((group) => group.activities)), new Set(Object.entries(BALANCE.activities).filter(([, activity]) => activity.skill).map(([id]) => id)));
 });
 
 test('same seed creates same fictional roster stats', () => {
@@ -430,12 +434,114 @@ test('projected Energy includes Recovery Program and current-week Stamina growth
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id), 'Energy Office', ['B011']);
   const memberId = game.members[0].id;
   game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 90, stamina: 40 } : member) };
-  for (const day of DAYS) game = assignActivity(game, memberId, day, 'staminaIntensive');
+  for (const day of DAYS) game = queueTrainingSession(game, memberId, 'staminaIntensive');
   const projected = getProjectedEnergyByMember(game)[memberId];
   const resolvedGame = resolveWeek(game);
   const resolvedMember = resolvedGame.members.find((member) => member.id === memberId);
   assert.ok(resolvedMember.stamina > 40);
   assert.equal(projected, resolvedMember.energy);
+});
+
+test('standalone training queue supports ordering, removal, limits, and availability gates', () => {
+  const game = createGame('standalone-training-queue-test');
+  const memberId = game.members[0].id;
+  let planned = queueTrainingSession(game, memberId, 'vocal');
+  planned = queueTrainingSession(planned, memberId, 'danceIntensive');
+  assert.deepEqual(planned.trainingPlans[memberId], ['vocal', 'danceIntensive']);
+  planned = moveTrainingSession(planned, memberId, 1, 0);
+  assert.deepEqual(planned.trainingPlans[memberId], ['danceIntensive', 'vocal']);
+  planned = removeTrainingSession(planned, memberId, 1);
+  assert.deepEqual(planned.trainingPlans[memberId], ['danceIntensive']);
+  while (planned.trainingPlans[memberId].length < BALANCE.training.maxSessionsPerMember) planned = queueTrainingSession(planned, memberId, 'vocalLight');
+  assert.equal(queueTrainingSession(planned, memberId, 'mc'), planned);
+  assert.equal(assignActivity(game, memberId, 'Mon', 'vocal'), game);
+  assert.deepEqual(clearTrainingPlan(planned, memberId).trainingPlans, {});
+
+  const injured = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, injury: { severity: 'minor', weeksRemaining: 1, blocks: ['training'] } } : member) };
+  const suspended = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, status: 'suspended', suspensionWeeks: 2 } : member) };
+  assert.equal(queueTrainingSession(injured, memberId, 'vocal'), injured);
+  assert.equal(queueTrainingSession(suspended, memberId, 'vocal'), suspended);
+});
+
+test('training uses explicit Rest, follows queue order, and skips overflow after Schedule changes', () => {
+  const game = createGame('standalone-training-priority-test');
+  const memberId = game.members[0].id;
+  let planned = game;
+  for (let index = 0; index < 7; index += 1) planned = queueTrainingSession(planned, memberId, index === 0 ? 'danceIntensive' : 'vocalLight');
+  planned = assignActivity(planned, memberId, 'Mon', 'media');
+  planned = assignActivity(planned, memberId, 'Tue', 'rest');
+  assert.equal(getTrainingPlanStatus(planned, memberId).overflow, 1);
+  const projected = getProjectedEnergyByMember(planned)[memberId];
+  const next = resolveWeek(planned);
+  const sessions = next.lastResult.trainingSessions.filter((session) => session.memberId === memberId);
+  const completed = sessions.filter((session) => session.status === 'completed');
+  const skipped = sessions.filter((session) => session.status === 'skipped');
+  assert.equal(completed.length, 6);
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0].reason, 'no-free-day');
+  assert.deepEqual(completed.map((session) => session.day), ['Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
+  assert.equal(completed[0].activityId, 'danceIntensive');
+  assert.equal(next.lastResult.schedule[`${memberId}:Mon`], 'media');
+  assert.equal(next.lastResult.schedule[`${memberId}:Tue`], undefined);
+  assert.equal(next.lastResult.finances.activityCosts, BALANCE.activities.media.cost + BALANCE.activities.danceIntensive.cost + BALANCE.activities.vocalLight.cost * 5);
+  assert.equal(next.members.find((member) => member.id === memberId).energy, projected);
+  assert.deepEqual(next.trainingPlans, {});
+  assert.ok(next.notifications.some((notification) => notification.code === 'training-skipped'));
+});
+
+test('training queue order deterministically controls which skill receives the stronger Energy band', () => {
+  const build = (firstActivity, secondActivity) => {
+    let game = createGame('training-order-energy-band-test');
+    const memberId = game.members[0].id;
+    game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, energy: 50, vocal: 50, dance: 50, performance: 50, mc: 50, variety: 50, stamina: 0, potential: 100, development: 100, adaptability: 50, traits: [] } : member) };
+    game = queueTrainingSession(game, memberId, firstActivity);
+    game = queueTrainingSession(game, memberId, secondActivity);
+    return resolveWeek(game).members.find((member) => member.id === memberId);
+  };
+  const vocalFirst = build('vocalIntensive', 'danceIntensive');
+  const danceFirst = build('danceIntensive', 'vocalIntensive');
+  assert.ok(vocalFirst.vocal > danceFirst.vocal);
+  assert.ok(danceFirst.dance > vocalFirst.dance);
+});
+
+test('training templates save, replace included plans, rename, apply, and delete', () => {
+  let game = createGame('training-template-test');
+  const [first, second, third] = game.members;
+  game = queueTrainingSession(game, first.id, 'vocal');
+  game = queueTrainingSession(game, second.id, 'danceLight');
+  game = saveTrainingTemplate(game, 'Development A');
+  const template = game.trainingTemplates[0];
+  game = clearTrainingPlan(game, first.id);
+  game = queueTrainingSession(game, third.id, 'mc');
+  game = applyTrainingTemplate(game, template);
+  assert.deepEqual(game.trainingPlans[first.id], ['vocal']);
+  assert.deepEqual(game.trainingPlans[second.id], ['danceLight']);
+  assert.deepEqual(game.trainingPlans[third.id], ['mc']);
+  game = renameTrainingTemplate(game, template.id, 'Development B');
+  assert.equal(game.trainingTemplates[0].name, 'Development B');
+  game = deleteTrainingTemplate(game, template.id);
+  assert.deepEqual(game.trainingTemplates, []);
+});
+
+test('legacy training migration splits schedules, templates, and reports once', () => {
+  const game = createGame('training-migration-test');
+  const memberId = game.members[0].id;
+  const legacy = {
+    ...game,
+    trainingSchemaVersion: 0,
+    schedule: { [`${memberId}:Tue`]: 'dance', [`${memberId}:Mon`]: 'vocalLight', [`${memberId}:Wed`]: 'media' },
+    scheduleTemplates: [{ id: 'mixed', name: 'Mixed week', createdYear: 1, createdWeek: 1, entries: [{ memberId, day: 'Tue', activityId: 'dance' }, { memberId, day: 'Wed', activityId: 'media' }, { memberId, day: 'Mon', activityId: 'vocalLight' }] }],
+    weeklyReports: [{ year: 1, week: 1, schedule: { [`${memberId}:Mon`]: 'vocal', [`${memberId}:Tue`]: 'media' } }],
+    lastResult: { year: 1, week: 1, schedule: { [`${memberId}:Mon`]: 'vocal' } },
+  };
+  const migrated = migrateTrainingState(legacy);
+  assert.deepEqual(migrated.trainingPlans[memberId], ['vocalLight', 'dance']);
+  assert.deepEqual(migrated.schedule, { [`${memberId}:Wed`]: 'media' });
+  assert.deepEqual(migrated.scheduleTemplates[0].entries, [{ memberId, day: 'Wed', activityId: 'media' }]);
+  assert.deepEqual(migrated.trainingTemplates[0].entries, [{ memberId, sessions: ['vocalLight', 'dance'] }]);
+  assert.deepEqual(migrated.weeklyReports[0].schedule, { [`${memberId}:Tue`]: 'media' });
+  assert.equal(migrated.weeklyReports[0].trainingSessions[0].legacy, true);
+  assert.deepEqual(migrateTrainingState(migrated), migrated);
 });
 
 test('moderate injuries include every minor restriction plus their own limits', () => {
@@ -452,6 +558,68 @@ test('moderate injuries include every minor restriction plus their own limits', 
   for (const activity of ['vocal', 'theater', 'offAir', 'mg1', 'photoshoot', 'media', 'vc1']) assert.equal(canMemberPerform(moderate, activity), false);
   assert.equal(canMemberPerform(moderate, 'liveStream'), true);
   assert.equal(canMemberPerform(moderate, 'rest'), true);
+});
+
+test('injury history migration backfills one active legacy incident and stays idempotent', () => {
+  const game = createGame('legacy-injury-history-test');
+  const member = game.members[0];
+  const legacy = {
+    ...game,
+    injuryHistorySchemaVersion: 0,
+    members: game.members.map((item) => item.id === member.id ? { ...item, injury: { severity: 'minor', label: 'Minor', weeksRemaining: 1, weeks: 1, blocks: ['training'], causedBy: { year: 1, week: 1, load: 8 } }, injuryHistory: undefined } : item),
+  };
+  const migrated = migrateInjuryHistoryState(legacy);
+  const migratedMember = migrated.members.find((item) => item.id === member.id);
+  assert.equal(migrated.injuryHistorySchemaVersion, 1);
+  assert.equal(migratedMember.injuryHistory.length, 1);
+  assert.equal(migratedMember.injury.incidentId, migratedMember.injuryHistory[0].id);
+  assert.equal(migratedMember.injuryHistory[0].legacy, true);
+  assert.equal(migrated.history.filter((event) => event.incidentId === migratedMember.injury.incidentId).length, 1);
+  assert.deepEqual(migrateInjuryHistoryState(migrated), migrated);
+});
+
+test('resolved injuries record full workload, activities, onset, and recovery once', () => {
+  let injuredGame = null;
+  let injuredMemberId = null;
+  for (let attempt = 0; attempt < 200 && !injuredGame; attempt += 1) {
+    let game = createGame(`injury-incident-test-${attempt}`);
+    injuredMemberId = game.members[0].id;
+    for (let day = 0; day < DAYS.length; day += 1) game = queueTrainingSession(game, injuredMemberId, 'performanceIntensive');
+    const resolved = resolveWeek(game);
+    if (resolved.members.find((member) => member.id === injuredMemberId)?.injuryHistory?.some((incident) => incident.status === 'active')) injuredGame = resolved;
+  }
+  assert.ok(injuredGame, 'expected deterministic seed search to produce an injury');
+  const injuredMember = injuredGame.members.find((member) => member.id === injuredMemberId);
+  const incident = injuredMember.injuryHistory[0];
+  assert.equal(incident.workload, DAYS.length * BALANCE.injury.loadByType.heavy);
+  assert.deepEqual(incident.assignments.map(({ day, source }) => ({ day, source })), DAYS.map((day) => ({ day, source: 'training' })));
+  assert.equal(injuredGame.history.filter((event) => event.id === `${incident.id}-onset`).length, 1);
+
+  let recoveredGame = injuredGame;
+  for (let week = 0; week < 3 && recoveredGame.members.find((member) => member.id === injuredMemberId).injury; week += 1) recoveredGame = resolveWeek(recoveredGame);
+  const recoveredMember = recoveredGame.members.find((member) => member.id === injuredMemberId);
+  const recoveredIncident = recoveredMember.injuryHistory.find((item) => item.id === incident.id);
+  assert.equal(recoveredIncident.status, 'recovered');
+  assert.ok(recoveredIncident.recoveredYear);
+  assert.ok(recoveredIncident.recoveredWeek);
+  assert.equal(recoveredGame.history.filter((event) => event.id === `${incident.id}-recovery`).length, 1);
+  assert.deepEqual(migrateInjuryHistoryState(recoveredGame), recoveredGame);
+});
+
+test('injury history survives release and pool return for the same identity', () => {
+  let game = createGame('injury-release-history-test');
+  const member = game.members[0];
+  const activeIncident = { id: `injury-${member.identityId}-1-1`, memberId: member.id, identityId: member.identityId, severity: 'minor', label: 'Minor', startYear: 1, startWeek: 1, originalWeeks: 1, workload: 8, assignments: [], status: 'active', recoveredYear: null, recoveredWeek: null };
+  game = { ...game, runStatus: 'active', members: game.members.map((item) => item.id === member.id ? { ...item, injury: { severity: 'minor', label: 'Minor', weeksRemaining: 1, weeks: 1, blocks: ['training'], incidentId: activeIncident.id }, injuryHistory: [activeIncident] } : item) };
+  game = fireMember(game, member.id);
+  game = { ...game, departures: game.departures.map((departure) => ({ ...departure, returnAbsolute: 1 })) };
+  const returned = resolveWeek(game);
+  const poolMember = returned.unsignedMembers.find((item) => item.identityId === member.identityId);
+  assert.ok(poolMember);
+  assert.equal(poolMember.injury, null);
+  assert.equal(poolMember.injuryHistory.length, 1);
+  assert.equal(poolMember.injuryHistory[0].status, 'recovered');
+  assert.equal(returned.history.filter((event) => event.id === `${activeIncident.id}-recovery`).length, 1);
 });
 
 test('weekly result exposes an income and expense breakdown matching net cash', () => {
@@ -561,7 +729,7 @@ test('concert is group-wide and limited to one event per four-week month', () =>
 test('weekly report lists skill improvements after training', () => {
   const game = createGame('skill-report-test');
   const member = game.members[0];
-  const next = resolveWeek(assignActivity(game, member.id, 'Mon', 'vocal'));
+  const next = resolveWeek(queueTrainingSession(game, member.id, 'vocal'));
   const change = next.lastResult.skillChanges.find((item) => item.memberId === member.id && item.skill === 'vocal');
   assert.ok(change);
   assert.ok(change.delta > 0);
@@ -572,7 +740,7 @@ test('training intensity and starting energy affect development', () => {
   const draft = createGame('training-intensity-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const memberId = base.members[0].id;
-  const prepare = (energy, activity) => assignActivity({ ...base, members: base.members.map((member) => member.id === memberId ? { ...member, energy, vocal: 40, potential: 95, development: 90 } : member) }, memberId, 'Mon', activity);
+  const prepare = (energy, activity) => queueTrainingSession({ ...base, members: base.members.map((member) => member.id === memberId ? { ...member, energy, vocal: 40, potential: 95, development: 90 } : member) }, memberId, activity);
   const light = resolveWeek(prepare(100, 'vocalLight')).members.find((member) => member.id === memberId).vocal;
   const intensive = resolveWeek(prepare(100, 'vocalIntensive')).members.find((member) => member.id === memberId).vocal;
   const exhausted = resolveWeek(prepare(15, 'vocalIntensive')).members.find((member) => member.id === memberId).vocal;
@@ -585,9 +753,9 @@ test('schedule template assigns available members and skips unavailable members'
   const game = createGame('schedule-template-test');
   const [available, unavailable] = game.members;
   const suspended = { ...game, members: game.members.map((member) => member.id === unavailable.id ? { ...member, status: 'suspended', suspensionWeeks: 2 } : member) };
-  const template = { name: 'Training week', entries: [{ memberId: available.id, day: 'Mon', activityId: 'vocal' }, { memberId: unavailable.id, day: 'Tue', activityId: 'dance' }] };
+  const template = { name: 'Media week', entries: [{ memberId: available.id, day: 'Mon', activityId: 'media' }, { memberId: unavailable.id, day: 'Tue', activityId: 'photoshoot' }] };
   const next = applyScheduleTemplate(suspended, template);
-  assert.equal(next.schedule[`${available.id}:Mon`], 'vocal');
+  assert.equal(next.schedule[`${available.id}:Mon`], 'media');
   assert.equal(next.schedule[`${unavailable.id}:Tue`], undefined);
   assert.match(next.notifications[0].text, /1 template assignment\(s\) skipped/);
 });
@@ -595,7 +763,7 @@ test('schedule template assigns available members and skips unavailable members'
 test('campaign priority keeps template assignments from replacing campaign work', () => {
   const game = createGame('campaign-template-priority-test');
   const memberId = game.members[0].id;
-  const template = { name: 'Training week', entries: [{ memberId, day: 'Mon', activityId: 'vocal' }] };
+  const template = { name: 'Media week', entries: [{ memberId, day: 'Mon', activityId: 'media' }] };
   for (const campaignActivity of ['concert', 'mg1', 'mvProduction', 'vc1']) {
     const staged = { ...game, schedule: { [`${memberId}:Mon`]: campaignActivity } };
     const next = applyScheduleTemplate(staged, template);
@@ -613,7 +781,7 @@ test('campaign schedule resolution uses first campaign claim, with templates bel
     fanEventPlans: [plan(plannedType)],
   }).lastResult.schedule[`${memberId}:Mon`];
 
-  assert.equal(resolveWith('vocal', 'videoCall'), 'vc1');
+  assert.equal(resolveWith('media', 'videoCall'), 'vc1');
   assert.equal(resolveWith('mvProduction', 'videoCall'), 'mvProduction');
   assert.equal(resolveWith('mvProduction', 'meetGreet'), 'mvProduction');
   assert.equal(resolveWith('concert', 'meetGreet'), 'concert');
@@ -793,7 +961,7 @@ test('single production requires 12 members and completes after four weeks', () 
   const draft = createGame('single-production-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const centerId = game.members[0].id;
-  const occupied = assignActivity(game, centerId, 'Wed', 'vocal');
+  const occupied = assignActivity(game, centerId, 'Wed', 'media');
   const blockedOccupied = startSingleProduction(occupied, centerId, 'Wed');
   assert.equal(blockedOccupied.singles.length, 0);
   assert.match(blockedOccupied.notifications[0].text, /Campaign blocked/);
@@ -898,6 +1066,48 @@ test('media appearance earns popularity-scaled income', () => {
   assert.equal(next.lastResult.finances.media, 50 * BALANCE.activities.media.revenuePerPopularity);
   assert.equal(next.lastResult.finances.activityCosts, BALANCE.activities.media.cost);
   assert.ok(next.lastResult.fanGain > 0);
+});
+
+test('schedule snapshots expose confirmed future campaign and event assignments', () => {
+  const draft = createGame('future-schedule-snapshot-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberIds = game.members.map((member) => member.id);
+  const staged = {
+    ...game,
+    fanEventPlans: [{ id: 'future-vc', type: 'videoCall', day: 'Fri', memberIds: memberIds.slice(0, 3), year: 1, targetWeek: 2, status: 'announced' }],
+    singles: [{ id: 'future-mv', status: 'planned', memberIds, productionDay: 'Wed', productionStartYear: 1, productionStartWeek: 2, durationWeeks: 4, year: 1, week: 1 }],
+    concerts: [{ id: 'future-concert', status: 'selling', eventType: 'anniversary', memberIds, day: 'Sat', rehearsalDays: ['Tue', 'Thu'], targetYear: 1, targetWeek: 3 }],
+    yearEndMeetGreets: [{ id: 'future-mg', status: 'announced', year: 1, targetWeek: 4, day: 'Sun', memberSessions: memberIds.map((memberId) => ({ memberId, sold: 0, capacity: 300 })) }],
+  };
+
+  const weekTwo = getScheduleSnapshotForWeek(staged, 1, 2);
+  assert.equal(weekTwo.kind, 'confirmed');
+  assert.equal(weekTwo.schedule[`${memberIds[0]}:Fri`], 'vc1');
+  assert.equal(weekTwo.schedule[`${memberIds[0]}:Wed`], 'mvProduction');
+
+  const weekThree = getConfirmedScheduleForWeek(staged, 1, 3);
+  assert.equal(weekThree[`${memberIds[0]}:Tue`], 'concertRehearsal');
+  assert.equal(weekThree[`${memberIds[0]}:Thu`], 'concertRehearsal');
+  assert.equal(weekThree[`${memberIds[0]}:Sat`], 'concert');
+  assert.equal(weekThree[`${memberIds[0]}:Wed`], 'mvProduction');
+
+  const weekFour = getScheduleSnapshotForWeek(staged, 1, 4);
+  assert.equal(weekFour.schedule[`${memberIds[0]}:Sun`], 'yearEndMeetGreet');
+  assert.equal(weekFour.schedule[`${memberIds[0]}:Wed`], 'mvProduction');
+});
+
+test('resolved schedule snapshots remain authoritative over confirmed reservations', () => {
+  const draft = createGame('resolved-schedule-snapshot-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  const staged = {
+    ...game,
+    concerts: [{ id: 'reported-concert', status: 'completed', memberIds: game.members.map((member) => member.id), day: 'Sat', targetYear: 1, targetWeek: 3 }],
+    weeklyReports: [{ year: 1, week: 3, schedule: { [`${memberId}:Mon`]: 'media' } }],
+  };
+  const snapshot = getScheduleSnapshotForWeek(staged, 1, 3);
+  assert.equal(snapshot.kind, 'resolved');
+  assert.deepEqual(snapshot.schedule, { [`${memberId}:Mon`]: 'media' });
 });
 
 test('live stream uses the direct Rp40k income rate', () => {
@@ -1283,7 +1493,7 @@ test('trainee progression records trainee time and training progress', () => {
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const trainee = { ...game.members[0], id: 'trainee-progression', status: 'trainee', team: 'TRAINEE', traineeWeeks: 0, trainingProgress: 0, theaterAppearances: 0 };
   const withTrainee = { ...game, members: [trainee, ...game.members.slice(1)] };
-  const next = resolveWeek(assignActivity(withTrainee, trainee.id, 'Mon', 'vocal'));
+  const next = resolveWeek(queueTrainingSession(withTrainee, trainee.id, 'vocal'));
   const progressed = next.members.find((member) => member.id === trainee.id);
   assert.equal(progressed.traineeWeeks, 1);
   assert.ok(progressed.trainingProgress > 0);
@@ -1313,8 +1523,8 @@ test('mentorship gives trainee development bonus and completes after eight weeks
   const game = { ...base, members };
   const mentored = startMentorship(game, mentorId, menteeId);
   assert.equal(mentored.mentorships[0].durationWeeks, 8);
-  const withoutMentor = resolveWeek(assignActivity(game, menteeId, 'Mon', 'vocal'));
-  const withMentor = resolveWeek(assignActivity(mentored, menteeId, 'Mon', 'vocal'));
+  const withoutMentor = resolveWeek(queueTrainingSession(game, menteeId, 'vocal'));
+  const withMentor = resolveWeek(queueTrainingSession(mentored, menteeId, 'vocal'));
   const baselineGain = withoutMentor.members.find((member) => member.id === menteeId).vocal - game.members.find((member) => member.id === menteeId).vocal;
   const mentoredGain = withMentor.members.find((member) => member.id === menteeId).vocal - game.members.find((member) => member.id === menteeId).vocal;
   assert.ok(mentoredGain > baselineGain);
@@ -1358,18 +1568,25 @@ test('runs do not end at a fixed five-year limit', () => {
   assert.equal(next.runStatus, 'active');
 });
 
-test('drama refunds sold future fan-event tickets for the suspended member', () => {
+test('drama refunds future fan-event tickets only after management chooses suspension', () => {
   const previousChance = BALANCE.dramaChance;
   BALANCE.dramaChance = 1;
   try {
     const base = { ...createGame('drama-refund-test'), year: 2, week: 37, dramaCooldown: 0 };
     let game = finalizeGameSetup(base, 'community', base.members.slice(0, 12).map((member) => member.id));
     game = scheduleYearEndMeetGreet(game, 44, 'Sat', 37, Object.fromEntries(game.members.map((member) => [member.id, 3])));
-    const next = resolveWeek(game);
+    const pending = resolveWeek(game);
+    const dramaMember = pending.members.find((member) => member.id === pending.activeDrama.memberId);
+    const pendingSession = pending.yearEndMeetGreets[0].memberSessions.find((session) => session.memberId === dramaMember.id);
+    assert.equal(dramaMember.status, 'active');
+    assert.equal(pendingSession.refunded ?? 0, 0);
+    assert.ok(pendingSession.sold > 0);
+
+    const next = punishMember(pending, dramaMember.id, 12);
     const refundedSessions = next.yearEndMeetGreets[0].memberSessions.filter((session) => (session.refunded ?? 0) > 0);
     assert.equal(refundedSessions.length, 1);
     assert.equal(refundedSessions[0].sold, 0);
-    assert.ok(next.lastResult.finances.refunds > 0);
+    assert.equal(next.money, pending.money - (pendingSession.sold * pending.yearEndMeetGreets[0].ticketPrice));
   } finally {
     BALANCE.dramaChance = previousChance;
   }
@@ -1488,6 +1705,11 @@ test('member drama resolves from the dedicated fictional scenario catalog', () =
     assert.ok(next.activeDrama.title);
     assert.ok(next.activeDrama.detail.includes(next.activeDrama.name));
     assert.equal(next.history[0].title, next.activeDrama.title);
+    const dramaMember = next.members.find((member) => member.id === next.activeDrama.memberId);
+    assert.equal(dramaMember.status, 'active');
+    assert.equal(dramaMember.suspensionWeeks, 0);
+    assert.equal(next.activeDrama.response, 'pending');
+    assert.equal(next.records.dramaSuspensions, 0);
 
     let targetedDrama = null;
     for (let seedIndex = 0; seedIndex < 100 && !targetedDrama; seedIndex += 1) {
@@ -1501,6 +1723,53 @@ test('member drama resolves from the dedicated fictional scenario catalog', () =
   } finally {
     BALANCE.dramaChance = previousChance;
   }
+});
+
+test('Let it be resolves member drama without punishment or commitment changes', () => {
+  const draft = createGame('drama-no-punishment-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const member = game.members[0];
+  const schedule = { [`${member.id}:Mon`]: 'media' };
+  const staged = {
+    ...game,
+    schedule,
+    activeDrama: { dramaSource: 'member', memberId: member.id, name: member.name, dramaId: 'careless-social-post', severity: 'Moderate', originalStatus: 'active', response: 'pending', startedWeek: game.week },
+  };
+  const resolved = resolveMemberDramaWithoutPunishment(staged, member.id);
+  const resolvedMember = resolved.members.find((item) => item.id === member.id);
+  assert.equal(resolvedMember.status, 'active');
+  assert.equal(resolvedMember.suspensionWeeks, 0);
+  assert.equal(resolved.activeDrama, null);
+  assert.deepEqual(resolved.schedule, schedule);
+  assert.equal(resolved.money, staged.money);
+  assert.ok(resolved.memberDramaCooldown >= BALANCE.dramaCooldown[0] && resolved.memberDramaCooldown <= BALANCE.dramaCooldown[1]);
+  assert.equal(resolved.records.dramaSuspensions, 0);
+  assert.match(resolved.history[0].title, /receives no punishment/);
+});
+
+test('drama popup punishment duration controls suspension and affected commitments', () => {
+  const draft = createGame('drama-duration-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const member = game.members[0];
+  const event = { id: 'drama-event', year: game.year, targetWeek: game.week, day: 'Sat', ticketPrice: 50_000, revenue: 500_000, memberSessions: [{ memberId: member.id, sold: 10, capacity: 300 }] };
+  const staged = {
+    ...game,
+    schedule: { [`${member.id}:Mon`]: 'media' },
+    trainingPlans: { [member.id]: ['vocal'] },
+    yearEndMeetGreets: [event],
+    activeDrama: { dramaSource: 'member', memberId: member.id, name: member.name, dramaId: 'livestream-slip', severity: 'Major', originalStatus: 'active', response: 'pending', startedWeek: game.week },
+  };
+  const punished = punishMember(staged, member.id, 8);
+  const punishedMember = punished.members.find((item) => item.id === member.id);
+  assert.equal(punishedMember.status, 'suspended');
+  assert.equal(punishedMember.suspensionWeeks, 8);
+  assert.equal(punished.activeDrama.dramaId, staged.activeDrama.dramaId);
+  assert.equal(punished.activeDrama.punishmentWeeks, 8);
+  assert.equal(punished.records.dramaSuspensions, 1);
+  assert.equal(punished.schedule[`${member.id}:Mon`], undefined);
+  assert.equal(punished.trainingPlans[member.id], undefined);
+  assert.equal(punished.yearEndMeetGreets[0].memberSessions[0].sold, 0);
+  assert.equal(punished.money, staged.money - 500_000);
 });
 
 test('graduation planning protects Year 1 and budgets four to six eligible departures per later year', () => {

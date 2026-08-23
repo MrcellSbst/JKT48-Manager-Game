@@ -26,6 +26,8 @@ Use `Barlow Condensed` for score-like headings and numeric displays, with `Barlo
 
 Persistent left navigation on desktop, compact top navigation on mobile. A narrow match-week header owns time and primary action. Main content uses full-width bands and data tables, with cards reserved for roster members, save slots, events, and result summaries.
 
+The Training page uses a persistent member rail beside a selected-member workspace. Skill and intensity actions feed an ordered queue; capacity, projected Energy, template controls, and resolved history remain visible as operational data rather than calendar assignments.
+
 ## Components
 
 - Buttons use icons from Lucide and direct action labels.

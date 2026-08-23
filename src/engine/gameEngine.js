@@ -1,5 +1,5 @@
 import { memberData } from '../data/newmemberdata.js';
-import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, SINGLE_BUDGETS } from '../data/balance.js';
+import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, SINGLE_BUDGETS, TRAINING_ACTIVITY_IDS } from '../data/balance.js';
 import { MEMBER_DRAMA_TEMPLATES } from '../data/dramaData.js';
 import dreamSetlistSongs from '../data/DreamSetlist_Songs.js';
 import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
@@ -23,6 +23,9 @@ const ALL_NINETY_STATS = Object.fromEntries([
 const AUDITION_CANDIDATE_COUNT = 12;
 const AUDITION_MAX_INTAKE = 6;
 const ALL_NINETY_SEED = 'SEKAISEIN@1903@MARCELL';
+const TRAINING_SCHEMA_VERSION = 1;
+const INJURY_HISTORY_SCHEMA_VERSION = 1;
+const TRAINING_ACTIVITY_SET = new Set(TRAINING_ACTIVITY_IDS);
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 const voucherAdjustmentFor = (member, stat) => Number(member?.voucherAdjustments?.[stat] ?? 0);
@@ -237,12 +240,105 @@ export function canMemberPerform(member, activityId) {
   return !blocks.includes(getActivityCategory(activityId));
 }
 
+function applyMemberAbsenceToCommitments(state, memberId, durationWeeks) {
+  const currentAbsolute = toAbsoluteWeek(state.year, state.week);
+  const endAbsolute = Number.isFinite(durationWeeks) ? currentAbsolute + durationWeeks : Infinity;
+  const absentAt = (year, week) => {
+    if (!Number.isInteger(year) || !Number.isInteger(week)) return false;
+    const absolute = toAbsoluteWeek(year, week);
+    return absolute >= currentAbsolute && absolute < endAbsolute;
+  };
+  const schedule = Object.fromEntries(Object.entries(state.schedule ?? {}).filter(([key]) => !key.startsWith(`${memberId}:`)));
+  const trainingPlans = { ...(state.trainingPlans ?? {}) };
+  delete trainingPlans[memberId];
+  const replacementFor = (lineup, activityId) => (state.members ?? [])
+    .filter((candidate) => candidate.id !== memberId && !lineup.includes(candidate.id) && canMemberPerform(candidate, activityId))
+    .toSorted((first, second) => (second.performance ?? 0) - (first.performance ?? 0))[0];
+  const replacementNotices = [];
+  let refund = 0;
+
+  const yearEndMeetGreets = (state.yearEndMeetGreets ?? []).map((event) => {
+    if (!absentAt(event.year, event.targetWeek)) return event;
+    let eventRefund = 0;
+    const memberSessions = event.memberSessions.map((session) => {
+      if (session.memberId !== memberId || session.sold <= 0) return session;
+      eventRefund += session.sold * event.ticketPrice;
+      return { ...session, refunded: (session.refunded ?? 0) + session.sold, sold: 0 };
+    });
+    refund += eventRefund;
+    return eventRefund ? { ...event, memberSessions, revenue: Math.max(0, (event.revenue ?? 0) - eventRefund) } : event;
+  });
+
+  const concerts = (state.concerts ?? []).map((concert) => {
+    if (!absentAt(concert.targetYear, concert.targetWeek) || !concert.memberIds?.includes(memberId)) return concert;
+    const replacement = replacementFor(concert.memberIds, 'concert');
+    if (!replacement) return { ...concert, memberIds: concert.memberIds.filter((id) => id !== memberId) };
+    replacementNotices.push(`${replacement.nickname || replacement.name} joins ${concert.title} as an emergency replacement.`);
+    return { ...concert, memberIds: concert.memberIds.map((id) => id === memberId ? replacement.id : id), replacements: [...(concert.replacements ?? []), { outMemberId: memberId, inMemberId: replacement.id, year: state.year, week: state.week }] };
+  });
+
+  const singles = (state.singles ?? []).map((single) => {
+    if (single.status === 'released' || !single.memberIds?.includes(memberId)) return single;
+    const productionStart = Number.isInteger(single.productionStartYear) && Number.isInteger(single.productionStartWeek)
+      ? toAbsoluteWeek(single.productionStartYear, single.productionStartWeek)
+      : single.status === 'production' ? currentAbsolute - (single.progressWeeks ?? 0) : Infinity;
+    const productionEnd = productionStart + (single.durationWeeks ?? 4);
+    if (productionStart >= endAbsolute || productionEnd <= currentAbsolute) return single;
+    const replacement = replacementFor(single.memberIds, 'mvProduction');
+    if (!replacement) return { ...single, memberIds: single.memberIds.filter((id) => id !== memberId), centerId: single.centerId === memberId ? null : single.centerId };
+    replacementNotices.push(`${replacement.nickname || replacement.name} replaces an unavailable MV member.`);
+    return { ...single, memberIds: single.memberIds.map((id) => id === memberId ? replacement.id : id), centerId: single.centerId === memberId ? replacement.id : single.centerId, recasts: [...(single.recasts ?? []), { outMemberId: memberId, inMemberId: replacement.id, year: state.year, week: state.week }] };
+  });
+
+  const fanEventPlans = (state.fanEventPlans ?? []).map((plan) => absentAt(plan.year, plan.targetWeek)
+    ? { ...plan, memberIds: (plan.memberIds ?? []).filter((id) => id !== memberId) }
+    : plan);
+  return {
+    state: { ...state, schedule, trainingPlans, yearEndMeetGreets, concerts, singles, fanEventPlans, money: state.money - refund },
+    notifications: [
+      ...(refund ? [`${moneyText(refund)} in sold fan-event tickets refunded.`] : []),
+      ...replacementNotices,
+    ],
+  };
+}
+
 export function punishMember(state, memberId, weeks) {
   const duration = Math.max(1, Math.min(12, Math.round(Number(weeks) || 1)));
   const member = state.members?.find((item) => item.id === memberId);
-  if (state.runStatus === 'ended' || !member || !['active', 'trainee'].includes(member.status) || state.activeDrama?.memberId !== memberId) return state;
+  if (state.runStatus === 'ended' || !member || !['active', 'trainee', 'suspended'].includes(member.status) || state.activeDrama?.memberId !== memberId || state.activeDrama?.punishmentWeeks) return state;
   const name = member.nickname || member.name;
-  return { ...state, members: state.members.map((item) => item.id === memberId ? { ...item, status: 'suspended', suspensionWeeks: duration } : item), activeDrama: { memberId, name, punishmentWeeks: duration }, history: [{ id: `punishment-${memberId}-${state.year}-${state.week}`, type: 'punishment', memberId, memberName: name, weeks: duration, title: `${name} receives a suspension`, detail: `${duration} week(s) suspension recorded by management.`, year: state.year, week: state.week }, ...(state.history ?? [])] };
+  const legacySuspension = member.status === 'suspended';
+  const consequence = applyMemberAbsenceToCommitments(state, memberId, duration);
+  const prepared = consequence.state;
+  return {
+    ...prepared,
+    members: prepared.members.map((item) => item.id === memberId ? { ...item, status: 'suspended', suspensionWeeks: duration } : item),
+    activeDrama: { ...state.activeDrama, memberId, name, originalStatus: state.activeDrama.originalStatus ?? (member.status === 'trainee' ? 'trainee' : 'active'), response: 'punished', punishmentWeeks: duration, responseYear: state.year, responseWeek: state.week },
+    records: { ...(state.records ?? {}), dramaSuspensions: (state.records?.dramaSuspensions ?? 0) + (legacySuspension ? 0 : 1) },
+    notifications: [{ type: 'critical', text: `${name} is suspended for ${duration} week(s).` }, ...consequence.notifications.map((text) => ({ type: 'critical', text })), ...(state.notifications ?? [])].slice(0, 20),
+    history: [{ id: `punishment-${memberId}-${state.year}-${state.week}`, type: 'punishment', memberId, memberName: name, weeks: duration, title: `${name} receives a suspension`, detail: `${duration} week(s) suspension recorded by management.`, year: state.year, week: state.week }, ...(state.history ?? [])],
+  };
+}
+
+export function resolveMemberDramaWithoutPunishment(state, memberId) {
+  const member = state.members?.find((item) => item.id === memberId);
+  const drama = state.activeDrama;
+  if (state.runStatus === 'ended' || !member || drama?.memberId !== memberId || drama.punishmentWeeks) return state;
+  const name = member.nickname || member.name;
+  const legacySuspension = member.status === 'suspended';
+  const originalStatus = drama.originalStatus === 'trainee' ? 'trainee' : 'active';
+  const cooldownRng = createRng(hashSeed(`${state.seed}:drama-response:${drama.dramaId ?? 'member'}:${memberId}:${drama.startedWeek ?? state.week}`));
+  const cooldown = randomInt(cooldownRng, ...BALANCE.dramaCooldown);
+  return {
+    ...state,
+    members: state.members.map((item) => item.id === memberId && item.status === 'suspended' ? { ...item, status: originalStatus, suspensionWeeks: 0 } : item),
+    activeDrama: null,
+    dramaCooldown: cooldown,
+    memberDramaCooldown: cooldown,
+    records: { ...(state.records ?? {}), dramaSuspensions: Math.max(0, (state.records?.dramaSuspensions ?? 0) - (legacySuspension ? 1 : 0)) },
+    notifications: [{ type: 'success', text: `${name} receives no punishment and remains available.` }, ...(state.notifications ?? [])].slice(0, 20),
+    history: [{ id: `drama-no-punishment-${memberId}-${state.year}-${state.week}`, type: 'drama', dramaSource: 'member', memberId, memberName: name, response: 'none', title: `${name} receives no punishment`, detail: 'Management lets the incident pass without suspending the member.', year: state.year, week: state.week }, ...(state.history ?? [])],
+  };
 }
 
 // Members who can actually be put to work this week.
@@ -324,6 +420,7 @@ function makePoolCandidate(member, poolSize, qualityBonus = 0) {
     energy: 100,
     suspensionWeeks: 0,
     injury: member.injury ?? null,
+    injuryHistory: member.injuryHistory ?? [],
     weeksWithoutEvent: 0,
     graduationPending: false,
     traineeWeeks: 0,
@@ -341,6 +438,11 @@ function recycleMemberForPool(member, state, graduation) {
   const incarnation = (member.incarnation ?? 0) + 1;
   const rng = createRng(hashSeed(`${state.seed}:pool-return:${graduation.id}:${incarnation}`));
   const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
+  const injuryHistory = (member.injuryHistory ?? []).map((incident) => {
+    if (incident.status !== 'active') return incident;
+    const recoveredAt = fromAbsoluteWeek(toAbsoluteWeek(incident.startYear, incident.startWeek) + Math.max(1, incident.originalWeeks ?? 1));
+    return { ...incident, status: 'recovered', recoveredYear: recoveredAt.year, recoveredWeek: recoveredAt.week };
+  });
   return {
     id: `${identityId}-return-${incarnation}`,
     identityId,
@@ -375,6 +477,7 @@ function recycleMemberForPool(member, state, graduation) {
     canPerformTheater: true,
     suspensionWeeks: 0,
     injury: null,
+    injuryHistory,
     weeksWithoutEvent: 0,
     salary: member.salary,
     // A returning graduate is the same person, so the birthday carries over even though every
@@ -433,14 +536,356 @@ function activityEnergyChange(state, member, activityId, activityDay = null) {
   };
 }
 
-function currentWeekSchedule(state) {
-  const schedule = { ...(state.schedule ?? {}) };
+export function getConfirmedScheduleForWeek(state, targetYear, targetWeek) {
+  if (!Number.isInteger(targetYear) || targetYear < 1 || !Number.isInteger(targetWeek) || targetWeek < 1 || targetWeek > BALANCE.weeksPerYear) return {};
+  const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
+  const currentAbsolute = toAbsoluteWeek(state.year, state.week);
+  if (targetAbsolute < currentAbsolute) return {};
+  const schedule = targetAbsolute === currentAbsolute ? { ...(state.schedule ?? {}) } : {};
+  const weeksUntilTarget = targetAbsolute - currentAbsolute;
+  const membersById = new Map((state.members ?? []).map((member) => [member.id, member]));
+  const canAttend = (memberId) => {
+    const member = membersById.get(memberId);
+    if (!member || member.status === 'graduated') return false;
+    if (['active', 'trainee'].includes(member.status)) return true;
+    return member.status === 'suspended' && (member.suspensionWeeks ?? Infinity) <= weeksUntilTarget;
+  };
+  const reserve = (memberIds, day, activityId) => {
+    if (!DAYS.includes(day)) return;
+    (memberIds ?? []).filter(canAttend).forEach((memberId) => {
+      claimScheduleSlot(schedule, `${memberId}:${day}`, activityId);
+    });
+  };
+
+  (state.concerts ?? [])
+    .filter((concert) => concert.status !== 'cancelled' && toAbsoluteWeek(concert.targetYear, concert.targetWeek) === targetAbsolute)
+    .forEach((concert) => {
+      reserve(concert.memberIds, concert.day, 'concert');
+      if (concert.eventType === 'anniversary') (concert.rehearsalDays ?? []).forEach((day) => reserve(concert.memberIds, day, 'concertRehearsal'));
+    });
+  (state.yearEndMeetGreets ?? [])
+    .filter((event) => event.status !== 'cancelled' && toAbsoluteWeek(event.year, event.targetWeek) === targetAbsolute)
+    .forEach((event) => reserve((event.memberSessions ?? []).map((session) => session.memberId), event.day, 'yearEndMeetGreet'));
   (state.fanEventPlans ?? [])
-    .filter((plan) => plan.year === state.year && plan.targetWeek === state.week)
-    .forEach((plan) => (plan.memberIds ?? []).forEach((memberId) => {
-      claimScheduleSlot(schedule, `${memberId}:${plan.day}`, plan.type === 'videoCall' ? 'vc1' : 'mg1');
-    }));
+    .filter((plan) => plan.status !== 'cancelled' && plan.year === targetYear && plan.targetWeek === targetWeek && plan.type === 'meetGreet')
+    .forEach((plan) => reserve(plan.memberIds, plan.day, 'mg1'));
+  (state.singles ?? [])
+    .filter((single) => single.status !== 'released' && single.status !== 'cancelled')
+    .forEach((single) => {
+      const startYear = Number.isInteger(single.productionStartYear) ? single.productionStartYear : single.year;
+      const startWeek = Number.isInteger(single.productionStartWeek) ? single.productionStartWeek : single.week;
+      if (!Number.isInteger(startYear) || !Number.isInteger(startWeek)) return;
+      const startAbsolute = toAbsoluteWeek(startYear, startWeek);
+      if (targetAbsolute >= startAbsolute && targetAbsolute < startAbsolute + (single.durationWeeks ?? 4)) reserve(single.memberIds, single.productionDay, 'mvProduction');
+    });
+  (state.fanEventPlans ?? [])
+    .filter((plan) => plan.status !== 'cancelled' && plan.year === targetYear && plan.targetWeek === targetWeek && plan.type === 'videoCall')
+    .forEach((plan) => reserve(plan.memberIds, plan.day, 'vc1'));
   return schedule;
+}
+
+export function getScheduleSnapshotForWeek(state, targetYear, targetWeek) {
+  if (!Number.isInteger(targetYear) || targetYear < 1 || !Number.isInteger(targetWeek) || targetWeek < 1 || targetWeek > BALANCE.weeksPerYear) return { kind: 'missing', schedule: null };
+  const report = (state.weeklyReports ?? []).find((item) => item.year === targetYear && item.week === targetWeek);
+  if (report) return { kind: 'resolved', schedule: report.schedule ?? null };
+  if (toAbsoluteWeek(targetYear, targetWeek) < toAbsoluteWeek(state.year, state.week)) return { kind: 'missing', schedule: null };
+  const schedule = getConfirmedScheduleForWeek(state, targetYear, targetWeek);
+  return { kind: 'confirmed', schedule: Object.keys(schedule).length ? schedule : null };
+}
+
+function currentWeekSchedule(state) {
+  return getConfirmedScheduleForWeek(state, state.year, state.week);
+}
+
+const validTrainingSessions = (sessions) => (Array.isArray(sessions) ? sessions : [])
+  .filter((activityId) => TRAINING_ACTIVITY_SET.has(activityId))
+  .slice(0, BALANCE.training.maxSessionsPerMember);
+
+const trainingPlanFor = (state, memberId) => validTrainingSessions(state.trainingPlans?.[memberId]);
+
+const splitScheduleKey = (key) => {
+  const separator = key.lastIndexOf(':');
+  return { memberId: key.slice(0, separator), day: key.slice(separator + 1) };
+};
+
+function migrateTrainingReport(report) {
+  if (!report) return report;
+  const scheduleEntries = Object.entries(report.schedule ?? {});
+  const legacySessions = scheduleEntries
+    .filter(([, activityId]) => TRAINING_ACTIVITY_SET.has(activityId))
+    .sort(([leftKey], [rightKey]) => DAYS.indexOf(splitScheduleKey(leftKey).day) - DAYS.indexOf(splitScheduleKey(rightKey).day))
+    .map(([key, activityId], index) => {
+      const { memberId, day } = splitScheduleKey(key);
+      const activity = BALANCE.activities[activityId];
+      return { memberId, activityId, skill: activity.skill, intensity: activity.type, order: index, day, status: 'completed', cost: activity.cost, energyUsed: null, before: null, after: null, delta: null, legacy: true };
+    });
+  if (!legacySessions.length) return { ...report, trainingSessions: report.trainingSessions ?? [] };
+  const schedule = Object.fromEntries(scheduleEntries.filter(([, activityId]) => !TRAINING_ACTIVITY_SET.has(activityId)));
+  const existingKeys = new Set((report.trainingSessions ?? []).map((session) => `${session.memberId}:${session.day}:${session.activityId}`));
+  return { ...report, schedule, trainingSessions: [...(report.trainingSessions ?? []), ...legacySessions.filter((session) => !existingKeys.has(`${session.memberId}:${session.day}:${session.activityId}`))] };
+}
+
+export function migrateTrainingState(state) {
+  if (!state) return state;
+  const scheduleEntries = Object.entries(state.schedule ?? {});
+  const legacyByMember = new Map();
+  scheduleEntries.filter(([, activityId]) => TRAINING_ACTIVITY_SET.has(activityId)).forEach(([key, activityId]) => {
+    const { memberId, day } = splitScheduleKey(key);
+    const sessions = legacyByMember.get(memberId) ?? [];
+    sessions.push({ activityId, day });
+    legacyByMember.set(memberId, sessions);
+  });
+  const trainingPlans = Object.fromEntries(Object.entries(state.trainingPlans ?? {})
+    .map(([memberId, sessions]) => [memberId, validTrainingSessions(sessions)])
+    .filter(([, sessions]) => sessions.length));
+  legacyByMember.forEach((sessions, memberId) => {
+    if (trainingPlanFor({ trainingPlans }, memberId).length) return;
+    trainingPlans[memberId] = sessions.toSorted((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day)).map((session) => session.activityId).slice(0, BALANCE.training.maxSessionsPerMember);
+  });
+
+  const trainingTemplates = (state.trainingTemplates ?? []).map((template) => ({
+    ...template,
+    entries: (template.entries ?? []).map((entry) => ({ ...entry, sessions: validTrainingSessions(entry.sessions) })).filter((entry) => entry.sessions.length),
+  }));
+  const trainingTemplateIds = new Set(trainingTemplates.map((template) => template.id));
+  const scheduleTemplates = [];
+  (state.scheduleTemplates ?? []).forEach((template, templateIndex) => {
+    const trainingEntries = (template.entries ?? []).filter((entry) => TRAINING_ACTIVITY_SET.has(entry.activityId));
+    const scheduleEntriesForTemplate = (template.entries ?? []).filter((entry) => !TRAINING_ACTIVITY_SET.has(entry.activityId));
+    if (scheduleEntriesForTemplate.length) scheduleTemplates.push({ ...template, entries: scheduleEntriesForTemplate });
+    if (!trainingEntries.length) return;
+    const id = `training-${template.id ?? `legacy-${templateIndex}`}`;
+    if (trainingTemplateIds.has(id)) return;
+    const plans = new Map();
+    trainingEntries.toSorted((left, right) => DAYS.indexOf(left.day) - DAYS.indexOf(right.day)).forEach((entry) => {
+      const sessions = plans.get(entry.memberId) ?? [];
+      if (sessions.length < BALANCE.training.maxSessionsPerMember) sessions.push(entry.activityId);
+      plans.set(entry.memberId, sessions);
+    });
+    trainingTemplates.push({ id, name: template.name, createdYear: template.createdYear, createdWeek: template.createdWeek, entries: [...plans].map(([memberId, sessions]) => ({ memberId, sessions })) });
+    trainingTemplateIds.add(id);
+  });
+
+  return {
+    ...state,
+    trainingSchemaVersion: TRAINING_SCHEMA_VERSION,
+    schedule: Object.fromEntries(scheduleEntries.filter(([, activityId]) => !TRAINING_ACTIVITY_SET.has(activityId))),
+    trainingPlans,
+    scheduleTemplates,
+    trainingTemplates,
+    weeklyReports: (state.weeklyReports ?? []).map(migrateTrainingReport),
+    lastResult: migrateTrainingReport(state.lastResult),
+  };
+}
+
+const injuryIncidentId = (member, injury, state) => {
+  const identityId = member.identityId ?? member.id;
+  const startYear = injury?.causedBy?.year ?? state.year;
+  const startWeek = injury?.causedBy?.week ?? state.week;
+  return `injury-${slug(identityId)}-${startYear}-${startWeek}`;
+};
+
+const normalizeInjuryAssignments = (assignments) => (Array.isArray(assignments) ? assignments : [])
+  .map((assignment) => ({
+    day: assignment?.day ?? null,
+    activityId: assignment?.activityId ?? (typeof assignment === 'string' ? assignment : null),
+    source: assignment?.source === 'training' ? 'training' : 'schedule',
+  }))
+  .filter((assignment) => assignment.activityId && assignment.activityId !== 'rest');
+
+function createInjuryIncident(member, injury, state, legacy = false) {
+  const startYear = injury?.causedBy?.year ?? state.year;
+  const startWeek = injury?.causedBy?.week ?? state.week;
+  return {
+    id: injury.incidentId ?? injuryIncidentId(member, injury, state),
+    memberId: member.id,
+    identityId: member.identityId ?? member.id,
+    severity: injury.severity,
+    label: injury.label ?? injury.severity,
+    startYear,
+    startWeek,
+    originalWeeks: Math.max(1, injury.weeks ?? injury.originalWeeks ?? injury.weeksRemaining ?? 1),
+    workload: Number.isFinite(injury?.causedBy?.load) ? injury.causedBy.load : null,
+    assignments: normalizeInjuryAssignments(injury?.causedBy?.assignments),
+    status: 'active',
+    recoveredYear: null,
+    recoveredWeek: null,
+    ...(legacy ? { legacy: true } : {}),
+  };
+}
+
+function injuryTimelineEvent(incident, memberName, status) {
+  const recovered = status === 'recovered';
+  const activityText = incident.assignments?.length
+    ? ` Activities: ${incident.assignments.map((assignment) => `${assignment.day ?? 'Unknown day'} — ${BALANCE.activities[assignment.activityId]?.label ?? assignment.activityId}`).join('; ')}.`
+    : '';
+  return recovered
+    ? {
+      id: `${incident.id}-recovery`, type: 'injuryRecovery', injuryStatus: 'recovered', incidentId: incident.id, memberId: incident.memberId, identityId: incident.identityId,
+      memberName, severity: incident.severity, label: incident.label, originalWeeks: incident.originalWeeks, workload: incident.workload, assignments: incident.assignments,
+      title: `${memberName} recovers from injury`, detail: `${incident.label} injury cleared after ${incident.originalWeeks} week(s).`, year: incident.recoveredYear, week: incident.recoveredWeek,
+    }
+    : {
+      id: `${incident.id}-onset`, type: 'injury', injuryStatus: 'onset', incidentId: incident.id, memberId: incident.memberId, identityId: incident.identityId,
+      memberName, severity: incident.severity, label: incident.label, originalWeeks: incident.originalWeeks, workload: incident.workload, assignments: incident.assignments,
+      title: `${memberName} suffers a ${String(incident.label).toLowerCase()} injury`, detail: `${incident.label} injury after workload ${incident.workload ?? 'unknown'}. Estimated recovery: ${incident.originalWeeks} week(s).${activityText}`, year: incident.startYear, week: incident.startWeek,
+    };
+}
+
+function appendMissingInjuryRecoveryEvents(member, history) {
+  const memberName = member.nickname || member.name;
+  (member.injuryHistory ?? []).filter((incident) => incident.status === 'recovered').forEach((incident) => {
+    const event = injuryTimelineEvent(incident, memberName, 'recovered');
+    if (!history.some((item) => item.id === event.id)) history.unshift(event);
+  });
+}
+
+function migrateMemberInjuryHistory(member, state) {
+  if (!member) return { member, backfilledIncident: null };
+  const injuryHistory = Array.isArray(member.injuryHistory) ? member.injuryHistory.map((incident) => ({
+    ...incident,
+    memberId: incident.memberId ?? member.id,
+    identityId: incident.identityId ?? member.identityId ?? member.id,
+    assignments: normalizeInjuryAssignments(incident.assignments),
+    status: incident.status === 'recovered' ? 'recovered' : 'active',
+    recoveredYear: incident.recoveredYear ?? null,
+    recoveredWeek: incident.recoveredWeek ?? null,
+  })) : [];
+  if (!isMemberInjured(member)) return { member: { ...member, injuryHistory }, backfilledIncident: null };
+  const incidentId = member.injury.incidentId ?? injuryHistory.find((incident) => incident.status === 'active')?.id ?? injuryIncidentId(member, member.injury, state);
+  const existing = injuryHistory.find((incident) => incident.id === incidentId);
+  const incident = existing ?? createInjuryIncident(member, { ...member.injury, incidentId }, state, true);
+  return {
+    member: { ...member, injury: { ...member.injury, incidentId }, injuryHistory: existing ? injuryHistory : [incident, ...injuryHistory] },
+    backfilledIncident: existing ? null : incident,
+  };
+}
+
+export function migrateInjuryHistoryState(state) {
+  if (!state) return state;
+  const backfilled = [];
+  const migrateMember = (member) => {
+    const migrated = migrateMemberInjuryHistory(member, state);
+    if (migrated.backfilledIncident) backfilled.push({ incident: migrated.backfilledIncident, memberName: member.nickname || member.name });
+    return migrated.member;
+  };
+  const members = (state.members ?? []).map(migrateMember);
+  const unsignedMembers = (state.unsignedMembers ?? []).map(migrateMember);
+  const departures = (state.departures ?? []).map((departure) => departure.member ? { ...departure, member: migrateMember(departure.member) } : departure);
+  const history = [...(state.history ?? [])];
+  const historyIds = new Set(history.map((event) => event.id));
+  const migrationEvents = backfilled.map(({ incident, memberName }) => injuryTimelineEvent(incident, memberName, 'onset')).filter((event) => !historyIds.has(event.id));
+  return { ...state, injuryHistorySchemaVersion: INJURY_HISTORY_SCHEMA_VERSION, members, unsignedMembers, departures, history: [...migrationEvents, ...history] };
+}
+
+export function getTrainingPlanStatus(state, memberId) {
+  const member = state.members?.find((item) => item.id === memberId);
+  const plan = trainingPlanFor(state, memberId);
+  const schedule = currentWeekSchedule(state);
+  const freeDays = DAYS.filter((day) => {
+    const activityId = schedule[`${memberId}:${day}`];
+    return !activityId || activityId === 'rest';
+  });
+  const available = Boolean(member && canMemberPerform(member, TRAINING_ACTIVITY_IDS[0]));
+  return { memberId, available, planned: plan.length, capacity: available ? freeDays.length : 0, freeDays, overflow: available ? Math.max(0, plan.length - freeDays.length) : plan.length };
+}
+
+export function queueTrainingSession(state, memberId, activityId) {
+  if (state.runStatus === 'ended' || !TRAINING_ACTIVITY_SET.has(activityId)) return state;
+  const member = state.members?.find((item) => item.id === memberId);
+  const status = getTrainingPlanStatus(state, memberId);
+  const plan = trainingPlanFor(state, memberId);
+  if (!member || !canMemberPerform(member, activityId) || plan.length >= BALANCE.training.maxSessionsPerMember || plan.length >= status.capacity) return state;
+  return { ...state, trainingPlans: { ...(state.trainingPlans ?? {}), [memberId]: [...plan, activityId] } };
+}
+
+export function moveTrainingSession(state, memberId, fromIndex, toIndex) {
+  const plan = trainingPlanFor(state, memberId);
+  if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 0 || fromIndex >= plan.length || toIndex < 0 || toIndex >= plan.length || fromIndex === toIndex) return state;
+  const sessions = [...plan];
+  const [session] = sessions.splice(fromIndex, 1);
+  sessions.splice(toIndex, 0, session);
+  return { ...state, trainingPlans: { ...(state.trainingPlans ?? {}), [memberId]: sessions } };
+}
+
+export function removeTrainingSession(state, memberId, index) {
+  const plan = trainingPlanFor(state, memberId);
+  if (!Number.isInteger(index) || index < 0 || index >= plan.length) return state;
+  const sessions = plan.filter((_, sessionIndex) => sessionIndex !== index);
+  const trainingPlans = { ...(state.trainingPlans ?? {}) };
+  if (sessions.length) trainingPlans[memberId] = sessions;
+  else delete trainingPlans[memberId];
+  return { ...state, trainingPlans };
+}
+
+export function clearTrainingPlan(state, memberId) {
+  if (!state.trainingPlans?.[memberId]) return state;
+  const trainingPlans = { ...state.trainingPlans };
+  delete trainingPlans[memberId];
+  return { ...state, trainingPlans };
+}
+
+export function saveTrainingTemplate(state, name) {
+  const cleanName = String(name ?? '').trim().slice(0, 40);
+  const entries = Object.entries(state.trainingPlans ?? {}).map(([memberId, sessions]) => ({ memberId, sessions: validTrainingSessions(sessions) })).filter((entry) => entry.sessions.length);
+  if (!cleanName || !entries.length || state.runStatus === 'ended') return state;
+  const template = { id: `training-template-${Date.now()}`, name: cleanName, createdYear: state.year, createdWeek: state.week, entries };
+  return { ...state, trainingTemplates: [...(state.trainingTemplates ?? []), template] };
+}
+
+export function renameTrainingTemplate(state, templateId, name) {
+  const cleanName = String(name ?? '').trim().slice(0, 40);
+  if (!cleanName || !(state.trainingTemplates ?? []).some((template) => template.id === templateId)) return state;
+  return { ...state, trainingTemplates: state.trainingTemplates.map((template) => template.id === templateId ? { ...template, name: cleanName } : template) };
+}
+
+export function deleteTrainingTemplate(state, templateId) {
+  if (!(state.trainingTemplates ?? []).some((template) => template.id === templateId)) return state;
+  return { ...state, trainingTemplates: state.trainingTemplates.filter((template) => template.id !== templateId) };
+}
+
+export function applyTrainingTemplate(state, template) {
+  if (!template?.entries?.length || state.runStatus === 'ended') return state;
+  const trainingPlans = { ...(state.trainingPlans ?? {}) };
+  let skipped = 0;
+  template.entries.forEach((entry) => {
+    const member = state.members?.find((item) => item.id === entry.memberId);
+    const capacity = getTrainingPlanStatus(state, entry.memberId).capacity;
+    const requestedSessions = validTrainingSessions(entry.sessions);
+    const sessions = requestedSessions.filter((activityId) => member && canMemberPerform(member, activityId)).slice(0, Math.min(capacity, BALANCE.training.maxSessionsPerMember));
+    skipped += Math.max(0, requestedSessions.length - sessions.length);
+    if (sessions.length) trainingPlans[entry.memberId] = sessions;
+    else delete trainingPlans[entry.memberId];
+  });
+  const notification = skipped ? { type: 'critical', text: `${skipped} training template session(s) skipped because members or days were unavailable.` } : { type: 'success', text: `${template.name} training plan applied.` };
+  return { ...state, trainingPlans, notifications: [notification, ...(state.notifications ?? [])].slice(0, 20) };
+}
+
+function composeMemberWeekAssignments(state, member, schedule, validTheaterDays, validOffAirDays) {
+  const plan = trainingPlanFor(state, member.id);
+  const skippedTraining = [];
+  const injuryActive = Boolean(member.injury && (member.injury.weeksRemaining ?? 0) > 0);
+  const unavailableReason = (member.suspensionWeeks ?? 0) > 0 ? 'suspended' : !['active', 'trainee'].includes(member.status) ? 'unavailable' : injuryActive ? 'injured' : null;
+  if (unavailableReason) plan.forEach((activityId, order) => skippedTraining.push({ memberId: member.id, activityId, skill: BALANCE.activities[activityId]?.skill, intensity: BALANCE.activities[activityId]?.type, order, day: null, status: 'skipped', reason: unavailableReason, cost: 0, energyUsed: 0, before: null, after: null, delta: 0 }));
+  if (injuryActive) return { assignments: DAYS.map((day) => ({ activityId: 'rest', day })), skippedTraining };
+
+  let trainingIndex = 0;
+  const assignments = DAYS.map((day) => {
+    const scheduledActivityId = schedule[`${member.id}:${day}`];
+    const freeForTraining = !scheduledActivityId || scheduledActivityId === 'rest';
+    if (!unavailableReason && freeForTraining && trainingIndex < plan.length) {
+      const activityId = plan[trainingIndex];
+      const assignment = { activityId, day, source: 'training', trainingIndex };
+      trainingIndex += 1;
+      return assignment;
+    }
+    if (scheduledActivityId === 'theater' && !validTheaterDays.has(day)) return null;
+    if (scheduledActivityId === 'offAir' && !validOffAirDays.has(day)) return null;
+    return { activityId: scheduledActivityId ?? 'rest', day };
+  }).filter(Boolean);
+
+  if (!unavailableReason) plan.slice(trainingIndex).forEach((activityId, offset) => skippedTraining.push({ memberId: member.id, activityId, skill: BALANCE.activities[activityId]?.skill, intensity: BALANCE.activities[activityId]?.type, order: trainingIndex + offset, day: null, status: 'skipped', reason: 'no-free-day', cost: 0, energyUsed: 0, before: null, after: null, delta: 0 }));
+  return { assignments, skippedTraining };
 }
 
 function scheduleLineupValidity(state, schedule) {
@@ -459,14 +904,7 @@ function scheduleLineupValidity(state, schedule) {
 
 function projectMemberEnergy(state, member, schedule, validTheaterDays, validOffAirDays) {
   if ((member.suspensionWeeks ?? 0) > 0) return member.suspensionWeeks === 1 ? 100 : member.energy;
-  const injuryActive = Boolean(member.injury && (member.injury.weeksRemaining ?? 0) > 0);
-  const assignments = DAYS.map((day) => {
-    if (injuryActive) return { activityId: 'rest', day };
-    const activityId = schedule[`${member.id}:${day}`];
-    if (activityId === 'theater' && !validTheaterDays.has(day)) return null;
-    if (activityId === 'offAir' && !validOffAirDays.has(day)) return null;
-    return { activityId: activityId ?? 'rest', day };
-  }).filter(Boolean);
+  const { assignments } = composeMemberWeekAssignments(state, member, schedule, validTheaterDays, validOffAirDays);
   let energy = voucherBaseFor(member, 'energy');
   const stats = { ...member };
   SKILLS.forEach((skill) => { stats[skill] = voucherBaseFor(member, skill); });
@@ -617,6 +1055,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
       canPerformTheater: true,
       suspensionWeeks: 0,
       injury: null,
+      injuryHistory: [],
       weeksWithoutEvent: 0,
       salary: null,
       appearances: { theater: 0, center: 0, media: 0 },
@@ -647,7 +1086,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     history: [{ id: 'start', type: 'system', title: 'Alternate timeline begins', detail: `${members.length} members enter the founding pool for Year 1.`, year: 1, week: 1 }],
     notifications: [],
     bonusLoadout: [], bonusLevels: {}, graduationTargets: {},
-    singles: [], concerts: [], yearEndMeetGreets: [], auditions: [], auditionCampaign: null, graduations: [], renovations: [], annualReviews: [], scheduleTemplates: [], fanNarratives: [], theaterShows: {}, theaterHistory: [],
+    singles: [], concerts: [], yearEndMeetGreets: [], auditions: [], auditionCampaign: null, graduations: [], renovations: [], annualReviews: [], scheduleTemplates: [], trainingSchemaVersion: TRAINING_SCHEMA_VERSION, trainingPlans: {}, trainingTemplates: [], injuryHistorySchemaVersion: INJURY_HISTORY_SCHEMA_VERSION, fanNarratives: [], theaterShows: {}, theaterHistory: [],
     // Chemistry is prebuilt for current members only. Ex-member pairs are filled in lazily by
     // ensureChemistry/getMemberChemistry, which are deterministic from the seed, so the full identity
     // pool does not pay for 31k unused pairs up front.
@@ -776,13 +1215,21 @@ export function fireMember(state, memberId) {
   const severance = state.hardMode ? getMemberSalary(member, state.year, true) : BALANCE.fire.flatSeverance;
   const departure = { id: `fire-${member.id}-${state.year}-${state.week}`, memberId: member.id, member, firedYear: state.year, firedWeek: state.week, returnAbsolute: toAbsoluteWeek(state.year, state.week) + BALANCE.weeksPerYear * 2, status: 'fired' };
   const name = member.nickname || member.name;
+  const consequence = applyMemberAbsenceToCommitments(state, memberId, Infinity);
+  const prepared = consequence.state;
+  const resolvesDrama = state.activeDrama?.memberId === memberId;
+  const cooldownRng = resolvesDrama ? createRng(hashSeed(`${state.seed}:drama-response:${state.activeDrama.dramaId ?? 'member'}:${memberId}:fire`)) : null;
+  const cooldown = cooldownRng ? randomInt(cooldownRng, ...BALANCE.dramaCooldown) : state.memberDramaCooldown;
   return {
-    ...state,
-    members: state.members.filter((item) => item.id !== memberId),
+    ...prepared,
+    members: prepared.members.filter((item) => item.id !== memberId),
     departures: [...(state.departures ?? []), departure],
-    money: state.money - severance,
+    activeDrama: resolvesDrama ? null : state.activeDrama,
+    dramaCooldown: resolvesDrama ? cooldown : state.dramaCooldown,
+    memberDramaCooldown: resolvesDrama ? cooldown : state.memberDramaCooldown,
+    money: prepared.money - severance,
     group: { ...state.group, fanTrust: clamp(state.group.fanTrust + protectNormalTrustLoss(state, -BALANCE.fire.fanTrustPenalty)), reputation: clamp(state.group.reputation - BALANCE.fire.reputationPenalty) },
-    notifications: [{ type: 'critical', text: `${name} is released. Severance: ${moneyText(severance)}.` }, ...(state.notifications ?? [])].slice(0, 20),
+    notifications: [{ type: 'critical', text: `${name} is released. Severance: ${moneyText(severance)}.` }, ...consequence.notifications.map((text) => ({ type: 'critical', text })), ...(state.notifications ?? [])].slice(0, 20),
     history: [{ id: departure.id, type: 'member', title: `${name} released`, detail: `${name} leaves the roster after a ${moneyText(severance)} severance payment.`, year: state.year, week: state.week }, ...(state.history ?? [])],
   };
 }
@@ -845,7 +1292,7 @@ function applyAutomaticPromotions(state, members, year, week, history, notificat
 }
 
 export function assignActivity(state, memberId, day, activityId, options = {}) {
-  if (state.runStatus === 'ended') return state;
+  if (state.runStatus === 'ended' || TRAINING_ACTIVITY_SET.has(activityId)) return state;
   const member = state.members.find((item) => item.id === memberId);
   if (!member || (activityId !== 'clear' && !canMemberPerform(member, activityId))) return state;
   const key = `${memberId}:${day}`;
@@ -1105,7 +1552,7 @@ export function applyScheduleTemplate(state, template) {
   for (const entry of template.entries) {
     const member = next.members.find((item) => item.id === entry.memberId);
     const key = `${entry.memberId}:${entry.day}`;
-    if (!member || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || isCampaignActivity(next.schedule[key])) { skipped += 1; continue; }
+    if (!member || TRAINING_ACTIVITY_SET.has(entry.activityId) || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || isCampaignActivity(next.schedule[key])) { skipped += 1; continue; }
     const before = next;
     next = assignActivity(next, entry.memberId, entry.day, entry.activityId);
     if (next === before && next.schedule[`${entry.memberId}:${entry.day}`] !== entry.activityId) skipped += 1;
@@ -1376,13 +1823,19 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
   let trainingProgress = member.trainingProgress ?? 0;
   let theaterAppearances = member.theaterAppearances ?? appearances.theater ?? 0;
   const demandRecords = [];
+  const trainingSessions = [];
   const mentorship = activeMentorshipFor(state, member.id);
 
   for (const assignment of assignments) {
     const activityId = typeof assignment === 'string' ? assignment : assignment.activityId;
     const activityDay = typeof assignment === 'string' ? null : assignment.day;
     const activity = BALANCE.activities[activityId];
-    if (!activity || (energy <= 0 && !activity.energyRecovery)) continue;
+    const plannedTraining = typeof assignment !== 'string' && assignment.source === 'training' && Boolean(activity?.skill);
+    if (!activity) continue;
+    if (energy <= 0 && !activity.energyRecovery) {
+      if (plannedTraining) trainingSessions.push({ memberId: member.id, memberName: member.nickname || member.name, activityId, skill: activity.skill, intensity: activity.type, order: assignment.trainingIndex, day: activityDay, status: 'skipped', reason: 'no-energy', cost: 0, energyUsed: 0, before: stats[activity.skill] + voucherAdjustmentFor(member, activity.skill), after: stats[activity.skill] + voucherAdjustmentFor(member, activity.skill), delta: 0 });
+      continue;
+    }
     const energyBefore = energy;
     const theaterShow = activityId === 'theater' ? state.theaterShows?.[activityDay] : null;
     const { fatigue, recovery } = activityEnergyChange(state, member, activityId, activityDay);
@@ -1411,9 +1864,14 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
       finances.theater += theaterRevenue;
     }
     if (activity.skill) {
+      const trainingBefore = stats[activity.skill] + voucherAdjustmentFor(member, activity.skill);
       const statCap = voucherNaturalCap(member, activity.skill);
       stats[activity.skill] = clamp(stats[activity.skill] + trainingStatGain(member, stats, activity, energyBefore, state, mentorship), statCap.min, statCap.max);
       if (member.status === 'trainee') trainingProgress = clamp(trainingProgress + (activity.intensity ?? 1) * BALANCE.trainee.trainingProgressPerIntensity);
+      if (plannedTraining) {
+        const trainingAfter = stats[activity.skill] + voucherAdjustmentFor(member, activity.skill);
+        trainingSessions.push({ memberId: member.id, memberName: member.nickname || member.name, activityId, skill: activity.skill, intensity: activity.type, order: assignment.trainingIndex, day: activityDay, status: 'completed', reason: null, cost: activityCost, energyUsed: fatigue, before: Math.round(trainingBefore * 10) / 10, after: Math.round(trainingAfter * 10) / 10, delta: Math.round((trainingAfter - trainingBefore) * 10) / 10 });
+      }
     }
     if (activityId === 'theater') {
       appearances.theater += 1;
@@ -1513,6 +1971,7 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
     baseFanGain,
     finances,
     demandRecords,
+    trainingSessions,
   };
 }
 
@@ -1536,7 +1995,12 @@ function rollInjury(member, assignments, rng, state) {
       : config.chanceByEnergy.mid;
   if (rng() >= chance) return null;
   const severity = weightedPick(rng, config.severities, (option) => option.weight);
-  return { severity: severity.id, label: severity.label, weeksRemaining: severity.weeks, weeks: severity.weeks, blocks: [...severity.blocks], causedBy: { year: state.year, week: state.week, load } };
+  const contributingAssignments = assignments.filter((assignment) => {
+    const activityId = typeof assignment === 'string' ? assignment : assignment.activityId;
+    const activity = BALANCE.activities[activityId];
+    return activity && !activity.energyRecovery;
+  });
+  return { severity: severity.id, label: severity.label, weeksRemaining: severity.weeks, weeks: severity.weeks, blocks: [...severity.blocks], causedBy: { year: state.year, week: state.week, load, assignments: normalizeInjuryAssignments(contributingAssignments) } };
 }
 
 function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
@@ -1694,6 +2158,7 @@ export function endRun(state) {
 
 export function resolveWeek(state) {
   if (state.runStatus === 'ended') return state;
+  state = migrateInjuryHistoryState(state);
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   const activatedPlans = (state.fanEventPlans ?? []).filter((plan) => plan.year === state.year && plan.targetWeek === state.week);
@@ -1800,9 +2265,12 @@ export function resolveWeek(state) {
   });
   weeklyDemandRecords.push(...twoShotRecords);
   const injuryNotifications = [];
+  const injuryEvents = [];
+  const trainingSessionRecords = [];
   let unsignedMembers = [...(state.unsignedMembers ?? [])];
   let members = state.members.map((member) => {
     if (member.suspensionWeeks > 0) {
+      trainingPlanFor(state, member.id).forEach((activityId, order) => trainingSessionRecords.push({ memberId: member.id, memberName: member.nickname || member.name, activityId, skill: BALANCE.activities[activityId]?.skill, intensity: BALANCE.activities[activityId]?.type, order, day: null, status: 'skipped', reason: 'suspended', cost: 0, energyUsed: 0, before: null, after: null, delta: 0 }));
       const left = member.suspensionWeeks - 1;
       return { ...member, suspensionWeeks: left, status: left === 0 ? 'active' : 'suspended', energy: left === 0 ? 100 : member.energy };
     }
@@ -1810,13 +2278,8 @@ export function resolveWeek(state) {
       ? { ...member.injury, weeksRemaining: member.injury.weeksRemaining - 1 }
       : null;
     const injuryActive = Boolean(injury && injury.weeksRemaining >= 0);
-    const assignments = DAYS.map((day) => {
-      if (injuryActive) return { activityId: 'rest', day };
-      const assignment = weekSchedule[`${member.id}:${day}`];
-      if (assignment === 'theater' && !validTheaterDays.has(day)) return null;
-      if (assignment === 'offAir' && !validOffAirDays.has(day)) return null;
-      return assignment ? { activityId: assignment, day } : { activityId: 'rest', day };
-    }).filter(Boolean);
+    const { assignments, skippedTraining } = composeMemberWeekAssignments(state, member, weekSchedule, validTheaterDays, validOffAirDays);
+    skippedTraining.forEach((session) => trainingSessionRecords.push({ ...session, memberName: member.nickname || member.name }));
     const result = resolveMemberWeek({ ...member, injury: injuryActive ? injury : null }, assignments, rng, effectiveTheater, resolutionState);
     const rolledInjury = injuryActive ? null : rollInjury(result.member, assignments, rng, state);
     if (rolledInjury) {
@@ -1826,15 +2289,34 @@ export function resolveWeek(state) {
     fanGain += result.fanGain;
     baseFanGain += result.baseFanGain;
     weeklyDemandRecords.push(...result.demandRecords);
+    trainingSessionRecords.push(...result.trainingSessions);
     Object.keys(result.finances).forEach((key) => { finances[key] += result.finances[key]; });
     const participated = assignments.some(({ activityId }) => activityId === 'theater' || activityId === 'offAir' || activityId === 'media' || activityId === 'photoshoot' || BALANCE.activities[activityId]?.skill);
-    const nextMember = { ...result.member, injury: rolledInjury ?? (injuryActive && injury?.weeksRemaining > 0 ? injury : null), weeksWithoutEvent: participated ? 0 : (member.weeksWithoutEvent ?? 0) + 1 };
+    let injuryHistory = result.member.injuryHistory ?? [];
+    let nextInjury = rolledInjury ?? (injuryActive && injury?.weeksRemaining > 0 ? injury : null);
+    if (rolledInjury) {
+      const incident = createInjuryIncident(result.member, rolledInjury, state);
+      nextInjury = { ...rolledInjury, incidentId: incident.id };
+      injuryHistory = [incident, ...injuryHistory.filter((item) => item.id !== incident.id)];
+      injuryEvents.push(injuryTimelineEvent(incident, result.member.nickname || result.member.name, 'onset'));
+    } else if (member.injury && !nextInjury) {
+      const incidentId = member.injury.incidentId;
+      const incident = injuryHistory.find((item) => item.id === incidentId && item.status === 'active');
+      if (incident) {
+        const recovered = { ...incident, status: 'recovered', recoveredYear: state.year, recoveredWeek: state.week };
+        injuryHistory = injuryHistory.map((item) => item.id === incident.id ? recovered : item);
+        injuryEvents.push(injuryTimelineEvent(recovered, result.member.nickname || result.member.name, 'recovered'));
+      }
+    }
+    const nextMember = { ...result.member, injury: nextInjury, injuryHistory, weeksWithoutEvent: participated ? 0 : (member.weeksWithoutEvent ?? 0) + 1 };
     return nextMember.status === 'trainee' ? { ...nextMember, traineeWeeks: (nextMember.traineeWeeks ?? 0) + 1 } : nextMember;
   });
 
   let week = state.week + 1;
   let year = state.year;
   const history = [...state.history];
+  const existingHistoryIds = new Set(history.map((event) => event.id));
+  injuryEvents.filter((event) => !existingHistoryIds.has(event.id)).forEach((event) => history.unshift(event));
   const notifications = [];
   injuryNotifications.forEach((text) => notifications.push({ type: 'critical', text }));
   DAYS.filter((day) => theaterLineups[day] > 0 && theaterLineups[day] !== 12).forEach((day) => {
@@ -1846,6 +2328,8 @@ export function resolveWeek(state) {
   surplusOffAirDays.forEach((day) => {
     notifications.push({ type: 'critical', text: `${day} off-air performance canceled: only ${BALANCE.activities.offAir.maxPerWeek} off-air show is allowed each week.` });
   });
+  const skippedTrainingCount = trainingSessionRecords.filter((session) => session.status === 'skipped').length;
+  if (skippedTrainingCount) notifications.push({ type: 'critical', code: 'training-skipped', text: `${skippedTrainingCount} training session(s) skipped. Review free days, member availability, and Energy.` });
   let memberDramaCooldown = Math.max(0, (state.memberDramaCooldown ?? state.dramaCooldown ?? 0) - 1);
   let managementDramaCooldown = Math.max(0, (state.managementDramaCooldown ?? 0) - 1);
   let activeDrama = members.some((member) => member.status === 'suspended') ? state.activeDrama : null;
@@ -1855,7 +2339,6 @@ export function resolveWeek(state) {
   let dramaTrustDelta = 0;
   let dramaReputationDelta = 0;
   let graduationTrustDelta = 0;
-  let disruptedMemberId = null;
   let dramaMemory = (state.dramaMemory ?? []).map((memory) => ({ ...memory, weeksRemaining: memory.weeksRemaining - 1 })).filter((memory) => memory.weeksRemaining > 0);
   let fanNarratives = (state.fanNarratives ?? []).filter((narrative) => !narrative.expiresAbsolute || narrative.expiresAbsolute >= currentAbsolute);
 
@@ -1871,25 +2354,6 @@ export function resolveWeek(state) {
     const eligible = members.filter((member) => member.status === 'active');
     if (eligible.length) {
       const selected = weightedPick(rng, eligible, (member) => 10 + member.ego * 0.8 + Math.max(0, member.momentum));
-      disruptedMemberId = selected.id;
-      members = members.map((member) => member.id === selected.id ? { ...member, status: 'suspended', suspensionWeeks: BALANCE.dramaDuration } : member);
-      let refund = 0;
-      yearEndMeetGreets = yearEndMeetGreets.map((event) => {
-        if (toAbsoluteWeek(event.year, event.targetWeek) <= currentAbsolute) return event;
-        let eventRefund = 0;
-        const memberSessions = event.memberSessions.map((session) => {
-          if (session.memberId !== selected.id || session.sold <= 0) return session;
-          eventRefund += session.sold * event.ticketPrice;
-          return { ...session, refunded: (session.refunded ?? 0) + session.sold, sold: 0 };
-        });
-        refund += eventRefund;
-        return { ...event, memberSessions, revenue: Math.max(0, event.revenue - eventRefund) };
-      });
-      if (refund) {
-        moneyDelta -= refund;
-        finances.refunds += refund;
-        notifications.push({ type: 'critical', text: `${moneyText(refund)} in sold fan-event tickets refunded.` });
-      }
       const dramaTemplate = weightedPick(rng, MEMBER_DRAMA_TEMPLATES, (template) => template.weight);
       const memberName = selected.nickname || selected.name;
       const targetCandidates = dramaTemplate.directedTarget === 'member'
@@ -1908,10 +2372,10 @@ export function resolveWeek(state) {
       const protectedDamage = Math.max(1, Math.round(baseDamage * (1 + bonusValue(state, 'B024'))));
       dramaTrustDelta = -protectedDamage;
       dramaReputationDelta = -Math.max(1, Math.round(protectedDamage * 0.7));
-      activeDrama = { dramaSource: 'member', memberId: selected.id, name: memberName, dramaId: dramaTemplate.id, category: dramaTemplate.category, categoryId: dramaTemplate.categoryId, directedTarget: dramaTemplate.directedTarget ?? null, targetMemberId: targetMember?.id ?? null, targetName, targetNameId, title: dramaTitle, titleId: dramaTitleId, detail: dramaDetail, detailId: dramaDetailId, severity, startedWeek: state.week };
+      activeDrama = { dramaSource: 'member', memberId: selected.id, name: memberName, originalStatus: selected.status, response: 'pending', dramaId: dramaTemplate.id, category: dramaTemplate.category, categoryId: dramaTemplate.categoryId, directedTarget: dramaTemplate.directedTarget ?? null, targetMemberId: targetMember?.id ?? null, targetName, targetNameId, title: dramaTitle, titleId: dramaTitleId, detail: dramaDetail, detailId: dramaDetailId, severity, startedWeek: state.week };
       dramaMemory = [{ dramaSource: 'member', memberId: selected.id, name: activeDrama.name, dramaId: activeDrama.dramaId, category: activeDrama.category, categoryId: activeDrama.categoryId, directedTarget: activeDrama.directedTarget, targetMemberId: activeDrama.targetMemberId, targetName: activeDrama.targetName, title: activeDrama.title, titleId: activeDrama.titleId, detail: activeDrama.detail, detailId: activeDrama.detailId, severity, weeksRemaining: 12, initialImpact: protectedDamage }, ...dramaMemory].slice(0, 20);
       fanNarratives = appendNarrative(fanNarratives, { id: `drama-narrative-${state.rngStep}`, type: 'drama', dramaSource: 'member', title: dramaTitle, detail: dramaDetail, sentiment: 'negative', year, week: state.week, expiresAbsolute: currentAbsolute + 12 });
-      notifications.push({ type: 'critical', text: `${activeDrama.name}: ${dramaTitle}. Unavailable for four weeks.` });
+      notifications.push({ type: 'critical', text: `${activeDrama.name}: ${dramaTitle}. Management response required.` });
       history.unshift({ id: `drama-${state.rngStep}`, type: 'drama', dramaSource: 'member', title: dramaTitle, titleId: dramaTitleId, detail: dramaDetail, detailId: dramaDetailId, category: dramaTemplate.category, categoryId: dramaTemplate.categoryId, year, week: state.week });
     }
   }
@@ -1945,13 +2409,6 @@ export function resolveWeek(state) {
     notifications.push({ type: 'critical', text: `${title}: management trust and reputation take a hit.` });
     history.unshift({ id: `management-drama-${state.rngStep}`, type: 'drama', dramaSource: 'management', title, titleId, detail, detailId, category: selectedTemplate.category, categoryId: selectedTemplate.categoryId, year, week: state.week });
   }
-  if (disruptedMemberId) concerts = concerts.map((concert) => {
-    if (toAbsoluteWeek(concert.targetYear, concert.targetWeek) <= currentAbsolute || !concert.memberIds?.includes(disruptedMemberId)) return concert;
-    const replacement = members.filter((member) => member.status === 'active' && !concert.memberIds.includes(member.id)).sort((a, b) => b.performance - a.performance)[0];
-    if (!replacement) return concert;
-    notifications.push({ type: 'critical', text: `${replacement.nickname || replacement.name} joins an upcoming concert as an emergency replacement.` });
-    return { ...concert, memberIds: concert.memberIds.map((memberId) => memberId === disruptedMemberId ? replacement.id : memberId), replacements: [...(concert.replacements ?? []), { outMemberId: disruptedMemberId, inMemberId: replacement.id, year: state.year, week: state.week }] };
-  });
   const graduationSchedule = scheduleGraduations(state, year, state.week, members, rng);
   let graduations = graduationSchedule.graduations;
   const graduationTargets = graduationSchedule.graduationTargets;
@@ -1984,6 +2441,7 @@ export function resolveWeek(state) {
   let departures = (state.departures ?? []).map((departure) => {
     if (departure.status !== 'fired' || currentAbsolute + 1 < departure.returnAbsolute) return departure;
     const recycled = recycleMemberForPool(departure.member, state, departure);
+    appendMissingInjuryRecoveryEvents(recycled, history);
     if (!(unsignedMembers ?? []).some((candidate) => (candidate.identityId ?? candidate.id) === recycled.identityId)) unsignedMembers.push(recycled);
     notifications.push({ type: 'success', text: `${departure.member.nickname || departure.member.name} returns to the audition pool after release.` });
     history.unshift({ id: `${departure.id}-pool-return`, type: 'member', title: `${departure.member.nickname || departure.member.name} returns to the talent pool`, detail: 'Two years after release, the member can be recruited again with newly generated stats.', year, week: state.week });
@@ -1997,6 +2455,7 @@ export function resolveWeek(state) {
     const graduatedMember = members.find((member) => member.id === graduation.memberId && member.status === 'graduated');
     if (!graduatedMember) return { ...graduation, returnedToPool: true, poolReturnYear: poolCalendar.year, poolReturnWeek: poolCalendar.week };
     const recycled = recycleMemberForPool(graduatedMember, state, graduation);
+    appendMissingInjuryRecoveryEvents(recycled, history);
     const identityAlreadyAvailable = unsignedMembers.some((member) => (member.identityId ?? member.id) === recycled.identityId);
     members = members.filter((member) => member.id !== graduatedMember.id);
     if (!identityAlreadyAvailable) unsignedMembers.push(recycled);
@@ -2057,13 +2516,6 @@ export function resolveWeek(state) {
   let singleFanTrustGain = 0;
   let singles = state.singles.map((storedSingle) => {
     let single = storedSingle;
-    if (disruptedMemberId && single.status !== 'released' && single.memberIds?.includes(disruptedMemberId)) {
-      const replacement = members.filter((member) => member.status === 'active' && !single.memberIds.includes(member.id)).sort((a, b) => b.performance - a.performance)[0];
-      if (replacement) {
-        single = { ...single, memberIds: single.memberIds.map((memberId) => memberId === disruptedMemberId ? replacement.id : memberId), centerId: single.centerId === disruptedMemberId ? replacement.id : single.centerId, recasts: [...(single.recasts ?? []), { outMemberId: disruptedMemberId, inMemberId: replacement.id, year: state.year, week: state.week }] };
-        notifications.push({ type: 'critical', text: `${replacement.nickname || replacement.name} replaces an unavailable MV member.` });
-      }
-    }
     if (single.status === 'released') {
       const viewWeek = (single.viewWeeks ?? 0) + 1;
       const viewResult = mvViewGain(single, state.group, viewWeek);
@@ -2109,35 +2561,8 @@ export function resolveWeek(state) {
       return { ...member, oshiSentiment: clamp((member.oshiSentiment ?? 0) + selected.length * 2 + centered * 2 - excluded, -100, 100) };
     });
   }
-  const nextSchedule = {};
   const nextAbsolute = toAbsoluteWeek(year, week);
-  concerts.forEach((concert) => {
-    if (nextAbsolute !== toAbsoluteWeek(concert.targetYear, concert.targetWeek)) return;
-    concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${concert.day}`, 'concert'); });
-    if (concert.eventType === 'anniversary') concert.rehearsalDays.forEach((day) => concert.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${day}`, 'concertRehearsal'); }));
-  });
-  yearEndMeetGreets.forEach((event) => {
-    if (nextAbsolute !== toAbsoluteWeek(event.year, event.targetWeek)) return;
-    event.memberSessions.filter((session) => members.some((member) => member.id === session.memberId && ['active', 'trainee'].includes(member.status))).forEach((session) => { claimScheduleSlot(nextSchedule, `${session.memberId}:${event.day}`, 'yearEndMeetGreet'); });
-  });
-  (state.fanEventPlans ?? []).filter((plan) => plan.year === year && plan.targetWeek === week && plan.type === 'meetGreet').forEach((plan) => {
-    plan.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => {
-      claimScheduleSlot(nextSchedule, `${memberId}:${plan.day}`, 'mg1');
-    });
-  });
-  singles.forEach((single) => {
-    if (!single.productionStartYear || !single.productionStartWeek) {
-      if (single.status === 'production') single.memberIds.forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${single.productionDay}`, 'mvProduction'); });
-      return;
-    }
-    const startAbsolute = toAbsoluteWeek(single.productionStartYear, single.productionStartWeek);
-    if (nextAbsolute >= startAbsolute && nextAbsolute < startAbsolute + single.durationWeeks) single.memberIds.forEach((memberId) => { claimScheduleSlot(nextSchedule, `${memberId}:${single.productionDay}`, 'mvProduction'); });
-  });
-  (state.fanEventPlans ?? []).filter((plan) => plan.year === year && plan.targetWeek === week && plan.type === 'videoCall').forEach((plan) => {
-    plan.memberIds.filter((memberId) => members.some((member) => member.id === memberId && ['active', 'trainee'].includes(member.status))).forEach((memberId) => {
-      claimScheduleSlot(nextSchedule, `${memberId}:${plan.day}`, 'vc1');
-    });
-  });
+  const nextSchedule = getConfirmedScheduleForWeek({ ...state, year, week, members, singles, concerts, yearEndMeetGreets, schedule: {} }, year, week);
   if (concertSummary) concerts = concerts.map((concert) => concert.targetYear === state.year && concert.targetWeek === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert);
   const currentYearEndMeetGreet = yearEndMeetGreets.find((event) => event.year === state.year && event.targetWeek === state.week);
   const yearEndMeetGreetSummary = currentYearEndMeetGreet ? { title: 'Year-end Meet & Greet', attendance: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.sold, 0), capacity: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.capacity, 0), revenue: currentYearEndMeetGreet.revenue, participatingMembers: currentYearEndMeetGreet.memberSessions.length } : null;
@@ -2231,7 +2656,7 @@ export function resolveWeek(state) {
   const previousRecords = state.records ?? {};
   const theaterShows = [...validTheaterDays].length;
   const concertEvaluation = concertSummary?.evaluation;
-  const records = { ...previousRecords, peakFanbase: Math.max(previousRecords.peakFanbase ?? 0, group.fanbase), peakPopularity: Math.max(previousRecords.peakPopularity ?? 0, group.popularity), peakFanTrust: Math.max(previousRecords.peakFanTrust ?? 0, group.fanTrust), peakReputation: Math.max(previousRecords.peakReputation ?? 0, group.reputation), largestRoster: Math.max(previousRecords.largestRoster ?? 0, members.filter((member) => ['active', 'trainee'].includes(member.status)).length), lowestEligibleRoster: Math.min(previousRecords.lowestEligibleRoster ?? eligibleCount, eligibleCount), theaterShows: (previousRecords.theaterShows ?? 0) + theaterShows, singlesReleased: (previousRecords.singlesReleased ?? 0) + completedSingles, videoCallTickets: (previousRecords.videoCallTickets ?? 0) + Math.round(finances.videoCall / BALANCE.activities.vc1.ticket), meetGreetTickets: (previousRecords.meetGreetTickets ?? 0) + Math.round(finances.meetGreet / BALANCE.activities.mg1.ticket), largestConcert: Math.max(previousRecords.largestConcert ?? 0, concertEvaluation?.attendance ?? 0), bestConcertOccupancy: Math.max(previousRecords.bestConcertOccupancy ?? 0, concertEvaluation?.occupancy ?? 0), dramaSuspensions: (previousRecords.dramaSuspensions ?? 0) + (activeDrama && !state.activeDrama ? 1 : 0), moneyEarned: (previousRecords.moneyEarned ?? 0) + Math.max(0, moneyDelta), moneySpent: (previousRecords.moneySpent ?? 0) + Math.max(0, -moneyDelta) };
+  const records = { ...previousRecords, peakFanbase: Math.max(previousRecords.peakFanbase ?? 0, group.fanbase), peakPopularity: Math.max(previousRecords.peakPopularity ?? 0, group.popularity), peakFanTrust: Math.max(previousRecords.peakFanTrust ?? 0, group.fanTrust), peakReputation: Math.max(previousRecords.peakReputation ?? 0, group.reputation), largestRoster: Math.max(previousRecords.largestRoster ?? 0, members.filter((member) => ['active', 'trainee'].includes(member.status)).length), lowestEligibleRoster: Math.min(previousRecords.lowestEligibleRoster ?? eligibleCount, eligibleCount), theaterShows: (previousRecords.theaterShows ?? 0) + theaterShows, singlesReleased: (previousRecords.singlesReleased ?? 0) + completedSingles, videoCallTickets: (previousRecords.videoCallTickets ?? 0) + Math.round(finances.videoCall / BALANCE.activities.vc1.ticket), meetGreetTickets: (previousRecords.meetGreetTickets ?? 0) + Math.round(finances.meetGreet / BALANCE.activities.mg1.ticket), largestConcert: Math.max(previousRecords.largestConcert ?? 0, concertEvaluation?.attendance ?? 0), bestConcertOccupancy: Math.max(previousRecords.bestConcertOccupancy ?? 0, concertEvaluation?.occupancy ?? 0), dramaSuspensions: previousRecords.dramaSuspensions ?? 0, moneyEarned: (previousRecords.moneyEarned ?? 0) + Math.max(0, moneyDelta), moneySpent: (previousRecords.moneySpent ?? 0) + Math.max(0, -moneyDelta) };
   const previousCampaignStatus = state.campaign?.status;
   let campaignResult = advanceCampaign({ ...state, campaign: state.campaign ?? null, nextCampaignConfig: state.nextCampaignConfig ?? null, campaignHistory: state.campaignHistory ?? [], concerts }, { year, week, members, group, rng });
   if (campaignResult.revenue) {
@@ -2335,6 +2760,9 @@ export function resolveWeek(state) {
     const previous = state.members.find((item) => item.id === member.id);
     return previous ? SKILLS.filter((skill) => member[skill] !== previous[skill]).map((skill) => ({ memberId: member.id, memberName: member.nickname || member.name, skill, before: previous[skill], after: member[skill], delta: Math.round((member[skill] - previous[skill]) * 10) / 10 })) : [];
   });
+  const completedTrainingSessions = trainingSessionRecords.filter((session) => session.status === 'completed');
+  const trainingDayKeys = new Set(completedTrainingSessions.filter((session) => session.day).map((session) => `${session.memberId}:${session.day}`));
+  const reportSchedule = Object.fromEntries(Object.entries(weekSchedule).filter(([key, activityId]) => activityId !== 'rest' || !trainingDayKeys.has(key)));
   const singleViewChanges = singles.filter((single) => (single.views ?? 0) > (state.singles.find((item) => item.id === single.id)?.views ?? 0)).map((single) => ({ singleId: single.id, title: single.title, gain: single.weeklyViewGain, total: single.views, viewWeek: single.viewWeeks }));
   const lastResult = {
     year: state.year,
@@ -2344,8 +2772,9 @@ export function resolveWeek(state) {
     baseFanGain,
     fanGrowthMultiplier: weeklyFanCapMultiplier,
     fanTargetPerformance: protectedAnnualFanPerformance,
-    activities: Object.keys(weekSchedule).length,
-    schedule: { ...weekSchedule },
+    activities: Object.keys(reportSchedule).length + completedTrainingSessions.length,
+    schedule: reportSchedule,
+    trainingSessions: trainingSessionRecords,
     skillChanges,
     singleViewChanges,
     promotions: promotionResult.promotions,
@@ -2397,7 +2826,7 @@ export function resolveWeek(state) {
     notifications.push({ type: 'success', text: `New opportunity: ${template.title}. Respond within two weeks.` });
   }
   const next = {
-    ...state, year, week, members, unsignedMembers, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
+    ...state, year, week, members, unsignedMembers, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, trainingPlans: {}, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
     notifications, activeDrama, activeManagementDrama, dramaMemory, dramaCooldown: memberDramaCooldown, memberDramaCooldown, managementDramaCooldown, campaign: campaignResult.campaign, nextCampaignConfig: campaignResult.nextCampaignConfig, campaignHistory: campaignResult.campaignHistory, fanNarratives, graduations, graduationTargets, departures, seitansaiObligations, records, failureCounters, weeklyReports, concertVenueOffers: nextConcertVenueOffers, ledger: resolvedLedger, loans: resolvedLoans, loanOffers: year !== state.year ? generateLoanOffers(state.seed, year) : state.loanOffers, fanEventPlans: (state.fanEventPlans ?? []).filter((plan) => !activatedPlans.includes(plan)), runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };
