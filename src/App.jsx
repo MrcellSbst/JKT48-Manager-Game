@@ -1051,6 +1051,7 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   const selectedAnniversaryVenue = venues.find((venue) => venue.id === anniversaryVenue) ?? venues[0];
   const anniversaryCost = getConcertCostBreakdown(game, selectedAnniversaryBudget, selectedAnniversaryVenue);
   const anniversaryUpfrontCost = anniversaryCost.upfrontCost;
+  useEffect(() => { if (typeof document !== 'undefined') syncConcertPriceLabels(document.querySelector('.annual-events'), game); }, [game, anniversaryBudget, anniversaryVenue]);
   const eligibleCountFor = (activityId, targetWeek) => (targetWeek ? game.members.filter((member) => canMemberPerform(member, activityId) && memberAvailableOnCampaignDate(game, member, game.year, targetWeek)).length : 0);
   const mgEligibleCount = eligibleCountFor('yearEndMeetGreet', selectedMgWeek);
   const anniversaryEligibleCount = eligibleCountFor('concert', selectedAnniversaryWeek);
@@ -1326,6 +1327,7 @@ function CampaignLaunchEditor({ game, setGame, language = 'en' }) {
   const text = (en, id) => language === 'id' ? id : en;
   const nextType = getNextMajorCampaignType(game);
   const blockReason = getMajorCampaignStartBlockReason(game);
+  useEffect(() => { if (typeof document !== 'undefined') syncConcertPriceLabels(document.querySelector('.campaign-launch-editor'), game); });
   const blockingSingle = game.singles.find((single) => single.status !== 'released');
   const [durationWeeks, setDurationWeeks] = useState(12);
   const [concertBudgetId, setConcertBudgetId] = useState('standard');
@@ -1407,6 +1409,7 @@ function CampaignRewardBudgetEditor({ game, setGame, language = 'en' }) {
   const [concertBudgetId, setConcertBudgetId] = useState(next?.concertBudgetId ?? 'standard');
   const [concertVenueId, setConcertVenueId] = useState(next?.concertVenueId ?? 'hall');
   const [mvBudgetId, setMvBudgetId] = useState(next?.mvBudgetId ?? 'medium');
+  useEffect(() => { if (typeof document !== 'undefined') syncConcertPriceLabels(document.querySelector('.campaign-reward-budget-editor'), game); });
   useEffect(() => {
     setConcertBudgetId(next?.concertBudgetId ?? 'standard');
     setConcertVenueId(next?.concertVenueId ?? 'hall');
@@ -1434,6 +1437,33 @@ function ConcertCostNotice({ game, budget, venue, language = 'en' }) {
     ? `Maksimal satu konser reguler per kuartal; Q4 dicadangkan untuk Konser Hari Jadi. Venue ${CONCERT_COST_RULES.venueMultiplier}× harga dasar; produksi ${Math.round(quote.productionRatio * 100)}% dari biaya venue. Tahun ${quote.costYear} menambah ${Math.round(quote.yearRate * 100)}%. Total pilihan ini ${money(quote.upfrontCost)}.`
     : `One regular concert per quarter; Q4 is reserved for the Anniversary Concert. Venue is ${CONCERT_COST_RULES.venueMultiplier}× the base price; production is ${Math.round(quote.productionRatio * 100)}% of venue cost. Year ${quote.costYear} adds ${Math.round(quote.yearRate * 100)}%. This selection totals ${money(quote.upfrontCost)}.`;
   return <p className="campaign-block-reason concert-cost-notice" role="note">{text}</p>;
+}
+
+function syncConcertPriceLabels(root, game) {
+  if (!root || !game) return;
+  const budgetIds = new Set(CONCERT_BUDGETS.map((option) => option.id));
+  const venueOptions = [...(game.concertVenueOffers ?? []), ...CONCERT_VENUES].filter((venue, index, options) => options.findIndex((candidate) => candidate.id === venue.id) === index);
+  const venueIds = new Set(venueOptions.map((option) => option.id));
+  const selects = [...root.querySelectorAll('select')];
+  selects.forEach((select) => {
+    const isBudgetSelect = select.options.length === budgetIds.size && [...select.options].every((option) => budgetIds.has(option.value));
+    const isVenueSelect = select.options.length > 0 && [...select.options].every((option) => venueIds.has(option.value));
+    if (!isBudgetSelect && !isVenueSelect) return;
+    const group = select.closest('.concert-option-grid, .campaign-launch-fields, .annual-event-fields, .campaign-reward-budget-editor') ?? root;
+    const groupSelects = [...group.querySelectorAll('select')];
+    const budgetSelect = groupSelects.find((candidate) => candidate.options.length === budgetIds.size && [...candidate.options].every((option) => budgetIds.has(option.value)));
+    const venueSelect = groupSelects.find((candidate) => candidate.options.length > 0 && [...candidate.options].every((option) => venueIds.has(option.value)));
+    const selectedBudget = CONCERT_BUDGETS.find((option) => option.id === budgetSelect?.value) ?? CONCERT_BUDGETS[0];
+    const selectedVenue = venueOptions.find((option) => option.id === venueSelect?.value) ?? venueOptions[0];
+    if (isBudgetSelect && selectedVenue) [...select.options].forEach((option) => {
+      const budget = CONCERT_BUDGETS.find((item) => item.id === option.value);
+      if (budget) option.textContent = `${budget.name} · ${money(getConcertCostBreakdown(game, budget, selectedVenue).productionCost)}`;
+    });
+    if (isVenueSelect && selectedBudget) [...select.options].forEach((option) => {
+      const venue = venueOptions.find((item) => item.id === option.value);
+      if (venue) option.textContent = `${venue.name} · ${number.format(venue.capacity)} seats · +${money(getConcertCostBreakdown(game, selectedBudget, venue).venueCost)}`;
+    });
+  });
 }
 
 function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate, language = 'en', onTutorialAction }) {
@@ -1537,6 +1567,7 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
   const auditionCampaign = game.auditionCampaign;
   useEffect(() => { setAuditionSelection(auditionCampaign?.selectedCandidateIds ?? []); setInspectingCandidateId(null); setConfirmAuditionSelection(false); }, [auditionCampaign?.id, auditionCampaign?.selectedCandidateIds]);
   useEffect(() => { if (!concertVenues.some((option) => option.id === concertVenueId)) setConcertVenueId(concertVenues[0].id); }, [concertVenueId, concertVenues]);
+  useEffect(() => { if (typeof document !== 'undefined') syncConcertPriceLabels(document.querySelector('.campaigns-page'), game); }, [game, concertBudgetId, concertVenueId]);
   const releasedSingles = [...game.singles].filter((single) => single.status === 'released').reverse();
   const productionStartsNow = selectedRelease?.absolute - 5 === absoluteWeek(game.year, game.week);
   const productionDayOccupied = productionStartsNow && mvMembers.some((member) => game.schedule[`${member.id}:${productionDay}`]);
