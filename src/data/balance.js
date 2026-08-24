@@ -188,6 +188,23 @@ export const CONCERT_BUDGETS = [
   { id: 'major', name: 'Major production', cost: 480_000_000, demandMultiplier: 1.25, quality: 92 },
 ];
 
+// Concerts use one slot per quarter. Q4 is reserved for the anniversary event.
+// Venue rental is doubled; production is priced as a tiered share of that
+// doubled venue price. Yearly escalation applies when the concert is booked.
+export const CONCERT_COST_RULES = Object.freeze({
+  venueMultiplier: 2,
+  productionVenueRatios: Object.freeze({ lean: 0.65, standard: 0.75, major: 0.85 }),
+});
+
+export const concertYearCostRate = (year) => {
+  const normalizedYear = Math.max(1, Math.floor(Number(year) || 1));
+  if (normalizedYear === 1) return 0;
+  if (normalizedYear === 2) return 0.10;
+  return 0.15 + (normalizedYear - 3) * 0.01;
+};
+
+export const concertQuarterForWeek = (week) => Math.max(1, Math.min(4, Math.floor((Math.max(1, Number(week) || 1) - 1) / 12) + 1));
+
 export const SINGLE_BUDGETS = [
   { id: 'low', name: 'Low budget', cost: 75_000_000, quality: 58, popularityGain: 2, fanTrustGain: -1 },
   { id: 'medium', name: 'Medium budget', cost: 127_500_000, quality: 74, popularityGain: 3, fanTrustGain: 1 },

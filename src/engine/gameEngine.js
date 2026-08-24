@@ -1,5 +1,5 @@
 import { memberData } from '../data/newmemberdata.js';
-import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, OPPORTUNITY_SKILL_GAINS, SINGLE_BUDGETS, TRAINING_ACTIVITY_IDS } from '../data/balance.js';
+import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_BUDGETS, CONCERT_COST_RULES, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, OPPORTUNITY_SKILL_GAINS, SINGLE_BUDGETS, TRAINING_ACTIVITY_IDS, concertQuarterForWeek, concertYearCostRate } from '../data/balance.js';
 import { MEMBER_DRAMA_TEMPLATES } from '../data/dramaData.js';
 import dreamSetlistSongs from '../data/DreamSetlist_Songs.js';
 import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
@@ -87,6 +87,23 @@ const bonusLevel = (state, id) => hasBonus(state, id) ? normalizeBonusLevel(stat
 const bonusValue = (state, id) => getBonusValueAtLevel(BONUS_BY_ID[id], bonusLevel(state, id));
 const protectNormalTrustLoss = (state, delta) => delta < 0 ? Math.ceil(delta * (1 + bonusValue(state, 'B023'))) : delta;
 const applyRate = (value, rate) => Math.round(value * (1 + rate));
+const concertVenueFor = (state, venueId) => [...(state?.concertVenueOffers ?? []), ...CONCERT_VENUES].find((option) => option.id === venueId) ?? null;
+const concertBudgetFor = (budgetId) => CONCERT_BUDGETS.find((option) => option.id === budgetId) ?? null;
+
+export function getConcertCostBreakdown(state, budgetId = 'standard', venueId = 'hall', costYear = state?.year ?? 1) {
+  const budget = typeof budgetId === 'object' ? budgetId : concertBudgetFor(budgetId);
+  const venue = typeof venueId === 'object' ? venueId : concertVenueFor(state, venueId);
+  if (!budget || !venue) return { budget: null, venue: null, costYear, yearRate: concertYearCostRate(costYear), annualMultiplier: 1 + concertYearCostRate(costYear), productionRatio: 0, grossVenueCost: 0, grossProductionCost: 0, venueCost: 0, productionCost: 0, upfrontCost: 0 };
+  const yearRate = concertYearCostRate(costYear);
+  const annualMultiplier = 1 + yearRate;
+  const grossVenueCost = Math.round((venue.cost ?? 0) * CONCERT_COST_RULES.venueMultiplier * annualMultiplier);
+  const productionRatio = CONCERT_COST_RULES.productionVenueRatios[budget.id] ?? CONCERT_COST_RULES.productionVenueRatios.standard;
+  const grossProductionCost = Math.round(grossVenueCost * productionRatio);
+  const productionCost = applyRate(grossProductionCost, bonusValue(state, 'B006'));
+  const venueCost = applyRate(grossVenueCost, bonusValue(state, 'B008'));
+  return { budget, venue, costYear, yearRate, annualMultiplier, productionRatio, grossVenueCost, grossProductionCost, productionCost, venueCost, upfrontCost: productionCost + venueCost };
+}
+
 const chemistryPairKey = (firstId, secondId) => [firstId, secondId].sort().join('::');
 const chemistryDimensions = ['stage', 'performance', 'mc', 'unit'];
 const isConcertActivity = (activityId) => activityId === 'concert' || activityId === 'concertRehearsal';
@@ -109,6 +126,11 @@ const claimScheduleSlot = (schedule, key, activityId) => {
   return schedule[key] === activityId;
 };
 const campaignConflictLabel = (type, scope = 'schedule') => {
+  if (scope === 'quarter') {
+    if (type === 'concert') return 'Concert already occupies this quarter.';
+    return `${type === 'yearEndMeetGreet' ? 'Year-end Meet & Greet' : type === 'meetGreet' ? 'Meet & Greet' : type === 'videoCall' ? 'Video Call' : 'MV production'} already occupies this quarter.`;
+  }
+  if (scope === 'q4') return 'Q4 is reserved for the Anniversary Concert.';
   if (scope === 'month') {
     if (type === 'concert') return 'Concert already occupies this month.';
     if (type === 'yearEndMeetGreet') return 'Year-end Meet & Greet already occupies this month.';
@@ -127,6 +149,8 @@ const campaignEventDays = (event) => [...new Set([event.day, ...(event.rehearsal
 const campaignDaysOverlap = (requestedDays, existingDays) => !requestedDays.length || !existingDays.length || requestedDays.some((day) => existingDays.includes(day));
 const campaignMemberOverlap = (requestedMembers, existingMembers) => requestedMembers.size > 0 && existingMembers.some((memberId) => requestedMembers.has(memberId));
 const sameCampaignMonth = (firstAbsolute, secondAbsolute) => Math.floor((firstAbsolute - 1) / BALANCE.weeksPerMonth) === Math.floor((secondAbsolute - 1) / BALANCE.weeksPerMonth);
+const sameConcertQuarter = (firstAbsolute, secondAbsolute) => concertQuarterForWeek(((firstAbsolute - 1) % BALANCE.weeksPerYear) + 1) === concertQuarterForWeek(((secondAbsolute - 1) % BALANCE.weeksPerYear) + 1)
+  && Math.floor((firstAbsolute - 1) / BALANCE.weeksPerYear) === Math.floor((secondAbsolute - 1) / BALANCE.weeksPerYear);
 const conflictNotification = (state, reasons) => ({
   ...state,
   notifications: [{ type: 'critical', text: `Campaign blocked: ${reasons[0]}` }, ...(state.notifications ?? [])].slice(0, 20),
@@ -139,6 +163,7 @@ export function getCampaignConflictReasons(state, options = {}) {
   const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
   const type = options.type ?? 'meetGreet';
   const monthScope = options.monthScope === true;
+  const allowQ4 = options.allowQ4 === true;
   const requestedDays = [...new Set([...(options.days ?? []), options.day].filter(Boolean))];
   const requestedMembers = new Set(options.memberIds ?? []);
   const reasons = [];
@@ -148,6 +173,7 @@ export function getCampaignConflictReasons(state, options = {}) {
   };
   const matchesStoredCampaign = ({ absolute, type: existingType, days = [], memberIds = [], monthScope: existingMonthScope = false }) => {
     if ((monthScope || existingMonthScope) && sameCampaignMonth(absolute, targetAbsolute)) return 'month';
+    if (type === 'concert' && existingType === 'concert' && sameConcertQuarter(absolute, targetAbsolute)) return 'quarter';
     if (absolute !== targetAbsolute) return false;
     // Meet & Greet is a single group campaign per target week; other campaign
     // types remain slot-aware and only conflict when their day/member overlaps.
@@ -159,8 +185,9 @@ export function getCampaignConflictReasons(state, options = {}) {
     }
     return 'schedule';
   };
+  if (type === 'concert' && concertQuarterForWeek(targetWeek) === 4 && !allowQ4) addReason('concert', 'q4');
   const storedCampaigns = [
-    ...(state.concerts ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: 'concert', days: campaignEventDays(event), memberIds: event.memberIds ?? [], monthScope: event.eventType === 'anniversary' })),
+    ...(state.concerts ?? []).filter((event) => !['cancelled', 'skipped'].includes(event.status)).map((event) => ({ absolute: toAbsoluteWeek(event.targetYear, event.targetWeek), type: 'concert', days: campaignEventDays(event), memberIds: event.memberIds ?? [], monthScope: event.eventType === 'anniversary' })),
     ...(state.yearEndMeetGreets ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: 'yearEndMeetGreet', days: [event.day].filter(Boolean), memberIds: (event.memberSessions ?? []).map((session) => session.memberId), monthScope: true })),
     ...(state.fanEventPlans ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.targetWeek), type: event.type, days: [event.day].filter(Boolean), memberIds: event.memberIds ?? [] })),
     ...(state.activityEvents ?? []).map((event) => ({ absolute: toAbsoluteWeek(event.year, event.week), type: event.type, days: [], memberIds: event.memberId ? [event.memberId] : [] })),
@@ -1886,19 +1913,25 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   return { ...state, singleProduction: { ...(state.singleProduction ?? {}), centerMemberId: centerId }, money: state.money - productionCost, financialEvents: addImmediateExpense(state, `${single.id}-production-cost`, `${single.title} production`, productionCost), schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
-export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '', budgetId = 'lean', venueId = 'hall', targetWeekOverride = null) {
-  const budget = CONCERT_BUDGETS.find((option) => option.id === budgetId);
-  const venue = [...(state.concertVenueOffers ?? []), ...CONCERT_VENUES].find((option) => option.id === venueId);
-  const productionCost = applyRate(budget?.cost ?? 0, bonusValue(state, 'B006'));
-  const venueCost = applyRate(venue?.cost ?? 0, bonusValue(state, 'B008'));
-  const upfrontCost = productionCost + venueCost;
+export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '', budgetId = 'lean', venueId = 'hall', targetWeekOverride = null, options = {}) {
+  const budget = concertBudgetFor(budgetId);
+  const venue = concertVenueFor(state, venueId);
+  const costs = getConcertCostBreakdown(state, budget, venue, state.year);
+  const { productionCost, venueCost, upfrontCost } = costs;
   if (!budget || !venue || state.runStatus === 'ended' || state.money < upfrontCost || !DAYS.includes(concertDay) || targetMonth < 1 || targetMonth > 12) return state;
   const targetWeek = Number.isInteger(targetWeekOverride) ? targetWeekOverride : targetMonth * BALANCE.weeksPerMonth;
   if (targetWeek < 1 || targetWeek > BALANCE.weeksPerYear) return state;
   const targetAbsolute = toAbsoluteWeek(targetYear, targetWeek);
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
-  if (targetAbsolute - currentAbsolute < 2 || state.concerts.some((concert) => concert.targetYear === targetYear && concert.targetMonth === targetMonth)) return state;
-  const conflictReasons = getCampaignConflictReasons(state, { year: targetYear, week: targetWeek, type: 'concert', day: concertDay });
+  const allowQ4 = options.allowQ4 === true;
+  if (targetAbsolute - currentAbsolute < 2 || (!allowQ4 && concertQuarterForWeek(targetWeek) === 4)) {
+    return !allowQ4 && concertQuarterForWeek(targetWeek) === 4
+      ? conflictNotification(state, ['Q4 is reserved for the Anniversary Concert.'])
+      : state;
+  }
+  const existingQuarterConcert = (state.concerts ?? []).some((concert) => concert.targetYear === targetYear && concertQuarterForWeek(concert.targetWeek ?? ((concert.targetMonth ?? 1) * BALANCE.weeksPerMonth)) === concertQuarterForWeek(targetWeek) && !['cancelled', 'skipped'].includes(concert.status));
+  if (existingQuarterConcert) return conflictNotification(state, ['Concert already occupies this quarter.']);
+  const conflictReasons = getCampaignConflictReasons(state, { year: targetYear, week: targetWeek, type: 'concert', day: concertDay, allowQ4 });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const memberIds = campaignEligibleMembers(state, 'concert', targetYear, targetWeek).map((member) => member.id);
   if (memberIds.length < BALANCE.theaterMinimumMembers) return state;
@@ -1909,7 +1942,7 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
   const saleCloseAbsolute = targetAbsolute - 2;
   const customTitle = requestedTitle.trim();
   if (customTitle.length > 60) return state;
-  const concert = { id: `concert-${targetYear}-${targetMonth}-${state.concerts.length + 1}`, title: customTitle || `Concert ${state.concerts.length + 1}`, budgetId, budgetName: budget.name, productionCost, venueId, venueName: venue.name, venueCost, upfrontCost, targetYear, targetMonth, targetWeek, day: concertDay, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute, salesWeeks: saleCloseAbsolute - currentAbsolute + 1, memberIds };
+  const concert = { id: `concert-${targetYear}-${targetMonth}-${state.concerts.length + 1}`, title: customTitle || `Concert ${state.concerts.length + 1}`, budgetId, budgetName: budget.name, productionCost, venueId, venueName: venue.name, venueCost, upfrontCost, grossVenueCost: costs.grossVenueCost, grossProductionCost: costs.grossProductionCost, productionCostRatio: costs.productionRatio, costYear: costs.costYear, annualCostRate: costs.yearRate, targetYear, targetMonth, targetWeek, day: concertDay, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute, salesWeeks: saleCloseAbsolute - currentAbsolute + 1, memberIds };
   const targetWeekOfMonth = ((targetWeek - 1) % BALANCE.weeksPerMonth) + 1;
   return { ...state, money: state.money - upfrontCost, financialEvents: addImmediateExpense(state, `${concert.id}-upfront-cost`, `${concert.title} production`, upfrontCost), concerts: [...state.concerts, concert], history: [{ id: concert.id, type: 'concert', title: `${concert.title} announced`, detail: `${venue.name} · ${capacity.toLocaleString()} seats · ${budget.name} · Year ${targetYear}, Month ${targetMonth}, Week ${targetWeekOfMonth} on ${concertDay}.`, year: state.year, week: state.week }, ...state.history] };
 }
@@ -1933,11 +1966,11 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
   if (state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
-  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true });
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true, allowQ4: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;
   const chosenVenueId = venueId ?? state.concertVenueOffers?.[0]?.id ?? CONCERT_VENUES[0].id;
-  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, budgetId, chosenVenueId, targetWeek);
+  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, budgetId, chosenVenueId, targetWeek, { allowQ4: true, eventType: 'anniversary' });
   if (announced === state) return state;
   const createdId = announced.concerts.at(-1).id;
   const targetAbsolute = toAbsoluteWeek(state.year, targetWeek);
@@ -2059,7 +2092,8 @@ function campaignConcertTarget({ state, campaign, concerts, yearEndMeetGreets, s
     const absolute = now + offset;
     const calendar = fromAbsoluteWeek(absolute);
     if (calendar.week % BALANCE.weeksPerMonth !== 0) continue;
-    const occupiedEvent = concerts.some((concert) => toAbsoluteWeek(concert.targetYear, concert.targetWeek) === absolute)
+    if (concertQuarterForWeek(calendar.week) === 4) continue;
+    const occupiedEvent = concerts.some((concert) => concert.targetYear === calendar.year && concertQuarterForWeek(concert.targetWeek ?? ((concert.targetMonth ?? 1) * BALANCE.weeksPerMonth)) === concertQuarterForWeek(calendar.week))
       || (yearEndMeetGreets ?? []).some((event) => toAbsoluteWeek(event.year, event.targetWeek) === absolute);
     if (occupiedEvent) continue;
     const day = dayOrder.find((candidate) => !singles.some((single) => productionBusyOnDay(single, absolute, candidate)));
@@ -2075,16 +2109,15 @@ function campaignRewardConcert({ state, campaign, members, concerts, yearEndMeet
   const target = campaignConcertTarget({ state, campaign, concerts, yearEndMeetGreets, singles });
   const performerIds = target ? campaignRewardMemberIds(state, campaign, members, target) : [];
   if (!target || performerIds.length < 1) return { campaign, concert: null, upfrontCost: 0 };
-  const productionCost = applyRate(budget.cost, bonusValue(state, 'B006'));
-  const venueCost = applyRate(venue.cost, bonusValue(state, 'B008'));
-  const upfrontCost = productionCost + venueCost;
+  const costs = getConcertCostBreakdown(state, budget, venue, state.year);
+  const { productionCost, venueCost, upfrontCost } = costs;
   if ((availableMoney ?? state.money) < upfrontCost) return { campaign: { ...campaign, rewardConcertStatus: 'budget-pending', rewardConcertMemberIds: performerIds, rewardConcertPerformerCount: performerIds.length }, concert: null, upfrontCost };
   const salesMultiplier = 1 + bonusValue(state, 'B028');
   const demand = Math.round(state.group.fanbase * (state.group.popularity / 100) * 0.045 * budget.demandMultiplier * salesMultiplier);
   const capacity = venue.capacity;
   const projectedSold = Math.min(capacity, Math.round(demand * 0.9));
   const rewardConcertId = `campaign-concert-${campaign.id}`;
-  const concert = { id: rewardConcertId, title: `${campaign.type === 'sousenkyo' ? 'Sousenkyo' : campaign.type === 'request-hour' ? 'Request Hour' : 'Janken'} result concert`, eventType: 'campaign-reward', campaignId: campaign.id, campaignType: campaign.type, campaignReward: true, budgetId: budget.id, budgetName: budget.name, productionCost, venueId: venue.id, venueName: venue.name, venueCost, upfrontCost, targetYear: target.year, targetMonth: Math.ceil(target.week / BALANCE.weeksPerMonth), targetWeek: target.week, day: target.day, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute: target.absolute - 2, salesWeeks: Math.max(1, target.absolute - toAbsoluteWeek(state.year, state.week) - 1), memberIds: performerIds, rewardSongId: campaign.rewardSongId };
+  const concert = { id: rewardConcertId, title: `${campaign.type === 'sousenkyo' ? 'Sousenkyo' : campaign.type === 'request-hour' ? 'Request Hour' : 'Janken'} result concert`, eventType: 'campaign-reward', campaignId: campaign.id, campaignType: campaign.type, campaignReward: true, budgetId: budget.id, budgetName: budget.name, productionCost, venueId: venue.id, venueName: venue.name, venueCost, upfrontCost, grossVenueCost: costs.grossVenueCost, grossProductionCost: costs.grossProductionCost, productionCostRatio: costs.productionRatio, costYear: costs.costYear, annualCostRate: costs.yearRate, targetYear: target.year, targetMonth: Math.ceil(target.week / BALANCE.weeksPerMonth), targetWeek: target.week, day: target.day, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute: target.absolute - 2, salesWeeks: Math.max(1, target.absolute - toAbsoluteWeek(state.year, state.week) - 1), memberIds: performerIds, rewardSongId: campaign.rewardSongId };
   return { campaign: { ...campaign, status: 'concert-scheduled', rewardConcertId, rewardConcertStatus: 'scheduled', rewardConcertYear: target.year, rewardConcertWeek: target.week, rewardConcertMemberIds: performerIds, rewardConcertPerformerCount: performerIds.length }, concert, upfrontCost };
 }
 

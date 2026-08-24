@@ -228,7 +228,8 @@ Object.assign(ID, {
 
 Object.assign(ID, {
   'Exactly 12 members must be assigned on the same day. Demand controls attendance and revenue. Familiarity, ability, crowd traits, and sell-through shape satisfaction; results record center, unit songs, understudies, and Theater EXP.': 'Tepat 12 anggota harus ditugaskan pada hari yang sama. Permintaan mengatur kehadiran dan pendapatan. Familiaritas, kemampuan, sifat panggung, dan tingkat penjualan membentuk kepuasan; hasil mencatat center, lagu unit, pengganti, dan EXP Teater.',
-  'One concert per four-week month. Every available member participates. Choose budget, venue, title, month, and day; ticket sales close two weeks before the event and its day is locked.': 'Satu konser per bulan empat minggu. Semua anggota yang tersedia berpartisipasi. Pilih anggaran, tempat, judul, bulan, dan hari; penjualan tiket ditutup dua minggu sebelum acara dan harinya terkunci.',
+  'One concert per quarter. Q4 is reserved for the Anniversary Concert. Every available member participates. Choose production tier, venue, title, month, and day; ticket sales close two weeks before the event and its day is locked.': 'Satu konser per kuartal. Q4 dicadangkan untuk Konser Hari Jadi. Semua anggota yang tersedia berpartisipasi. Pilih tingkat produksi, tempat, judul, bulan, dan hari; penjualan tiket ditutup dua minggu sebelum acara dan harinya terkunci.',
+  'One concert per four-week month. Every available member participates. Choose budget, venue, title, month, and day; ticket sales close two weeks before the event and its day is locked.': 'Satu konser per kuartal. Q4 dicadangkan untuk Konser Hari Jadi. Semua anggota yang tersedia berpartisipasi. Pilih tingkat produksi, tempat, judul, bulan, dan hari; penjualan tiket ditutup dua minggu sebelum acara dan harinya terkunci.',
   'Cloud save enabled': 'Penyimpanan cloud aktif',
   'Annual campaigns': 'Kampanye tahunan',
   'Choose saved template': 'Pilih templat tersimpan',
@@ -394,6 +395,8 @@ Object.assign(ID, {
   'sousenkyo': 'Sousenkyo', 'requestHour': 'Request Hour', 'janken': 'Janken',
   'yes': 'ya', 'no': 'tidak', 'Former member': 'Mantan anggota',
   'Concert already occupies this month.': 'Konser sudah mengisi bulan ini.',
+  'Concert already occupies this quarter.': 'Konser sudah mengisi kuartal ini.',
+  'Q4 is reserved for the Anniversary Concert.': 'Q4 dicadangkan untuk Konser Hari Jadi.',
   'Year-end Meet & Greet already occupies this month.': 'Meet & Greet akhir tahun sudah mengisi bulan ini.',
   'Meet & Greet already occupies this month.': 'Meet & Greet sudah mengisi bulan ini.',
   'Video Call already occupies this month.': 'Video Call sudah mengisi bulan ini.',

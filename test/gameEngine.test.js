@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getConfirmedScheduleForWeek, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getCampaignConflictReasons, getConfirmedScheduleForWeek, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -1523,9 +1523,10 @@ test('concert tickets sell through D-2 and the target week locks every member', 
   const draft = createGame('scheduled-concert-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const startingMoney = game.money;
+  const expectedCost = getConcertCostBreakdown(game, 'lean', 'hall').upfrontCost;
   game = announceConcert(game, 'Sat', 1, 2);
   assert.equal(game.concerts[0].status, 'selling');
-  assert.equal(game.money, startingMoney - 270_000_000);
+  assert.equal(game.money, startingMoney - expectedCost);
   assert.equal(game.concerts[0].sold, 0);
   for (let index = 0; index < 6; index += 1) game = resolveWeek(game);
   assert.equal(game.week, 7);
@@ -1556,7 +1557,41 @@ test('concert venue offers are seeded and venue perks alter choices and costs', 
   const venue = perked.concertVenueOffers[0];
   const announced = announceConcert(perked, 'Sat', 1, 2, '', 'standard', venue.id);
   assert.ok(announced.concerts[0].productionCost < 300_000_000);
-  assert.ok(announced.concerts[0].venueCost < venue.cost);
+  assert.ok(announced.concerts[0].venueCost < announced.concerts[0].grossVenueCost);
+});
+
+test('concert costs use doubled venue pricing, tiered production ratios, and yearly escalation', () => {
+  const game = finalizeGameSetup(createGame('concert-cost-rules-test'), 'community', createGame('concert-cost-rules-test').members.slice(0, 12).map((member) => member.id));
+  const yearOne = getConcertCostBreakdown(game, 'lean', 'hall', 1);
+  assert.equal(yearOne.grossVenueCost, 180_000_000);
+  assert.equal(yearOne.grossProductionCost, 117_000_000);
+  assert.equal(yearOne.upfrontCost, 297_000_000);
+  const yearTwo = getConcertCostBreakdown(game, 'standard', 'arena', 2);
+  assert.equal(yearTwo.grossVenueCost, 396_000_000);
+  assert.equal(yearTwo.grossProductionCost, 297_000_000);
+  assert.equal(yearTwo.upfrontCost, 693_000_000);
+  const yearThree = getConcertCostBreakdown(game, 'major', 'stadium', 3);
+  assert.equal(yearThree.yearRate, 0.15);
+  assert.equal(yearThree.grossVenueCost, 931_500_000);
+  assert.equal(yearThree.grossProductionCost, 791_775_000);
+  assert.equal(yearThree.upfrontCost, 1_723_275_000);
+});
+
+test('regular concerts allow one per quarter and reserve Q4 for the anniversary concert', () => {
+  const draft = createGame('concert-quarter-limit-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  game = announceConcert(game, 'Sat', 1, 2);
+  assert.equal(game.concerts.length, 1);
+  const sameQuarter = announceConcert(game, 'Sat', 1, 3);
+  assert.equal(sameQuarter.concerts.length, 1);
+  assert.match(sameQuarter.notifications[0].text, /Concert already occupies this quarter/);
+  const q4 = announceConcert(game, 'Sat', 1, 10);
+  assert.equal(q4.concerts.length, 1);
+  assert.match(q4.notifications[0].text, /Q4 is reserved for the Anniversary Concert/);
+  const reopened = announceConcert({ ...game, concerts: game.concerts.map((concert) => ({ ...concert, status: 'cancelled' })) }, 'Sat', 1, 3);
+  assert.equal(reopened.concerts.length, 2);
+  const reasons = getCampaignConflictReasons(game, { year: 1, week: 12, type: 'concert' });
+  assert.ok(reasons.includes('Concert already occupies this quarter.'));
 });
 
 test('year-end Meet & Greet sells tickets and locks its target day', () => {
@@ -1642,8 +1677,9 @@ test('concert announcement persists selected budget and venue size', () => {
   assert.equal(announced.concerts[0].budgetId, 'standard');
   assert.equal(announced.concerts[0].venueId, 'arena');
   assert.equal(announced.concerts[0].capacity, 4_500);
-  assert.equal(announced.concerts[0].upfrontCost, 480_000_000);
-  assert.equal(announced.money, game.money - 480_000_000);
+  const expectedCost = getConcertCostBreakdown(game, 'standard', 'arena').upfrontCost;
+  assert.equal(announced.concerts[0].upfrontCost, expectedCost);
+  assert.equal(announced.money, game.money - expectedCost);
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {

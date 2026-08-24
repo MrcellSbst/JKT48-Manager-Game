@@ -5,11 +5,11 @@ import {
   Clock3, Disc3, Download, Dumbbell, History, Languages, LayoutDashboard, LogOut, Menu, Moon, Pencil, PhoneCall, Plus, Save, Search, ShieldAlert, Square,
   Sparkles, Sun, Target, Ticket, Trash2, TrendingUp, Trophy, UserRoundSearch, Users, Wrench, X,
 } from 'lucide-react';
-import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, SINGLE_BUDGETS, TRAINING_ACTIVITY_GROUPS, TRAINING_SKILLS } from './data/balance.js';
+import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, SINGLE_BUDGETS, TRAINING_ACTIVITY_GROUPS, TRAINING_SKILLS, CONCERT_COST_RULES, concertQuarterForWeek } from './data/balance.js';
 import { BONUS_BY_ID, BONUS_TEMPLATES, MAX_BONUS_LEVEL, formatBonusEffect, getBonusUpgradeCost, getBonusValueAtLevel } from './data/bonusTemplates.js';
 import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
 import dreamSetlistSongs from './data/DreamSetlist_Songs.js';
-import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureMajorCampaign, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMajorCampaignStartBlockReason, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getReportSkillChanges, getRosterDanger, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, isMajorCampaignActive, memberAvailableOnCampaignDate, memberCanPerformOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, punishMember, payDebt, prepareGraduation, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureMajorCampaign, configureTheaterShow, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMajorCampaignStartBlockReason, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getReportSkillChanges, getRosterDanger, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, isMajorCampaignActive, memberAvailableOnCampaignDate, memberCanPerformOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, moveTrainingSession, punishMember, payDebt, prepareGraduation, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { formatDateTime, formatMoney, formatNumber, localizeDocument, setActiveLanguage, translateIndonesian } from './localization.js';
 import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
@@ -341,6 +341,7 @@ function Wiki({ game, language = 'en', onReplayTutorial = null }) {
   ];
   incomeRows[incomeRows.findIndex(([source]) => source === text('Concert', 'Konser'))] = [text('Concert', 'Konser'), text('Campaign ticket sales before the event; demand and venue capacity cap sales.', 'Penjualan tiket kampanye sebelum acara; permintaan dan kapasitas venue membatasi penjualan.'), text(`Production starts at ${money(CONCERT_BUDGETS[0].cost)}. Static venues cost ${money(CONCERT_VENUES[0].cost)}, ${money(CONCERT_VENUES[1].cost)}, or ${money(CONCERT_VENUES[2].cost)} before perks.`, `Produksi mulai dari ${money(CONCERT_BUDGETS[0].cost)}. Venue statis berharga ${money(CONCERT_VENUES[0].cost)}, ${money(CONCERT_VENUES[1].cost)}, atau ${money(CONCERT_VENUES[2].cost)} sebelum bonus.`)];
   incomeRows[incomeRows.findIndex(([source]) => source === text('Annual campaign voting', 'Voting kampanye tahunan'))] = [text('Annual campaign voting', 'Voting kampanye tahunan'), text('Each active Sousenkyo or Request Hour voting week generates exactly 7–15% of the current fanbase as votes, with $5k–10k revenue per vote based on Fan Trust and Reputation. Janken is luck-only and generates no votes.', 'Setiap minggu voting Sousenkyo atau Request Hour yang aktif menghasilkan suara tepat 7–15% dari basis penggemar saat ini, dengan pendapatan $5–10 ribu per suara berdasarkan Kepercayaan Penggemar dan Reputasi. Janken hanya mengandalkan keberuntungan dan tidak menghasilkan suara.'), text('Sousenkyo distributes votes by member strength and sentiment; Request Hour distributes them randomly among eligible songs.', 'Sousenkyo membagikan suara berdasarkan kekuatan dan sentimen anggota; Request Hour membagikannya secara acak ke lagu yang memenuhi syarat.')];
+  incomeRows[incomeRows.findIndex(([source]) => source === text('Concert', 'Konser'))] = [text('Concert', 'Konser'), text('Campaign ticket sales before the event; demand and venue capacity cap sales.', 'Penjualan tiket kampanye sebelum acara; permintaan dan kapasitas venue membatasi penjualan.'), text('Up to four regular concerts per year, one per quarter; Q4 is reserved for the Anniversary Concert. Venue cost is 2x the base price, then production is 65%/75%/85% of that doubled venue cost for Lean/Standard/Major. Year 1 adds 0%; Year 2 10%; Year 3 15%; each later year adds one point.', 'Maksimal empat konser reguler per tahun, satu per kuartal; Q4 dicadangkan untuk Konser Hari Jadi. Biaya venue adalah 2x harga dasar, lalu produksi sebesar 65%/75%/85% dari biaya venue yang digandakan untuk Lean/Standard/Major. Tahun 1 bertambah 0%; Tahun 2 10%; Tahun 3 15%; tahun berikutnya bertambah satu poin.')];
   const demandRows = [
     [text('Theater', 'Teater'), text('Group fans, group popularity, lineup fanbase/popularity, center, momentum, positive narratives, familiarity, and recent exposure.', 'Penggemar grup, popularitas grup, basis penggemar/popularitas lineup, center, momentum, narasi positif, familiaritas, dan paparan terbaru.'), text('Use exactly 12 available members; choose a rested setlist, strong center, varied lineup, and avoid repeating the same setlist.', 'Gunakan tepat 12 anggota yang tersedia; pilih setlist yang cukup istirahat, center kuat, lineup beragam, dan hindari pengulangan setlist.'), text('Attendance × theater ticket price; capacity is the hard ceiling.', 'Kehadiran × harga tiket teater; kapasitas adalah batas mutlak.')],
     [text('Video Call', 'Panggilan Video'), text('Member fanbase and popularity, weighted toward Digital and Casual fans.', 'Basis penggemar dan popularitas anggota, dengan bobot lebih besar pada penggemar Digital dan Casual.'), text(`Schedule one per member per four-week month. Each member has ${BALANCE.activities.vc1.capacity} slots at ${money(BALANCE.activities.vc1.ticket)}.`, `Jadwalkan satu per anggota per bulan empat minggu. Setiap anggota memiliki ${BALANCE.activities.vc1.capacity} slot dengan harga ${money(BALANCE.activities.vc1.ticket)}.`), text('Sold tickets × ticket price; unsold demand is recorded as unmet demand.', 'Tiket terjual × harga tiket; permintaan yang tidak terpenuhi tetap dicatat.')],
@@ -348,6 +349,7 @@ function Wiki({ game, language = 'en', onReplayTutorial = null }) {
     [text('2Shot roulette', '2Shot roulette'), text('Theater lineup event demand; separate from theater gate revenue.', 'Permintaan acara dalam lineup teater; terpisah dari pendapatan tiket teater.'), text(`Complete a 12-member theater show. Each member adds ${BALANCE.twoShot.roulette.slotsPerMember} cheaper slots at ${money(BALANCE.twoShot.roulette.ticket)}.`, `Selesaikan pertunjukan teater dengan 12 anggota. Setiap anggota menambah ${BALANCE.twoShot.roulette.slotsPerMember} slot murah seharga ${money(BALANCE.twoShot.roulette.ticket)}.`), text('Sold 2Shot tickets are added to weekly 2Shot income.', 'Tiket 2Shot terjual ditambahkan ke pendapatan 2Shot mingguan.')],
     [text('2Shot Meet & Greet', '2Shot Meet & Greet'), text('Event-demand roll from the participating Meet & Greet lineup.', 'Perhitungan permintaan acara dari lineup Meet & Greet yang ikut.'), text(`Schedule a valid Meet & Greet. The event has ${BALANCE.twoShot.meetGreet.slotsPerEvent} premium slots at ${money(BALANCE.twoShot.meetGreet.ticket)}.`, `Jadwalkan Meet & Greet yang valid. Acara memiliki ${BALANCE.twoShot.meetGreet.slotsPerEvent} slot premium seharga ${money(BALANCE.twoShot.meetGreet.ticket)}.`), text('Sold tickets are capped by the 150-slot event.', 'Tiket terjual dibatasi oleh acara 150 slot.')],
   ];
+  incomeRows.push([text('Concert cost rules', 'Aturan biaya konser'), text('Up to four regular concerts may be held each year, one per quarter; Q4 is reserved for the Anniversary Concert. Venue cost is 2× the base venue price. Lean, Standard, and Major production costs are 65%, 75%, and 85% of the doubled venue price. Yearly escalation is 0% in Year 1, 10% in Year 2, 15% in Year 3, then +1 percentage point each year.', 'Maksimal empat konser reguler dapat diadakan setiap tahun, satu per kuartal; Q4 dicadangkan untuk Konser Hari Jadi. Biaya venue adalah 2× harga dasar. Biaya produksi Lean, Standard, dan Major adalah 65%, 75%, dan 85% dari biaya venue yang sudah digandakan. Kenaikan tahunan 0% pada Tahun 1, 10% pada Tahun 2, 15% pada Tahun 3, lalu bertambah 1 poin persentase setiap tahun.'), text('Selected budget and venue are charged when the concert is announced. Perks are applied after the doubled and escalated base amounts.', 'Anggaran dan venue pilihan dibebankan saat konser diumumkan. Bonus diterapkan setelah biaya dasar digandakan dan dinaikkan sesuai tahun.')]);
   const rules = [
     [text('Run-ending conditions', 'Kondisi akhir permainan'), text(`A run ends immediately when fewer than ${BALANCE.theaterMinimumMembers} theater-eligible members remain. Hard mode also ends after more than ${BALANCE.salary.unpaidMonthsToEnd} months of unpaid current salary. A run ends after four consecutive resolved weeks with negative cash, Fan Trust below 5, or Reputation below 5; after eight consecutive resolved weeks below 20,000 fans; or when management chooses End Run. Returning to non-negative cash, Fan Trust 5+, Reputation 5+, or 20,000+ fans resets that condition's consecutive-week counter.`, `Permainan langsung berakhir ketika anggota yang memenuhi syarat untuk teater kurang dari ${BALANCE.theaterMinimumMembers}. Mode sulit juga berakhir setelah gaji berjalan tidak dibayar selama lebih dari ${BALANCE.salary.unpaidMonthsToEnd} bulan. Permainan berakhir setelah empat minggu terselesaikan berturut-turut dengan saldo negatif, Kepercayaan Penggemar di bawah 5, atau Reputasi di bawah 5; setelah delapan minggu terselesaikan berturut-turut dengan penggemar di bawah 20.000; atau ketika manajemen memilih Akhiri Permainan. Saldo kembali nol atau positif, Kepercayaan Penggemar 5+, Reputasi 5+, atau penggemar 20.000+ akan mereset penghitung minggu berturut-turut untuk kondisi tersebut.`)],
     [text('Demand fulfillment checklist', 'Checklist memenuhi permintaan'), text('Demand is not a promise of sales. Match the correct fan faction, keep members rested, protect capacity, and avoid repeated setlists. Unmet demand means the audience wanted more than the available slots or seats.', 'Permintaan bukan jaminan penjualan. Cocokkan faksi penggemar yang tepat, jaga energi anggota, lindungi kapasitas, dan hindari setlist berulang. Permintaan tidak terpenuhi berarti audiens menginginkan lebih banyak daripada slot atau kursi yang tersedia.')],
@@ -1045,10 +1047,10 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   const selectedAnniversaryWeek = anniversaryWeeks.includes(requestedAnniversaryWeek) ? requestedAnniversaryWeek : (anniversaryWeeks[0] ?? null);
   const mgWeek = selectedMgWeek;
   const anniversaryWeek = selectedAnniversaryWeek;
-  const runBonusValue = (id) => (game.bonusLoadout?.includes(id) ? getBonusValueAtLevel(BONUS_BY_ID[id], game.bonusLevels?.[id] ?? 1) : 0);
   const selectedAnniversaryBudget = CONCERT_BUDGETS.find((budget) => budget.id === anniversaryBudget) ?? CONCERT_BUDGETS[0];
   const selectedAnniversaryVenue = venues.find((venue) => venue.id === anniversaryVenue) ?? venues[0];
-  const anniversaryUpfrontCost = Math.round((selectedAnniversaryBudget?.cost ?? 0) * (1 + runBonusValue('B006'))) + Math.round((selectedAnniversaryVenue?.cost ?? 0) * (1 + runBonusValue('B008')));
+  const anniversaryCost = getConcertCostBreakdown(game, selectedAnniversaryBudget, selectedAnniversaryVenue);
+  const anniversaryUpfrontCost = anniversaryCost.upfrontCost;
   const eligibleCountFor = (activityId, targetWeek) => (targetWeek ? game.members.filter((member) => canMemberPerform(member, activityId) && memberAvailableOnCampaignDate(game, member, game.year, targetWeek)).length : 0);
   const mgEligibleCount = eligibleCountFor('yearEndMeetGreet', selectedMgWeek);
   const anniversaryEligibleCount = eligibleCountFor('concert', selectedAnniversaryWeek);
@@ -1071,6 +1073,7 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
         type: 'concert',
         days: [anniversaryDay, 'Tue', 'Thu'],
         monthScope: true,
+        allowQ4: true,
       })
     : [];
   const anniversaryConflicts = anniversaryBookingLockReason ? [anniversaryBookingLockReason] : anniversaryScheduleConflicts;
@@ -1424,6 +1427,15 @@ function CampaignRewardStatus({ game, language = 'en' }) {
   return <section className="major-campaign-panel campaign-reward-status"><div className="major-campaign-head"><div><span className="eyebrow">{text('Reward pipeline', 'Alur hadiah')}</span><h2>{text('Voting → Concert → MV Release', 'Voting → Konser → Rilis MV')}</h2><p>{text('Campaign reward production follows the configured budget and keeps concert/MV work above VC and template assignments.', 'Produksi hadiah kampanye memakai anggaran yang dipilih dan menempatkan konser/MV di atas VC serta template.')}</p></div></div><div className="major-campaign-metrics"><div><span>{text('Concert budget', 'Anggaran konser')}</span><strong>{concertBudget?.name ?? campaign.concertBudgetId}</strong></div><div><span>{text('MV budget', 'Anggaran MV')}</span><strong>{mvBudget?.name ?? campaign.mvBudgetId}</strong></div><div><span>{text('Concert status', 'Status konser')}</span><strong>{rewardConcert?.status ?? campaign.rewardConcertStatus ?? text('Waiting', 'Menunggu')}</strong></div><div><span>{text('Performers', 'Penampil')}</span><strong>{campaign.rewardConcertMemberIds?.length ?? 0}</strong></div></div></section>;
 }
 
+function ConcertCostNotice({ game, budget, venue, language = 'en' }) {
+  if (!budget || !venue) return null;
+  const quote = getConcertCostBreakdown(game, budget, venue);
+  const text = language === 'id'
+    ? `Maksimal satu konser reguler per kuartal; Q4 dicadangkan untuk Konser Hari Jadi. Venue ${CONCERT_COST_RULES.venueMultiplier}× harga dasar; produksi ${Math.round(quote.productionRatio * 100)}% dari biaya venue. Tahun ${quote.costYear} menambah ${Math.round(quote.yearRate * 100)}%. Total pilihan ini ${money(quote.upfrontCost)}.`
+    : `One regular concert per quarter; Q4 is reserved for the Anniversary Concert. Venue is ${CONCERT_COST_RULES.venueMultiplier}× the base price; production is ${Math.round(quote.productionRatio * 100)}% of venue cost. Year ${quote.costYear} adds ${Math.round(quote.yearRate * 100)}%. This selection totals ${money(quote.upfrontCost)}.`;
+  return <p className="campaign-block-reason concert-cost-notice" role="note">{text}</p>;
+}
+
 function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate, language = 'en', onTutorialAction }) {
   const t = (value) => translate(language, value);
   const [confirmSingle, setConfirmSingle] = useState(false);
@@ -1433,7 +1445,7 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
   const [mvLineupIds, setMvLineupIds] = useState([]);
   const [concertDay, setConcertDay] = useState(DAYS[5]);
   const releaseOptions = useMemo(() => campaignMonthOptions(game, 5), [game.week, game.year]);
-  const concertOptions = useMemo(() => campaignMonthOptions(game, 2), [game.week, game.year]);
+  const concertOptions = useMemo(() => campaignMonthOptions(game, 2).filter((option) => concertQuarterForWeek(option.targetWeek) !== 4), [game.week, game.year]);
   const [releaseTarget, setReleaseTarget] = useState('');
   const [concertTarget, setConcertTarget] = useState('');
   const [singleTitle, setSingleTitle] = useState('');
@@ -1516,9 +1528,10 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
   const runBonusValue = (id) => game.bonusLoadout?.includes(id) ? getBonusValueAtLevel(BONUS_BY_ID[id], game.bonusLevels?.[id] ?? 1) : 0;
   const singleProductionRate = 1 + runBonusValue('B005');
   const singleProductionCost = Math.round(selectedSingleBudget.cost * singleProductionRate);
-  const concertProductionCost = Math.round(selectedConcertBudget.cost * (1 + runBonusValue('B006')));
-  const concertVenueCost = Math.round(selectedConcertVenue.cost * (1 + runBonusValue('B008')));
-  const concertUpfrontCost = concertProductionCost + concertVenueCost;
+  const concertCost = getConcertCostBreakdown(game, selectedConcertBudget, selectedConcertVenue);
+  const concertProductionCost = concertCost.productionCost;
+  const concertVenueCost = concertCost.venueCost;
+  const concertUpfrontCost = concertCost.upfrontCost;
   const auditionCost = Math.round(65_000_000 * (1 + runBonusValue('B021')));
   const auditionPoolCount = game.unsignedMembers?.length ?? 0;
   const auditionCampaign = game.auditionCampaign;
@@ -1529,7 +1542,8 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
   const productionDayOccupied = productionStartsNow && mvMembers.some((member) => game.schedule[`${member.id}:${productionDay}`]);
   const singleConflictReasons = selectedRelease ? [...new Set(Array.from({ length: 4 }, (_, index) => selectedRelease.absolute - 5 + index).flatMap((targetAbsolute) => getCampaignConflictReasons(game, { year: Math.floor((targetAbsolute - 1) / BALANCE.weeksPerYear) + 1, week: ((targetAbsolute - 1) % BALANCE.weeksPerYear) + 1, type: 'mv', day: productionDay, memberIds: mvMembers.map((member) => member.id) })))] : [];
   const concertCampaignConflict = Boolean(activeSingle && selectedConcert && activeSingle.productionDay === concertDay && selectedConcert.absolute >= absoluteWeek(activeSingle.productionStartYear, activeSingle.productionStartWeek) && selectedConcert.absolute < absoluteWeek(activeSingle.productionStartYear, activeSingle.productionStartWeek) + activeSingle.durationWeeks);
-  const concertThisMonth = selectedConcert ? game.concerts.some((item) => item.targetYear === selectedConcert.year && item.targetMonth === selectedConcert.month) : false;
+  const concertThisQuarter = selectedConcert ? game.concerts.some((item) => item.targetYear === selectedConcert.year && concertQuarterForWeek(item.targetWeek ?? ((item.targetMonth ?? 1) * BALANCE.weeksPerMonth)) === concertQuarterForWeek(selectedConcert.targetWeek)) : false;
+  const concertThisMonth = concertThisQuarter;
   const concertEligibleCount = selectedConcert ? game.members.filter((member) => canMemberPerform(member, 'concert') && memberAvailableOnCampaignDate(game, member, selectedConcert.year, selectedConcert.targetWeek)).length : 0;
   const concertConflictReasons = selectedConcert ? getCampaignConflictReasons(game, { year: selectedConcert.year, week: selectedConcert.targetWeek, type: 'concert', day: concertDay }) : [];
   const singleBlockReason = activeSingle
@@ -1544,7 +1558,8 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
     ? 'No eligible concert window is available.'
     : game.money < concertUpfrontCost ? `Requires ${money(concertUpfrontCost)}; current funds: ${money(game.money)}.`
     : concertEligibleCount < BALANCE.theaterMinimumMembers ? `Concert requires ${BALANCE.theaterMinimumMembers} available members; ${concertEligibleCount} available.`
-    : concertThisMonth ? 'A concert is already booked for this month.'
+    : concertThisQuarter ? 'A concert is already booked in this quarter.'
+    : selectedConcert && concertQuarterForWeek(selectedConcert.targetWeek) === 4 ? 'Q4 is reserved for the Anniversary Concert.'
     : concertConflictReasons[0] ? concertConflictReasons[0]
     : concertCampaignConflict ? 'The concert date conflicts with active MV production.' : '';
   const auditionBlockReason = game.week < BALANCE.auditionStartWeek
@@ -1589,6 +1604,7 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
     <CampaignLaunchEditor game={game} setGame={setGame} language={language} />
     <JankenLuckNotice game={game} language={language} />
     <CampaignRewardStatus game={game} language={language} />
+    <ConcertCostNotice game={game} budget={selectedConcertBudget} venue={selectedConcertVenue} language={language} />
     <CampaignBracketPreview game={game} language={language} />
     <FanEventCampaigns game={game} setGame={setGame} language={language} onTutorialAction={onTutorialAction} />
     <AnnualEvents game={game} setGame={setGame} language={language} />

@@ -75,6 +75,23 @@ test('MV Auto Fill uses shared 50/50 ranking and mobile review remains scrollabl
   assert.match(css, /\.production-confirm \.confirm-week-actions\{position:sticky/);
 });
 
+test('dark theme keeps shared surfaces tied to active theme tokens', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /--surface:var\(--paper\)/);
+  assert.match(css, /--panel:var\(--paper\)/);
+  assert.match(css, /--text:var\(--ink\)/);
+  assert.match(css, /--accent:var\(--red\)/);
+  assert.match(css, /--danger:var\(--critical\)/);
+  assert.match(css, /\.major-campaign-config select\{[^}]*background:var\(--paper\);color:var\(--ink\)/);
+});
+
+test('schedule history year control is grouped as a responsive themed field', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.schedule-history-view-switcher>label\{display:flex;align-items:center/);
+  assert.match(css, /\.schedule-history-view-switcher>label select\{height:32px/);
+  assert.match(css, /@media\(max-width:560px\)\{\.schedule-history-view-switcher>label\{margin-left:0;width:100%/);
+});
+
 test('Training exposes search, roster filters, availability, stat sorting, and persistent batch selection', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /const \[trainingQuery, setTrainingQuery\] = useState\(''\)/);
