@@ -2164,8 +2164,8 @@ export default function App() {
     setActiveView(view);
   };
   const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} user={user} onOpenAccount={openAccount} onLogout={handleLogout} accountBusy={accountBusy} />;
-  const patchnoteLayer = <PatchnoteNotice language={language} />;
-  const accountLayer = <><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
+  const patchnoteCanShow = !adminRoute && ((!game && !setupDraft) || (Boolean(game) && game.runStatus !== 'ended' && activeView === 'dashboard'));
+  const accountLayer = <><PatchnoteNotice language={language} canShow={patchnoteCanShow} /><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
   if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>{translate(language, 'Checking account…')}</strong><span>{translate(language, 'Loading browser save status.')}</span></main><SyncOverlay /></>;
   if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
   if (adminRoute && String(user?.user_id) === '1') {
@@ -2177,11 +2177,11 @@ export default function App() {
     return <>{adminRoute === 'patchnotes' ? <PatchnotesAdminDashboard language={language} onBack={leaveAdminRoute} /> : <VoucherAdminDashboard onBack={leaveAdminRoute} />}{accountLayer}</>;
   }
   if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}</>;
-  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{patchnoteLayer}{accountLayer}</>;
+  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{accountLayer}</>;
   if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}</>;
 
   return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => setGame(null)} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language}>
-    {activeView === 'dashboard' ? <><Dashboard game={game} setGame={setGame} setView={setActiveView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} />{patchnoteLayer}</> : null}
+    {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={setActiveView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'schedule' ? <Schedule game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'training' ? <Training game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'roster' ? <Roster game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}

@@ -26,6 +26,7 @@ const COPY = {
   },
 };
 
+const PATCHNOTE_CHECK_INTERVAL_MS = 3 * 60 * 60 * 1000;
 let latestPatchnoteRequest = null;
 
 function loadLatestPatchnote() {
@@ -36,9 +37,8 @@ function loadLatestPatchnote() {
         if (!response.ok) throw new Error(data.error || 'Patchnote request failed.');
         return data.patchnote ?? null;
       })
-      .catch((error) => {
+      .finally(() => {
         latestPatchnoteRequest = null;
-        throw error;
       });
   }
   return latestPatchnoteRequest;
@@ -55,7 +55,7 @@ function formatPublishedAt(value, language) {
   return `${formatted} · UTC+7`;
 }
 
-export default function PatchnoteNotice({ language = 'en' }) {
+export default function PatchnoteNotice({ language = 'en', canShow = true }) {
   const [patchnote, setPatchnote] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const dialogRef = useRef(null);
@@ -65,18 +65,23 @@ export default function PatchnoteNotice({ language = 'en' }) {
 
   useEffect(() => {
     let cancelled = false;
-    loadLatestPatchnote().then((latest) => {
+    const checkForPatchnote = () => loadLatestPatchnote().then((latest) => {
       if (cancelled || !shouldShowPatchnote(latest, readSeenPatchnote())) return;
       setPatchnote(latest);
-      rememberPatchnote(latest);
     }).catch(() => {
-      // Update notices never block startup when the public endpoint is offline.
+      // Update notices never block gameplay when the public endpoint is offline.
     });
-    return () => { cancelled = true; };
+    checkForPatchnote();
+    const intervalId = window.setInterval(checkForPatchnote, PATCHNOTE_CHECK_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
-    if (!patchnote) return undefined;
+    if (!patchnote || !canShow) return undefined;
+    rememberPatchnote(patchnote);
     const previousFocus = document.activeElement;
     refreshRef.current?.focus();
     const handleKeyDown = (event) => {
@@ -97,9 +102,9 @@ export default function PatchnoteNotice({ language = 'en' }) {
       window.removeEventListener('keydown', handleKeyDown);
       if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
-  }, [patchnote]);
+  }, [patchnote, canShow]);
 
-  if (!patchnote || typeof document === 'undefined') return null;
+  if (!canShow || !patchnote || typeof document === 'undefined') return null;
   const title = language === 'id' && patchnote.titleId ? patchnote.titleId : patchnote.titleEn;
   const body = language === 'id' && patchnote.bodyId ? patchnote.bodyId : patchnote.bodyEn;
   const publishedAt = formatPublishedAt(patchnote.publishedAt, language);

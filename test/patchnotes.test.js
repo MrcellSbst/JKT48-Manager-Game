@@ -114,11 +114,19 @@ test('app exposes hidden patchnote admin route and mounts update notice only on 
   const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');
   assert.match(source, /const ADMIN_PATCHNOTES_PATH = '\/admin\/patchnotes'/);
   assert.match(source, /<PatchnotesAdminDashboard language=\{language\}/);
-  assert.match(source, /const patchnoteLayer = <PatchnoteNotice language=\{language\} \/>/);
-  assert.doesNotMatch(source, /const accountLayer = <>\{patchnoteLayer\}/);
+  assert.match(source, /const patchnoteCanShow = !adminRoute && \(\(!game && !setupDraft\) \|\| \(Boolean\(game\) && game\.runStatus !== 'ended' && activeView === 'dashboard'\)\)/);
+  assert.match(source, /const accountLayer = <><PatchnoteNotice language=\{language\} canShow=\{patchnoteCanShow\} \/><SyncOverlay/);
   const unauthenticatedBranch = source.match(/if \(!user && !guestMode\)[^\r\n]+/)?.[0] ?? '';
-  assert.doesNotMatch(unauthenticatedBranch, /patchnoteLayer/);
-  assert.match(source, /if \(!game\) return <>\{preGameMenu\}<StartScreen[\s\S]*?\{patchnoteLayer\}\{accountLayer\}<\/>/);
-  assert.match(source, /activeView === 'dashboard' \? <><Dashboard[\s\S]*?\{patchnoteLayer\}<\/> : null/);
+  assert.doesNotMatch(unauthenticatedBranch, /PatchnoteNotice|accountLayer/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS manager_patchnotes/);
+});
+
+test('patchnote notice checks immediately and every three hours while mounted', async () => {
+  const source = await readFile(new URL('../src/components/PatchnoteNotice.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const PATCHNOTE_CHECK_INTERVAL_MS = 3 \* 60 \* 60 \* 1000/);
+  assert.match(source, /checkForPatchnote\(\);/);
+  assert.match(source, /window\.setInterval\(checkForPatchnote, PATCHNOTE_CHECK_INTERVAL_MS\)/);
+  assert.match(source, /window\.clearInterval\(intervalId\)/);
+  assert.match(source, /\.finally\(\(\) => \{\s*latestPatchnoteRequest = null;/);
+  assert.match(source, /if \(!patchnote \|\| !canShow\) return undefined;/);
 });
