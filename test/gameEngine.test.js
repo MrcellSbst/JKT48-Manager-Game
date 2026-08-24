@@ -671,8 +671,8 @@ test('legacy training migration splits schedules, templates, and reports once', 
   const legacy = {
     ...game,
     trainingSchemaVersion: 0,
-    schedule: { [`${memberId}:Tue`]: 'dance', [`${memberId}:Mon`]: 'vocalLight', [`${memberId}:Wed`]: 'media' },
-    scheduleTemplates: [{ id: 'mixed', name: 'Mixed week', createdYear: 1, createdWeek: 1, entries: [{ memberId, day: 'Tue', activityId: 'dance' }, { memberId, day: 'Wed', activityId: 'media' }, { memberId, day: 'Mon', activityId: 'vocalLight' }] }],
+    schedule: { [`${memberId}:Tue`]: 'dance', [`${memberId}:Mon`]: 'vocalLight', [`${memberId}:Wed`]: 'media', [`${memberId}:Thu`]: 'rest' },
+    scheduleTemplates: [{ id: 'mixed', name: 'Mixed week', createdYear: 1, createdWeek: 1, entries: [{ memberId, day: 'Tue', activityId: 'dance' }, { memberId, day: 'Wed', activityId: 'media' }, { memberId, day: 'Mon', activityId: 'vocalLight' }, { memberId, day: 'Thu', activityId: 'rest' }] }],
     weeklyReports: [{ year: 1, week: 1, schedule: { [`${memberId}:Mon`]: 'vocal', [`${memberId}:Tue`]: 'media' } }],
     lastResult: { year: 1, week: 1, schedule: { [`${memberId}:Mon`]: 'vocal' } },
   };
@@ -957,6 +957,18 @@ test('schedule template assigns available members and skips unavailable members'
   assert.equal(next.schedule[`${available.id}:Mon`], 'media');
   assert.equal(next.schedule[`${unavailable.id}:Tue`], undefined);
   assert.match(next.notifications[0].text, /1 template assignment\(s\) skipped/);
+});
+
+test('legacy Schedule template Rest entries remain empty when applied', () => {
+  const game = createGame('legacy-rest-template-test');
+  const memberId = game.members[0].id;
+  const restOnly = { id: 'legacy-rest-only', name: 'Old rest template', entries: [{ memberId, day: 'Mon', activityId: 'rest' }] };
+  assert.equal(applyScheduleTemplate(game, restOnly), game);
+
+  const mixed = { id: 'legacy-rest-mixed', name: 'Old mixed template', entries: [...restOnly.entries, { memberId, day: 'Tue', activityId: 'media' }] };
+  const applied = applyScheduleTemplate(game, mixed);
+  assert.equal(applied.schedule[`${memberId}:Mon`], undefined);
+  assert.equal(applied.schedule[`${memberId}:Tue`], 'media');
 });
 
 test('campaign priority keeps template assignments from replacing campaign work', () => {

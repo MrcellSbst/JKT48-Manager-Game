@@ -946,7 +946,7 @@ export function migrateTrainingState(state) {
   const scheduleTemplates = [];
   (state.scheduleTemplates ?? []).forEach((template, templateIndex) => {
     const trainingEntries = (template.entries ?? []).filter((entry) => TRAINING_ACTIVITY_SET.has(entry.activityId));
-    const scheduleEntriesForTemplate = (template.entries ?? []).filter((entry) => !TRAINING_ACTIVITY_SET.has(entry.activityId));
+    const scheduleEntriesForTemplate = (template.entries ?? []).filter((entry) => entry.activityId !== 'rest' && !TRAINING_ACTIVITY_SET.has(entry.activityId));
     if (scheduleEntriesForTemplate.length) scheduleTemplates.push({ ...template, entries: scheduleEntriesForTemplate });
     if (!trainingEntries.length) return;
     const id = `training-${template.id ?? `legacy-${templateIndex}`}`;
@@ -964,7 +964,7 @@ export function migrateTrainingState(state) {
   return {
     ...state,
     trainingSchemaVersion: TRAINING_SCHEMA_VERSION,
-    schedule: Object.fromEntries(scheduleEntries.filter(([, activityId]) => !TRAINING_ACTIVITY_SET.has(activityId))),
+    schedule: Object.fromEntries(scheduleEntries.filter(([, activityId]) => activityId !== 'rest' && !TRAINING_ACTIVITY_SET.has(activityId))),
     trainingPlans,
     scheduleTemplates,
     trainingTemplates,
@@ -1914,12 +1914,13 @@ export function announceAnniversaryConcert(state, targetWeek, concertDay, reques
 }
 
 export function applyScheduleTemplate(state, template) {
-  if ((!template?.entries?.length && !Object.keys(template?.theaterPlans ?? {}).length) || state.runStatus === 'ended') return state;
+  const entries = (template?.entries ?? []).filter((entry) => entry.activityId !== 'rest');
+  if ((!entries.length && !Object.keys(template?.theaterPlans ?? {}).length) || state.runStatus === 'ended') return state;
   let next = state;
   let assignmentSkipped = 0;
   let theaterPlanSkipped = 0;
   let centerSubstitutions = 0;
-  for (const entry of template.entries) {
+  for (const entry of entries) {
     const member = next.members.find((item) => item.id === entry.memberId);
     const key = `${entry.memberId}:${entry.day}`;
     if (!member || TRAINING_ACTIVITY_SET.has(entry.activityId) || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || isCampaignActivity(next.schedule[key])) { assignmentSkipped += 1; continue; }
