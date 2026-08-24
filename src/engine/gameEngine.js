@@ -1,8 +1,9 @@
 import { memberData } from '../data/newmemberdata.js';
-import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, SINGLE_BUDGETS, TRAINING_ACTIVITY_IDS } from '../data/balance.js';
+import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITIES, OPPORTUNITY_SKILL_GAINS, SINGLE_BUDGETS, TRAINING_ACTIVITY_IDS } from '../data/balance.js';
 import { MEMBER_DRAMA_TEMPLATES } from '../data/dramaData.js';
 import dreamSetlistSongs from '../data/DreamSetlist_Songs.js';
 import { SETLISTS, SETLIST_BY_ID } from '../data/setlists.js';
+import { rankMembersForSelection } from './memberSort.js';
 import { BONUS_BY_ID, getBonusValueAtLevel, normalizeBonusLevel } from '../data/bonusTemplates.js';
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 import { appendManagementContext, getManagementDramaChanceMultiplier, getManagementDramaContext, personalizeDramaText, selectManagementDramaTemplate } from './dramaEngine.js';
@@ -738,16 +739,31 @@ function activeMentorshipFor(state, memberId) {
     && toAbsoluteWeek(state.year, state.week) < item.endAbsolute);
 }
 
-function trainingStatGain(member, stats, activity, energyBefore, state, mentorship) {
-  const ceiling = Math.max(0.15, (member.potential - stats[activity.skill]) / 45);
+function developmentStatGain(member, stats, skill, intensity, energyBefore, state, { training = false, mentorship = null } = {}) {
+  const ceiling = Math.max(0.15, (member.potential - stats[skill]) / 45);
   const traitBonus = member.traits.includes('Quick Learner') ? 1.2 : 1;
-  const trainingRate = bonusValue(state, 'B015') + (member.status === 'trainee' ? bonusValue(state, 'B016') : 0) + (mentorship?.developmentBonus ?? 0);
+  const trainingRate = training ? bonusValue(state, 'B015') + (member.status === 'trainee' ? bonusValue(state, 'B016') : 0) + (mentorship?.developmentBonus ?? 0) : 0;
   const energyEffectiveness = energyBefore >= 60 ? 1 : energyBefore >= 40 ? 0.9 : energyBefore >= 20 ? 0.7 : 0.4;
   const lowestSkill = SKILLS.reduce((lowest, skill) => stats[skill] < stats[lowest] ? skill : lowest, SKILLS[0]);
-  const crossTrainingRate = activity.skill === lowestSkill ? bonusValue(state, 'B018') : 0;
-  const adaptabilityRate = activity.skill === lowestSkill ? 0.9 + (member.adaptability ?? 50) / 500 : member.traits.includes('Versatile') ? 1.08 : 1;
-  const gain = ceiling * member.development / 100 * developmentCurveMultiplier(member, state.year) * adaptabilityRate * traitBonus * energyEffectiveness * (activity.intensity ?? 1) * (1 + trainingRate + crossTrainingRate);
-  return Math.max(0.1, gain);
+  const crossTrainingRate = training && skill === lowestSkill ? bonusValue(state, 'B018') : 0;
+  const adaptabilityRate = skill === lowestSkill ? 0.9 + (member.adaptability ?? 50) / 500 : member.traits.includes('Versatile') ? 1.08 : 1;
+  const gain = ceiling * member.development / 100 * developmentCurveMultiplier(member, state.year) * adaptabilityRate * traitBonus * energyEffectiveness * intensity * (1 + trainingRate + crossTrainingRate);
+  return Math.max(0.1, gain) * (training ? BALANCE.training.statGainMultiplier : 1);
+}
+
+function trainingStatGain(member, stats, activity, energyBefore, state, mentorship) {
+  return developmentStatGain(member, stats, activity.skill, activity.intensity ?? 1, energyBefore, state, { training: true, mentorship });
+}
+
+function mappedActivityStatChanges(member, stats, skills, energyBefore, state) {
+  const snapshot = { ...stats };
+  return skills.map((skill) => {
+    const statCap = voucherNaturalCap(member, skill);
+    const before = snapshot[skill] + voucherAdjustmentFor(member, skill);
+    const naturalAfter = clamp(snapshot[skill] + developmentStatGain(member, snapshot, skill, BALANCE.training.activityGainIntensity, energyBefore, state), statCap.min, statCap.max);
+    const after = naturalAfter + voucherAdjustmentFor(member, skill);
+    return { skill, naturalAfter, before: Math.round(before * 10) / 10, after: Math.round(after * 10) / 10, delta: Math.round((after - before) * 10) / 10 };
+  }).filter((change) => change.delta > 0);
 }
 
 function activityEnergyChange(state, member, activityId, activityDay = null) {
@@ -1859,18 +1875,40 @@ export function announceAnniversaryConcert(state, targetWeek, concertDay, reques
 }
 
 export function applyScheduleTemplate(state, template) {
-  if (!template?.entries?.length || state.runStatus === 'ended') return state;
+  if ((!template?.entries?.length && !Object.keys(template?.theaterPlans ?? {}).length) || state.runStatus === 'ended') return state;
   let next = state;
-  let skipped = 0;
+  let assignmentSkipped = 0;
+  let theaterPlanSkipped = 0;
+  let centerSubstitutions = 0;
   for (const entry of template.entries) {
     const member = next.members.find((item) => item.id === entry.memberId);
     const key = `${entry.memberId}:${entry.day}`;
-    if (!member || TRAINING_ACTIVITY_SET.has(entry.activityId) || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || isCampaignActivity(next.schedule[key])) { skipped += 1; continue; }
+    if (!member || TRAINING_ACTIVITY_SET.has(entry.activityId) || !canMemberPerform(member, entry.activityId) || BALANCE.activities[entry.activityId]?.schedulable === false || isCampaignActivity(next.schedule[key])) { assignmentSkipped += 1; continue; }
     const before = next;
     next = assignActivity(next, entry.memberId, entry.day, entry.activityId);
-    if (next === before && next.schedule[`${entry.memberId}:${entry.day}`] !== entry.activityId) skipped += 1;
+    if (next === before && next.schedule[`${entry.memberId}:${entry.day}`] !== entry.activityId) assignmentSkipped += 1;
   }
-  const notification = skipped ? { type: 'critical', text: `${skipped} template assignment(s) skipped because members or dates were unavailable.` } : { type: 'success', text: `${template.name} assigned successfully.` };
+  for (const [day, plan] of Object.entries(template.theaterPlans ?? {})) {
+    const lineup = next.members.filter((member) => next.schedule[`${member.id}:${day}`] === 'theater');
+    if (!DAYS.includes(day) || lineup.length !== 12 || !SETLIST_BY_ID[plan?.setlistId]) { theaterPlanSkipped += 1; continue; }
+    const savedCenter = lineup.find((member) => member.id === plan.centerId);
+    const center = savedCenter ?? rankMembersForSelection(lineup)[0];
+    if (!center) { theaterPlanSkipped += 1; continue; }
+    if (!savedCenter && plan.centerId) centerSubstitutions += 1;
+    next = {
+      ...next,
+      theaterShows: {
+        ...(next.theaterShows ?? {}),
+        [day]: { ...(next.theaterShows?.[day] ?? {}), setlistId: plan.setlistId, centerId: center.id },
+      },
+    };
+  }
+  const details = [
+    assignmentSkipped ? `${assignmentSkipped} template assignment(s) skipped because members or dates were unavailable.` : '',
+    theaterPlanSkipped ? `${theaterPlanSkipped} theater plan(s) skipped because its day, lineup, or setlist was unavailable.` : '',
+    centerSubstitutions ? `${centerSubstitutions} unavailable center(s) replaced.` : '',
+  ].filter(Boolean).join(' ');
+  const notification = details ? { type: 'critical', text: `${template.name}: ${details}` } : { type: 'success', text: `${template.name} assigned successfully.` };
   return { ...next, notifications: [notification, ...(next.notifications ?? [])].slice(0, 20) };
 }
 
@@ -2021,14 +2059,25 @@ export function respondToOpportunity(state, accept) {
   const fansGained = applyFanSoftCap(offer.fans, capMultiplier, resistance);
   opportunityHistory = opportunityHistory.map((item, index) => index === opportunityHistory.length - 1 ? { ...item, baseFans: offer.fans, fansGained, fanMultiplier: capMultiplier } : item);
   const participantSet = new Set(offer.memberIds);
+  const skillChanges = [];
   const members = state.members.map((member) => {
     if (!participantSet.has(member.id)) return member;
-    const naturalEnergy = clamp(voucherBaseFor(member, 'energy') - Math.round(offer.energy * (1.15 - member.stamina * 0.003)), -voucherAdjustmentFor(member, 'energy'), 100 - voucherAdjustmentFor(member, 'energy'));
-    const next = applyNaturalStatChange(member, 'popularity', offer.awareness >= 3 ? 1 : 0);
+    const energyBefore = voucherBaseFor(member, 'energy');
+    const naturalStats = Object.fromEntries(SKILLS.map((skill) => [skill, voucherBaseFor(member, skill)]));
+    const memberSkillChanges = mappedActivityStatChanges(member, naturalStats, OPPORTUNITY_SKILL_GAINS[offer.category] ?? [], energyBefore, state);
+    memberSkillChanges.forEach((change) => skillChanges.push({ memberId: member.id, memberName: member.nickname || member.name, ...change }));
+    const developed = {
+      ...member,
+      ...Object.fromEntries(memberSkillChanges.map((change) => [change.skill, change.after])),
+      voucherBaseStats: { ...(member.voucherBaseStats ?? {}), ...Object.fromEntries(memberSkillChanges.map((change) => [change.skill, Math.round(change.naturalAfter * 10) / 10])) },
+    };
+    const naturalEnergy = clamp(energyBefore - Math.round(offer.energy * (1.15 - member.stamina * 0.003)), -voucherAdjustmentFor(member, 'energy'), 100 - voucherAdjustmentFor(member, 'energy'));
+    const next = applyNaturalStatChange(developed, 'popularity', offer.awareness >= 3 ? 1 : 0);
     return { ...next, energy: naturalEnergy + voucherAdjustmentFor(member, 'energy'), voucherBaseStats: { ...(next.voucherBaseStats ?? {}), energy: naturalEnergy }, fanbase: member.fanbase + Math.round(fansGained / Math.max(1, offer.memberIds.length)), appearances: { ...member.appearances, media: (member.appearances?.media ?? 0) + (offer.category === 'media' ? 1 : 0), offAir: (member.appearances?.offAir ?? 0) + (offer.category === 'live' ? 1 : 0) } };
   });
+  opportunityHistory = opportunityHistory.map((item, index) => index === opportunityHistory.length - 1 ? { ...item, skillChanges } : item);
   const financialEvent = { id: `${offer.id}-accepted-${state.year}-${state.week}`, type: 'opportunity', category: offer.category, title: offer.title, year: state.year, week: state.week, income: revenue, expense: offer.cost, net: revenue - offer.cost };
-  return { ...state, pendingOpportunity: null, opportunityHistory, financialEvents: [...(state.financialEvents ?? []), financialEvent], money: state.money - offer.cost + revenue, members, group: { ...state.group, fanbase: state.group.fanbase + fansGained, popularity: clamp(state.group.popularity + 1), publicAwareness: clamp(state.group.publicAwareness + offer.awareness), reputation: clamp(state.group.reputation + offer.reputation) }, notifications: [{ type: 'success', text: `${offer.title} completed: ${moneyText(revenue)} revenue and ${fansGained.toLocaleString()} new fans.` }, ...(state.notifications ?? [])].slice(0, 20), history: [{ id: `${offer.id}-accepted`, type: 'opportunity', title: offer.title, detail: `${offer.memberIds.length} members participate. Net cash ${moneyText(revenue - offer.cost)}; ${fansGained.toLocaleString()} of ${offer.fans.toLocaleString()} potential fans gained.`, year: state.year, week: state.week }, ...(state.history ?? [])] };
+  return { ...state, pendingOpportunity: null, opportunityHistory, financialEvents: [...(state.financialEvents ?? []), financialEvent], money: state.money - offer.cost + revenue, members, group: { ...state.group, fanbase: state.group.fanbase + fansGained, popularity: clamp(state.group.popularity + 1), publicAwareness: clamp(state.group.publicAwareness + offer.awareness), reputation: clamp(state.group.reputation + offer.reputation) }, notifications: [{ type: 'success', text: `${offer.title} completed: ${moneyText(revenue)} revenue, ${fansGained.toLocaleString()} new fans, and ${skillChanges.length} skill gains.`, skillChanges }, ...(state.notifications ?? [])].slice(0, 20), history: [{ id: `${offer.id}-accepted`, type: 'opportunity', title: offer.title, detail: `${offer.memberIds.length} members participate. Net cash ${moneyText(revenue - offer.cost)}; ${fansGained.toLocaleString()} of ${offer.fans.toLocaleString()} potential fans gained; ${skillChanges.length} skill gains recorded.`, skillChanges, year: state.year, week: state.week }, ...(state.history ?? [])] };
 }
 
 export function prepareGraduation(state, graduationId, options = {}) {
@@ -2186,6 +2235,10 @@ function resolveMemberWeek(member, assignments, rng, theater, state) {
         const trainingAfter = stats[activity.skill] + voucherAdjustmentFor(member, activity.skill);
         trainingSessions.push({ memberId: member.id, memberName: member.nickname || member.name, activityId, skill: activity.skill, intensity: activity.type, order: assignment.trainingIndex, day: activityDay, status: 'completed', reason: null, cost: activityCost, energyUsed: fatigue, before: Math.round(trainingBefore * 10) / 10, after: Math.round(trainingAfter * 10) / 10, delta: Math.round((trainingAfter - trainingBefore) * 10) / 10 });
       }
+    }
+    if (!activity.skill) {
+      const activitySkillChanges = mappedActivityStatChanges(member, stats, ACTIVITY_SKILL_GAINS[activityId] ?? [], energyBefore, state);
+      activitySkillChanges.forEach((change) => { stats[change.skill] = change.naturalAfter; });
     }
     if (activityId === 'theater') {
       appearances.theater += 1;

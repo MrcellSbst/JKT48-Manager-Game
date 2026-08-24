@@ -85,6 +85,13 @@ test('unreleased regular MV blocks a major campaign start', () => {
   assert.equal(startCampaign(state, { members: roster, type: 'sousenkyo', durationWeeks: 8 }), state);
 });
 
+test('major campaign start reports a missing-member blocker', () => {
+  const roster = members(11);
+  const state = { seed: 'campaign-roster-block', year: 2, week: 1, members: roster, singles: [], group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, campaignHistory: [], runStatus: 'active' };
+  assert.equal(getMajorCampaignStartBlockReason(state), 'missing-members');
+  assert.equal(startCampaign(state, { members: roster, type: 'sousenkyo', durationWeeks: 8 }), state);
+});
+
 test('every major campaign persists its member entrants and roster snapshots', () => {
   const roster = members(16);
   const expectedIds = roster.map((member) => member.id).sort();

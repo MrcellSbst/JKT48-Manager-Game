@@ -20,6 +20,23 @@ export const getMemberOverall = (member = {}) => Math.round((
   + Number(member.mc ?? 0) + Number(member.variety ?? 0)
 ) / 5);
 
+export const getMemberSelectionScore = (member = {}) => (
+  getMemberOverall(member) + Number(member.popularity ?? 0)
+) / 2;
+
+// Shared deterministic ranking for MV Auto Fill and template-center fallback.
+export const rankMembersForSelection = (members = []) => [...members].sort((first, second) => {
+  const score = getMemberSelectionScore(second) - getMemberSelectionScore(first);
+  if (score !== 0) return score;
+  const overall = getMemberOverall(second) - getMemberOverall(first);
+  if (overall !== 0) return overall;
+  const popularity = Number(second?.popularity ?? 0) - Number(first?.popularity ?? 0);
+  if (popularity !== 0) return popularity;
+  const name = String(first?.name ?? first?.nickname ?? '').localeCompare(String(second?.name ?? second?.nickname ?? ''), undefined, { sensitivity: 'base', numeric: true });
+  if (name !== 0) return name;
+  return String(first?.id ?? '').localeCompare(String(second?.id ?? ''), undefined, { sensitivity: 'base', numeric: true });
+});
+
 const textValue = (value) => String(value ?? '').trim();
 const numericValue = (value, fallback = Number.POSITIVE_INFINITY) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const generationValue = (member) => {

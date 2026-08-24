@@ -60,6 +60,42 @@ test('MV lineup dropdowns stay editable and swap occupied positions', async () =
   assert.doesNotMatch(source, /className="mv-auto-lineup"/);
 });
 
+test('MV Auto Fill uses shared 50/50 ranking and mobile review remains scrollable', async () => {
+  const [app, css, sorter] = await Promise.all([
+    readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/engine/memberSort.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(sorter, /getMemberSelectionScore/);
+  assert.match(sorter, /getMemberOverall\(member\) \+ Number\(member\.popularity/);
+  assert.match(app, /const autoFillMv = \(\) =>/);
+  assert.match(app, /const lineup = rankedEligibleMembers\.slice\(0, 12\)/);
+  assert.match(app, /onClick=\{autoFillMv\}/);
+  assert.match(css, /\.production-confirm\{max-height:calc\(100dvh - 40px\);overflow-y:auto;overscroll-behavior:contain/);
+  assert.match(css, /\.production-confirm \.confirm-week-actions\{position:sticky/);
+});
+
+test('Training exposes search, roster filters, availability, stat sorting, and persistent batch selection', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const \[trainingQuery, setTrainingQuery\] = useState\(''\)/);
+  assert.match(source, /const \[trainingGeneration, setTrainingGeneration\] = useState\('all'\)/);
+  assert.match(source, /const \[trainingRosterStatus, setTrainingRosterStatus\] = useState\('all'\)/);
+  assert.match(source, /const \[trainingAvailability, setTrainingAvailability\] = useState\('all'\)/);
+  assert.match(source, /projectedEnergy: projectedEnergyByMember\[item\.id\]/);
+  assert.match(source, /plannedSessions: game\.trainingPlans\?\.\[item\.id\]\?\.length/);
+  assert.match(source, /visibleTrainingMembers\.map/);
+  assert.match(source, /batchMemberSet\.has\(item\.id\)/);
+  assert.match(source, /No members match/);
+});
+
+test('Schedule templates store theater setlists and centers without one-off show flags', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const theaterPlans = Object\.fromEntries/);
+  assert.match(source, /\{ setlistId, centerId \}/);
+  const createTemplateSource = source.slice(source.indexOf('const createTemplate = () =>'), source.indexOf('const applySelectedTemplate = () =>'));
+  assert.doesNotMatch(createTemplateSource, /isSeitansai|isLastShow|seitansaiMemberId|lastShowMemberId/);
+});
+
 test('Wiki documents every run-ending threshold and counter reset', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /text\('Run-ending conditions', 'Kondisi akhir permainan'\)/);
@@ -88,6 +124,11 @@ test('Campaign UI explains annual campaign and mutual MV locks', async () => {
   assert.match(source, /Finish the current major campaign before producing a regular MV/);
   assert.match(source, /singleProjectBlocked/);
   assert.match(source, /Only one Sousenkyo, Request Hour, or Janken can run in a calendar year/);
+  assert.match(source, /const singleBlockReason =/);
+  assert.match(source, /const concertBlockReason =/);
+  assert.match(source, /const auditionBlockReason =/);
+  assert.match(source, /const blockerReason = conflicts\[0\]/);
+  assert.match(source, /className="campaign-block-reason" role="status"/);
 });
 
 test('year-end event Review checks the full target month', async () => {

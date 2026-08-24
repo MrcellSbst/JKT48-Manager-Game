@@ -109,12 +109,16 @@ test('hard refresh unregisters workers, clears Cache Storage, and reloads', asyn
   assert.deepEqual(calls, ['unregister-1', 'unregister-2', 'cache-app', 'cache-images', 'reload-true']);
 });
 
-test('app exposes hidden patchnote admin route and mounts update notice before login', async () => {
+test('app exposes hidden patchnote admin route and mounts update notice only on start and Command pages', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const schema = await readFile(new URL('../schema.sql', import.meta.url), 'utf8');
   assert.match(source, /const ADMIN_PATCHNOTES_PATH = '\/admin\/patchnotes'/);
   assert.match(source, /<PatchnotesAdminDashboard language=\{language\}/);
   assert.match(source, /const patchnoteLayer = <PatchnoteNotice language=\{language\} \/>/);
-  assert.match(source, /if \(!user && !guestMode\) return <><AuthScreen[\s\S]*?\{patchnoteLayer\}<SyncOverlay/);
+  assert.doesNotMatch(source, /const accountLayer = <>\{patchnoteLayer\}/);
+  const unauthenticatedBranch = source.match(/if \(!user && !guestMode\)[^\r\n]+/)?.[0] ?? '';
+  assert.doesNotMatch(unauthenticatedBranch, /patchnoteLayer/);
+  assert.match(source, /if \(!game\) return <>\{preGameMenu\}<StartScreen[\s\S]*?\{patchnoteLayer\}\{accountLayer\}<\/>/);
+  assert.match(source, /activeView === 'dashboard' \? <><Dashboard[\s\S]*?\{patchnoteLayer\}<\/> : null/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS manager_patchnotes/);
 });

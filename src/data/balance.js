@@ -2,6 +2,35 @@ const trainingActivity = (label, skill, energy, cost, intensity, type) => ({ lab
 
 export const TRAINING_SKILLS = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina'];
 
+// Real work develops the skills it exercises. Each listed skill receives one
+// pre-rebalance Light-training-equivalent gain when the activity completes.
+export const ACTIVITY_SKILL_GAINS = Object.freeze({
+  theater: ['vocal', 'dance', 'performance', 'mc'],
+  offAir: ['vocal', 'dance', 'performance', 'mc'],
+  liveStream: ['mc', 'variety'],
+  media: ['mc', 'variety'],
+  photoshoot: ['performance', 'variety'],
+  vc1: ['mc', 'variety'],
+  vc2: ['mc', 'variety'],
+  vc3: ['mc', 'variety'],
+  mg1: ['mc', 'variety'],
+  mg2: ['mc', 'variety'],
+  mg3: ['mc', 'variety'],
+  yearEndMeetGreet: ['mc', 'variety'],
+  mvSupport: ['vocal', 'dance', 'performance'],
+  mvSenbatsu: ['vocal', 'dance', 'performance'],
+  mvCenter: ['vocal', 'dance', 'performance'],
+  mvProduction: ['vocal', 'dance', 'performance'],
+  concertRehearsal: ['vocal', 'dance', 'performance'],
+  concert: ['vocal', 'dance', 'performance', 'mc'],
+});
+
+export const OPPORTUNITY_SKILL_GAINS = Object.freeze({
+  media: ['mc', 'variety'],
+  live: ['vocal', 'dance', 'performance', 'mc'],
+  sponsor: ['performance', 'variety'],
+});
+
 const TRAINING_ACTIVITIES = Object.fromEntries(TRAINING_SKILLS.flatMap((skill) => {
   const label = skill === 'mc' ? 'MC' : `${skill[0].toUpperCase()}${skill.slice(1)}`;
   return [
@@ -61,7 +90,7 @@ export const BALANCE = {
     minimumTheaterAppearances: 4,
     trainingProgressPerIntensity: 5,
   },
-  training: { maxSessionsPerMember: 7 },
+  training: { maxSessionsPerMember: 7, statGainMultiplier: 3.5, activityGainIntensity: 0.6 },
   mentorship: {
     durationWeeks: 8,
     developmentBonus: 0.2,

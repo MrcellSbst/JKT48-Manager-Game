@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getMemberOverall, sortMembers, SQUAD_SORT_OPTIONS } from '../src/engine/memberSort.js';
+import { getMemberOverall, getMemberSelectionScore, rankMembersForSelection, sortMembers, SQUAD_SORT_OPTIONS } from '../src/engine/memberSort.js';
 
 const members = [
   { id: '10', name: 'Zeta', status: 'active', generation: 'Gen 10', team: 'Team B', birthMonth: 2, birthYear: 1998, vocal: 80, dance: 80, performance: 80, mc: 80, variety: 80, stamina: 60, ego: 20 },
@@ -30,5 +30,16 @@ test('Schedule status sorting groups regular members and trainees in both direct
   assert.ok(SQUAD_SORT_OPTIONS.includes('status'));
   assert.deepEqual(sortMembers(members, { sortKey: 'status', direction: 'asc' }).map((member) => member.name), ['Beta', 'Zeta', 'Alpha']);
   assert.deepEqual(sortMembers(members, { sortKey: 'status', direction: 'desc' }).map((member) => member.name), ['Alpha', 'Beta', 'Zeta']);
+});
+
+test('MV and template center ranking blends Overall and Popularity with deterministic ties', () => {
+  const candidates = [
+    { id: 'b', name: 'Beta', popularity: 70, vocal: 70, dance: 70, performance: 70, mc: 70, variety: 70 },
+    { id: 'a', name: 'Alpha', popularity: 80, vocal: 60, dance: 60, performance: 60, mc: 60, variety: 60 },
+    { id: 'c', name: 'Gamma', popularity: 60, vocal: 80, dance: 80, performance: 80, mc: 80, variety: 80 },
+    { id: 'd', name: 'Delta', popularity: 70, vocal: 70, dance: 70, performance: 70, mc: 70, variety: 70 },
+  ];
+  assert.equal(getMemberSelectionScore(candidates[0]), 70);
+  assert.deepEqual(rankMembersForSelection(candidates).map((member) => member.id), ['c', 'b', 'd', 'a']);
 });
 

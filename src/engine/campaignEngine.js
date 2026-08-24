@@ -40,6 +40,7 @@ export function getMajorCampaignStartBlockReason(state = {}) {
   if (isMajorCampaignActive(state)) return 'campaign-in-progress';
   if (hasMajorCampaignRunInYear(state)) return 'campaign-held-this-year';
   if ((state.singles ?? []).some((single) => single.status !== 'released')) return 'mv-in-progress';
+  if (activeMembers(state.members ?? []).length < 12) return 'missing-members';
   return null;
 }
 

@@ -4,7 +4,7 @@ import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applySche
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
-import { BALANCE, CONCERT_VENUES, DAYS, FAN_BALANCE, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
+import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITY_SKILL_GAINS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
@@ -798,6 +798,7 @@ test('incomplete theater lineup is canceled without fatigue or appearance', () =
   const updated = next.members.find((item) => item.id === member.id);
   assert.equal(updated.appearances.theater, 0);
   assert.equal(updated.energy, 100);
+  for (const skill of ['vocal', 'dance', 'performance', 'mc']) assert.equal(updated[skill], member[skill]);
   assert.match(next.notifications[0].text, /1\/12 members/);
 });
 
@@ -898,6 +899,47 @@ test('training intensity and starting energy affect development', () => {
   assert.equal(BALANCE.activities.variety.skill, 'variety');
 });
 
+test('regular training multiplies the former uncapped gain by exactly 3.5', () => {
+  const draft = createGame('training-multiplier-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, vocal: 40, dance: 40, performance: 40, mc: 40, variety: 40, potential: 85, development: 100, developmentCurve: 'balanced', adaptability: 50, traits: [], energy: 100, voucherBaseStats: undefined } : member) };
+  const next = resolveWeek(queueTrainingSession(game, memberId, 'vocal'));
+  const trained = next.members.find((member) => member.id === memberId);
+  assert.equal(BALANCE.training.statGainMultiplier, 3.5);
+  assert.ok(Math.abs(trained.vocal - 43.5) < 0.000001, `expected 43.5, received ${trained.vocal}`);
+});
+
+test('completed activities add only their mapped Light-baseline skill gains', () => {
+  const draft = createGame('activity-development-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, vocal: 40, dance: 40, performance: 40, mc: 40, variety: 40, potential: 85, development: 100, developmentCurve: 'balanced', adaptability: 50, traits: [], energy: 100, voucherBaseStats: undefined } : member) };
+  const next = resolveWeek(assignActivity(game, memberId, 'Mon', 'media'));
+  const developed = next.members.find((member) => member.id === memberId);
+  assert.equal(developed.vocal, 40);
+  assert.equal(developed.dance, 40);
+  assert.ok(Math.abs(developed.mc - 40.6) < 0.000001);
+  assert.ok(Math.abs(developed.variety - 40.6) < 0.000001);
+  assert.deepEqual(next.lastResult.skillChanges.filter((change) => change.memberId === memberId).map((change) => change.skill).sort(), ['mc', 'variety']);
+});
+
+test('activity and opportunity development mappings cover each requested work type', () => {
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.theater, ['vocal', 'dance', 'performance', 'mc']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.offAir, ['vocal', 'dance', 'performance', 'mc']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.liveStream, ['mc', 'variety']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.media, ['mc', 'variety']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.photoshoot, ['performance', 'variety']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.vc1, ['mc', 'variety']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.mg1, ['mc', 'variety']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.mvProduction, ['vocal', 'dance', 'performance']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.concertRehearsal, ['vocal', 'dance', 'performance']);
+  assert.deepEqual(ACTIVITY_SKILL_GAINS.concert, ['vocal', 'dance', 'performance', 'mc']);
+  assert.deepEqual(OPPORTUNITY_SKILL_GAINS.media, ['mc', 'variety']);
+  assert.deepEqual(OPPORTUNITY_SKILL_GAINS.live, ['vocal', 'dance', 'performance', 'mc']);
+  assert.deepEqual(OPPORTUNITY_SKILL_GAINS.sponsor, ['performance', 'variety']);
+});
+
 test('schedule template assigns available members and skips unavailable members', () => {
   const game = createGame('schedule-template-test');
   const [available, unavailable] = game.members;
@@ -918,6 +960,21 @@ test('campaign priority keeps template assignments from replacing campaign work'
     const next = applyScheduleTemplate(staged, template);
     assert.equal(next.schedule[`${memberId}:Mon`], campaignActivity, `${campaignActivity} must outrank template work`);
   }
+});
+
+test('schedule templates apply theater setlists and substitute unavailable saved centers', () => {
+  const game = createGame('schedule-template-theater-plan-test');
+  const lineup = game.members.slice(0, 12);
+  const unavailableCenter = game.members[12];
+  const template = {
+    name: 'Theater plan',
+    entries: lineup.map((member) => ({ memberId: member.id, day: 'Sat', activityId: 'theater' })),
+    theaterPlans: { Sat: { setlistId: SETLISTS[1].id, centerId: unavailableCenter.id } },
+  };
+  const next = applyScheduleTemplate(game, template);
+  assert.equal(next.theaterShows.Sat.setlistId, SETLISTS[1].id);
+  assert.ok(lineup.some((member) => member.id === next.theaterShows.Sat.centerId));
+  assert.match(next.notifications[0].text, /1 unavailable center\(s\) replaced/);
 });
 
 test('campaign schedule resolution uses first campaign claim, with templates below campaign work', () => {
@@ -1933,6 +1990,8 @@ test('management opportunities can be accepted or declined with persistent outco
   assert.deepEqual(accepted.financialEvents.at(-1), { id: 'test-offer-accepted-1-1', type: 'opportunity', category: 'media', title: 'Test Broadcast', year: 1, week: 1, income: 7_000_000, expense: 2_000_000, net: 5_000_000 });
   assert.equal(accepted.money, game.money + 5_000_000);
   assert.equal(accepted.group.fanbase, game.group.fanbase + 270);
+  assert.equal(accepted.opportunityHistory.at(-1).skillChanges.length, 6);
+  assert.deepEqual([...new Set(accepted.opportunityHistory.at(-1).skillChanges.map((change) => change.skill))].sort(), ['mc', 'variety']);
   const declined = respondToOpportunity({ ...game, pendingOpportunity: offer }, false);
   assert.equal(declined.opportunityHistory.at(-1).accepted, false);
   assert.equal(declined.money, game.money);
