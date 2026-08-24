@@ -875,6 +875,20 @@ const validTrainingSessions = (sessions) => (Array.isArray(sessions) ? sessions 
 
 const trainingPlanFor = (state, memberId) => validTrainingSessions(state.trainingPlans?.[memberId]);
 
+function carryoverTrainingPlans(trainingSessionRecords, members) {
+  const activeIds = new Set((members ?? []).filter((member) => member && !['graduated', 'released'].includes(member.status)).map((member) => member.id));
+  const skippedByMember = new Map();
+  trainingSessionRecords.filter((session) => session.status === 'skipped' && activeIds.has(session.memberId)).forEach((session) => {
+    const sessions = skippedByMember.get(session.memberId) ?? [];
+    sessions.push({ order: Number.isInteger(session.order) ? session.order : sessions.length, activityId: session.activityId });
+    skippedByMember.set(session.memberId, sessions);
+  });
+  return Object.fromEntries([...skippedByMember.entries()].map(([memberId, sessions]) => [
+    memberId,
+    sessions.sort((left, right) => left.order - right.order).map((session) => session.activityId).filter((activityId) => TRAINING_ACTIVITY_SET.has(activityId)).slice(0, BALANCE.training.maxSessionsPerMember),
+  ]).filter(([, sessions]) => sessions.length));
+}
+
 const splitScheduleKey = (key) => {
   const separator = key.lastIndexOf(':');
   return { memberId: key.slice(0, separator), day: key.slice(separator + 1) };
@@ -3288,6 +3302,7 @@ export function resolveWeek(state) {
     return previous ? SKILLS.filter((skill) => member[skill] !== previous[skill]).map((skill) => ({ memberId: member.id, memberName: member.nickname || member.name, skill, before: previous[skill], after: member[skill], delta: Math.round((member[skill] - previous[skill]) * 10) / 10 })) : [];
   });
   const completedTrainingSessions = trainingSessionRecords.filter((session) => session.status === 'completed');
+  const nextTrainingPlans = carryoverTrainingPlans(trainingSessionRecords, members);
   const trainingDayKeys = new Set(completedTrainingSessions.filter((session) => session.day).map((session) => `${session.memberId}:${session.day}`));
   const reportSchedule = Object.fromEntries(Object.entries(weekSchedule).filter(([key, activityId]) => activityId !== 'rest' || !trainingDayKeys.has(key)));
   const singleViewChanges = singles.filter((single) => (single.views ?? 0) > (state.singles.find((item) => item.id === single.id)?.views ?? 0)).map((single) => ({ singleId: single.id, title: single.title, gain: single.weeklyViewGain, total: single.views, viewWeek: single.viewWeeks }));
@@ -3355,7 +3370,7 @@ export function resolveWeek(state) {
     notifications.push({ type: 'success', text: `New opportunity: ${template.title}. Respond within two weeks.` });
   }
   let next = {
-    ...state, year, week, members, unsignedMembers, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, trainingPlans: {}, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
+    ...state, year, week, members, unsignedMembers, singles, concerts, yearEndMeetGreets, auditions, auditionCampaign, mentorships, mentorshipHistory, chemistry, promotions, annualReviews, fanTarget, fanTargetHistory, fanTargetMetaReward, demandHistory: [...(state.demandHistory ?? []), ...weeklyDemandRecords].slice(-1000), pendingOpportunity, opportunityHistory, group, money: nextMoney, schedule: nextSchedule, trainingPlans: nextTrainingPlans, theaterShows: {}, theaterHistory: [...(state.theaterHistory ?? []), ...resolvedTheaterShows].slice(-250), activityEvents: activityEvents.slice(-500), history: history.slice(0, 1000),
     notifications, activeDrama, activeManagementDrama, dramaMemory, dramaCooldown: memberDramaCooldown, memberDramaCooldown, managementDramaCooldown, campaign: campaignResult.campaign, nextCampaignConfig: campaignResult.nextCampaignConfig, campaignHistory: campaignResult.campaignHistory, fanNarratives, graduations, graduationTargets, departures, seitansaiObligations, records, failureCounters, weeklyReports, concertVenueOffers: nextConcertVenueOffers, ledger: resolvedLedger, loans: resolvedLoans, loanOffers: year !== state.year ? generateLoanOffers(state.seed, year) : state.loanOffers, fanEventPlans: (state.fanEventPlans ?? []).filter((plan) => !activatedPlans.includes(plan)), runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };

@@ -627,8 +627,26 @@ test('training uses explicit Rest, follows queue order, and skips overflow after
   assert.equal(next.lastResult.schedule[`${memberId}:Tue`], undefined);
   assert.equal(next.lastResult.finances.activityCosts, BALANCE.activities.media.cost + BALANCE.activities.danceIntensive.cost + BALANCE.activities.vocalLight.cost * 5);
   assert.equal(next.members.find((member) => member.id === memberId).energy, projected);
-  assert.deepEqual(next.trainingPlans, {});
+  assert.deepEqual(next.trainingPlans[memberId], ['vocalLight']);
+  const carriedResolved = resolveWeek(next);
+  assert.deepEqual(carriedResolved.trainingPlans, {});
   assert.ok(next.notifications.some((notification) => notification.code === 'training-skipped'));
+});
+
+test('injured or suspended members keep blocked training sessions for next week', () => {
+  for (const block of ['injury', 'suspension']) {
+    const draft = createGame(`training-carryover-${block}`);
+    const memberId = draft.members[0].id;
+    const member = block === 'injury'
+      ? { ...draft.members[0], injury: { severity: 'minor', weeksRemaining: 1, blocks: ['training'] } }
+      : { ...draft.members[0], status: 'suspended', suspensionWeeks: 1 };
+    const queued = queueTrainingSession(draft, memberId, 'vocal');
+    const game = { ...queued, members: queued.members.map((item) => item.id === memberId ? member : item) };
+    const next = resolveWeek(game);
+    assert.deepEqual(next.trainingPlans[memberId], ['vocal'], `${block} session should carry forward`);
+    const resolved = resolveWeek(next);
+    assert.equal(resolved.trainingPlans[memberId], undefined, `${block} session should resolve after block clears`);
+  }
 });
 
 test('training queue order deterministically controls which skill receives the stronger Energy band', () => {
