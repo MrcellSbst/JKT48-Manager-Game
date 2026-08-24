@@ -2491,3 +2491,46 @@ test('annual fan performance rewards contribute to final Management Token payout
   const baseReward = endRun(game).runSummary.metaReward;
   assert.equal(endRun({ ...game, fanTargetMetaReward: 7 }).runSummary.metaReward, baseReward + 7);
 });
+
+test('future Video Call eligibility uses injury state on target week', () => {
+  const draft = createGame('future-vc-injury-eligibility-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, injury: { weeksRemaining: 2, blocks: ['videoCall'] } } : member) };
+  const planned = scheduleFanCampaign(game, 'videoCall', 'Sat', [memberId], 2);
+  assert.equal(planned.fanEventPlans.length, 0);
+});
+
+test('future Video Call keeps members selectable when injury clears before target week', () => {
+  const draft = createGame('future-vc-recovery-eligibility-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, injury: { weeksRemaining: 1, blocks: ['videoCall'] } } : member) };
+  const planned = scheduleFanCampaign(game, 'videoCall', 'Sat', [memberId], 2);
+  assert.equal(planned.fanEventPlans.length, 1);
+  assert.equal(planned.fanEventPlans[0].memberIds.includes(memberId), true);
+});
+
+test('future Video Call revalidates member injury before target-week resolve', () => {
+  const draft = createGame('future-vc-injury-resolve-test');
+  let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = scheduleFanCampaign(game, 'videoCall', 'Sat', [memberId], 2);
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, injury: { weeksRemaining: 2, blocks: ['videoCall'] } } : member) };
+  game = resolveWeek(game);
+  game = resolveWeek(game);
+  assert.equal(game.activityEvents.some((event) => event.type === 'videoCall' && event.memberId === memberId), false);
+});
+
+test('year-end Meet & Greet revalidates injury before event resolve', () => {
+  const draft = createGame('year-end-mg-injury-resolve-test');
+  let game = finalizeGameSetup({ ...draft, week: 36 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const memberId = game.members[0].id;
+  game = scheduleYearEndMeetGreet(game, 38, 'Sat', 36);
+  game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, injury: { weeksRemaining: 3, blocks: ['meetGreet'] } } : member) };
+  game = resolveWeek(game);
+  game = resolveWeek(game);
+  game = resolveWeek(game);
+  assert.equal(game.lastResult.yearEndMeetGreetSummary.participatingMembers, 11);
+  assert.equal(game.lastResult.yearEndMeetGreetSummary.capacity, 11 * BALANCE.activities.mg1.capacity);
+});

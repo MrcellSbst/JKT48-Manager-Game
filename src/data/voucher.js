@@ -11,3 +11,17 @@ export const VOUCHER_STAT_LABELS = Object.freeze({
 });
 
 export const voucherStatLabel = (stat) => VOUCHER_STAT_LABELS[stat] ?? String(stat ?? '').replace(/[-_]/g, ' ');
+
+/** Single eligibility contract shared by voucher editors and validation callers. */
+export function getVoucherEditEligibility(redemption, memberId) {
+  const voucher = redemption?.voucher ?? {};
+  const usage = Array.isArray(redemption?.usage) ? redemption.usage : [];
+  const editsUsed = usage.filter((item) => String(item.memberId) === String(memberId)).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0);
+  const editLimit = Number(voucher.maxIncreasePerMember ?? 0);
+  const vouchersAvailable = Number(redemption?.pointsRemaining ?? 0);
+  const otherMemberUsed = new Set(usage.filter((item) => String(item.memberId) !== String(memberId)).map((item) => String(item.memberId))).size;
+  if (!redemption || redemption.status !== 'active' || vouchersAvailable <= 0) return { allowed: false, editsUsed, editLimit, vouchersAvailable, reason: 'no_voucher_available' };
+  if (!voucher.allowMultipleMembers && otherMemberUsed > 0) return { allowed: false, editsUsed, editLimit, vouchersAvailable, reason: 'member_limit_reached' };
+  if (editLimit > 0 && editsUsed >= editLimit) return { allowed: false, editsUsed, editLimit, vouchersAvailable, reason: 'edit_limit_reached' };
+  return { allowed: true, editsUsed, editLimit, vouchersAvailable, reason: null };
+}

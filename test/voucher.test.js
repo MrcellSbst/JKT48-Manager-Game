@@ -12,6 +12,14 @@ import {
 } from '../functions/api/_voucher.js';
 import { onRequestPost as redeemVoucher } from '../functions/api/voucher/redeem.js';
 import { onRequestPost as createVoucher } from '../functions/api/admin/vouchers/index.js';
+import { getVoucherEditEligibility } from '../src/data/voucher.js';
+
+test('voucher edit eligibility keeps limit-minus-one editable and locks exactly at limit', () => {
+  const base = { status: 'active', pointsRemaining: 4, usage: [{ memberId: 'm1', stat: 'vocal', pointsUsed: 2 }], voucher: { allowMultipleMembers: true, maxIncreasePerMember: 3, allowedStats: ['vocal'] } };
+  assert.equal(getVoucherEditEligibility(base, 'm1').allowed, true);
+  assert.equal(getVoucherEditEligibility({ ...base, usage: [{ memberId: 'm1', stat: 'vocal', pointsUsed: 3 }] }, 'm1').reason, 'edit_limit_reached');
+  assert.equal(getVoucherEditEligibility({ ...base, pointsRemaining: 0 }, 'm1').reason, 'no_voucher_available');
+});
 
 function sessionDb(userId) {
   return { prepare(sql) { return { bind() { return { first: async () => sql.includes('FROM sessions') ? { user_id: userId, username: 'manager', expires_at: new Date(Date.now() + 60_000).toISOString() } : null, run: async () => ({}) }; } }; } };

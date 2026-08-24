@@ -305,8 +305,27 @@ export function memberAvailableOnCampaignDate(state, memberOrId, targetYear, tar
   return !graduation || toAbsoluteWeek(targetYear, targetWeek) <= toAbsoluteWeek(graduation.departureYear, graduation.departureWeek);
 }
 
+// Campaign eligibility must use member condition projected onto event date,
+// rather than condition at booking time. Injury countdowns advance once per
+// resolved week, so an injury with N weeks remaining blocks a campaign N weeks
+// in the future only when N is greater than the weeks until that campaign.
+export function memberCanPerformOnCampaignDate(state, memberOrId, activityId, targetYear, targetWeek) {
+  const member = typeof memberOrId === 'string'
+    ? (state.members ?? []).find((item) => item.id === memberOrId)
+    : memberOrId;
+  if (!member || !memberAvailableOnCampaignDate(state, member, targetYear, targetWeek)) return false;
+  const weeksUntilTarget = toAbsoluteWeek(targetYear, targetWeek) - toAbsoluteWeek(state.year, state.week);
+  if (member.temporarilyUnavailable) return false;
+  if (!['active', 'trainee'].includes(member.status) && member.status !== 'suspended') return false;
+  if ((member.suspensionWeeks ?? 0) > weeksUntilTarget) return false;
+  const injuryWeeks = member.injury?.weeksRemaining ?? 0;
+  if (injuryWeeks <= weeksUntilTarget) return true;
+  const blocks = member.injury?.blocks ?? ['all'];
+  return !blocks.includes('all') && !blocks.includes(getActivityCategory(activityId));
+}
+
 function campaignEligibleMembers(state, activityId, targetYear, targetWeek) {
-  return getSchedulableMembers(state, activityId).filter((member) => memberAvailableOnCampaignDate(state, member, targetYear, targetWeek));
+  return (state.members ?? []).filter((member) => memberCanPerformOnCampaignDate(state, member, activityId, targetYear, targetWeek));
 }
 
 export function getSingleEligibleMembers(state, targetYear, targetWeek) {
@@ -813,18 +832,16 @@ export function getConfirmedScheduleForWeek(state, targetYear, targetWeek) {
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   if (targetAbsolute < currentAbsolute) return {};
   const schedule = targetAbsolute === currentAbsolute ? { ...(state.schedule ?? {}) } : {};
-  const weeksUntilTarget = targetAbsolute - currentAbsolute;
   const membersById = new Map((state.members ?? []).map((member) => [member.id, member]));
-  const canAttend = (memberId) => {
+  const canAttend = (memberId, activityId) => {
     const member = membersById.get(memberId);
     if (!member || member.status === 'graduated') return false;
-    if (!memberAvailableOnCampaignDate(state, memberId, targetYear, targetWeek)) return false;
-    if (['active', 'trainee'].includes(member.status)) return true;
-    return member.status === 'suspended' && (member.suspensionWeeks ?? Infinity) <= weeksUntilTarget;
+    return memberCanPerformOnCampaignDate(state, member, activityId, targetYear, targetWeek)
+      || (activityId === 'concertRehearsal' && memberCanPerformOnCampaignDate(state, member, 'concert', targetYear, targetWeek));
   };
   const reserve = (memberIds, day, activityId) => {
     if (!DAYS.includes(day)) return;
-    (memberIds ?? []).filter(canAttend).forEach((memberId) => {
+    (memberIds ?? []).filter((memberId) => canAttend(memberId, activityId)).forEach((memberId) => {
       claimScheduleSlot(schedule, `${memberId}:${day}`, activityId);
     });
   };
@@ -1436,6 +1453,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     fanTargetHistory: [],
     fanTargetMetaReward: 0,
     members,
+    singleProduction: { centerMemberId: null },
     schedule: {},
     history: [{ id: 'start', type: 'system', title: 'Alternate timeline begins', detail: `${members.length} members enter the founding pool for Year 1.`, year: 1, week: 1 }],
     notifications: [],
@@ -1865,7 +1883,7 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const productionQuality = clamp(Math.round(lineupQuality * 0.45 + budget.quality * 0.55 + qualityRoll));
   const participants = lineup.map((member) => mvParticipantSnapshot(member, centerId));
   const single = { id: `single-${state.year}-${state.singles.length + 1}`, title: customTitle || `Single ${state.singles.length + 1}`, centerId, memberIds, participants, productionDay, budgetId: budget.id, budgetName: budget.name, productionCost, productionQuality, qualityRoll, qualityFloorBonus, popularityGain: budget.popularityGain, fanTrustGain: budget.fanTrustGain, week: state.week, year: state.year, status: startsNow ? 'production' : 'planned', progressWeeks: 0, durationWeeks: 4, ...(scheduledRelease ? { releaseYear, releaseMonth, releaseWeek, productionStartYear: productionStart.year, productionStartWeek: productionStart.week } : {}) };
-  return { ...state, money: state.money - productionCost, financialEvents: addImmediateExpense(state, `${single.id}-production-cost`, `${single.title} production`, productionCost), schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
+  return { ...state, singleProduction: { ...(state.singleProduction ?? {}), centerMemberId: centerId }, money: state.money - productionCost, financialEvents: addImmediateExpense(state, `${single.id}-production-cost`, `${single.title} production`, productionCost), schedule, singles: [...state.singles, single], history: [{ id: `${single.id}-production`, type: 'single', title: scheduledRelease ? `${single.title} announced` : `${single.title} enters production`, detail: scheduledRelease ? `${center.nickname || center.name} leads a 12-member MV lineup with a ${budget.name.toLowerCase()}. Production starts Year ${productionStart.year}, Week ${productionStart.week}; release is Year ${single.releaseYear}, Week ${single.releaseWeek}.` : `${center.nickname || center.name} leads a 12-member MV lineup every ${productionDay} with a ${budget.name.toLowerCase()}. Production will take four weeks.`, year: state.year, week: state.week }, ...state.history] };
 }
 
 export function announceConcert(state, concertDay, targetYear, targetMonth, requestedTitle = '', budgetId = 'lean', venueId = 'hall', targetWeekOverride = null) {
@@ -2702,21 +2720,24 @@ export function resolveWeek(state) {
     return { ...concert, sold: concert.sold + weeklyTarget, revenue: (concert.revenue ?? 0) + salesRevenue, status: currentAbsolute === concert.saleCloseAbsolute ? 'salesClosed' : 'selling' };
   });
   let yearEndMeetGreets = (state.yearEndMeetGreets ?? []).map((event) => {
-    if (event.year !== state.year || currentAbsolute >= toAbsoluteWeek(event.year, event.targetWeek) || state.week < event.salesStartWeek) return event;
-    const salesRng = createRng(hashSeed(`${state.seed}:${event.id}:sales:${state.week}`));
+    const eventForWeek = event.year === state.year && event.targetWeek === state.week
+      ? { ...event, memberSessions: (event.memberSessions ?? []).filter((session) => memberCanPerformOnCampaignDate(state, session.memberId, 'yearEndMeetGreet', state.year, state.week)) }
+      : event;
+    if (eventForWeek.year !== state.year || currentAbsolute >= toAbsoluteWeek(eventForWeek.year, eventForWeek.targetWeek) || state.week < eventForWeek.salesStartWeek) return eventForWeek;
+    const salesRng = createRng(hashSeed(`${state.seed}:${eventForWeek.id}:sales:${state.week}`));
     let weeklyRevenue = 0;
-    const memberSessions = event.memberSessions.map((session) => {
+    const memberSessions = eventForWeek.memberSessions.map((session) => {
       const member = state.members.find((item) => item.id === session.memberId);
       if (!member || member.status === 'graduated') return session;
       const remaining = session.capacity - session.sold;
       const demand = Math.round(getFanEventDemand(member, 'mg1', salesRng) * (1 + bonusValue(state, 'B027')));
       const sold = Math.min(remaining, Math.max(0, demand));
-      weeklyRevenue += Math.round(sold * event.ticketPrice);
+      weeklyRevenue += Math.round(sold * eventForWeek.ticketPrice);
       return { ...session, sold: session.sold + sold };
     });
     moneyDelta += weeklyRevenue;
     finances.meetGreet += weeklyRevenue;
-    return { ...event, status: 'selling', memberSessions, revenue: event.revenue + weeklyRevenue };
+    return { ...eventForWeek, status: 'selling', memberSessions, revenue: eventForWeek.revenue + weeklyRevenue };
   });
   const activityEvents = [...(state.activityEvents ?? [])];
   if (scheduledEntries.some(([, activity]) => activity === 'concert')) activityEvents.push({ id: `concert-${state.year}-${state.week}`, type: 'concert', year: state.year, week: state.week, month });

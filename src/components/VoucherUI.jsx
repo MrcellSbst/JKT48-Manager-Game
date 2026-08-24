@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Check, Plus, Ticket, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useVouchers } from '../context/VoucherContext.jsx';
-import { VOUCHER_MEMBER_STATS, voucherStatLabel } from '../data/voucher.js';
+import { VOUCHER_MEMBER_STATS, getVoucherEditEligibility, voucherStatLabel } from '../data/voucher.js';
 import { getActiveLanguage } from '../localization.js';
 
 const formatDate = (value) => value ? new Intl.DateTimeFormat(getActiveLanguage() === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium', timeZone: 'Asia/Jakarta' }).format(new Date(value)) : null;
@@ -80,21 +80,19 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
     title: 'Edit statistik anggota', voucher: 'Voucher', points: 'poin', selected: 'Poin dipilih', remaining: 'Sisa setelah diedit',
     cancel: 'Batal', close: 'Tutup', apply: 'Terapkan perubahan', applying: 'Menerapkan…', empty: 'Tidak ada voucher aktif yang dapat mengedit anggota ini.',
     helpDecrease: 'Gunakan tombol − dan + untuk mengubah beberapa statistik sekaligus.', helpIncrease: 'Voucher ini hanya dapat menaikkan statistik.',
-    decrease: 'Kurangi', increase: 'Tambah',
+    decrease: 'Kurangi', increase: 'Tambah', noVoucher: 'Tidak ada voucher yang tersedia.', limitReached: 'Batas edit voucher sudah tercapai.',
   } : {
     title: 'Edit member stats', voucher: 'Voucher', points: 'points', selected: 'Points selected', remaining: 'Remaining after edit',
     cancel: 'Cancel', close: 'Close', apply: 'Apply changes', applying: 'Applying…', empty: 'No active voucher can edit this member.',
     helpDecrease: 'Use − and + to change multiple stats before applying.', helpIncrease: 'This voucher only allows stat increases.',
-    decrease: 'Decrease', increase: 'Increase',
+    decrease: 'Decrease', increase: 'Increase', noVoucher: 'No voucher available.', limitReached: 'Voucher edit limit reached.',
   };
-  const eligible = useMemo(() => redemptions.filter((item) => {
-    if (item.status !== 'active' || item.pointsRemaining <= 0 || !item.voucher?.allowedStats?.length) return false;
-    const usedMemberIds = new Set((item.usage ?? []).map((usage) => String(usage.memberId)));
-    return item.voucher.allowMultipleMembers || usedMemberIds.size === 0 || usedMemberIds.has(String(member.id));
-  }), [member.id, redemptions]);
-  const selectedRedemption = eligible.find((item) => item.redemptionId === redemptionId)
+  const eligible = useMemo(() => redemptions.filter((item) => item.status === 'active' && item.pointsRemaining > 0 && item.voucher?.allowedStats?.length && getVoucherEditEligibility(item, member.id).allowed), [member.id, redemptions]);
+  const candidates = useMemo(() => redemptions.filter((item) => item.status === 'active' && item.voucher?.allowedStats?.length), [redemptions]);
+  const selectedRedemption = candidates.find((item) => item.redemptionId === redemptionId)
     ?? eligible.find((item) => item.voucher.allowedStats.includes(initialStat))
     ?? eligible[0];
+  const eligibility = getVoucherEditEligibility(selectedRedemption, member.id);
   const editableStats = useMemo(() => VOUCHER_MEMBER_STATS.filter((stat) => selectedRedemption?.voucher.allowedStats.includes(stat)), [selectedRedemption]);
   const usageByStat = useMemo(() => Object.fromEntries(editableStats.map((stat) => [stat, (selectedRedemption?.usage ?? []).filter((item) => item.stat === stat).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0)])), [editableStats, selectedRedemption]);
   const memberUsed = selectedRedemption?.usage?.filter((item) => String(item.memberId) === String(member.id)).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0) ?? 0;
@@ -102,7 +100,7 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
   const remainingPoints = Math.max(0, Number(selectedRedemption?.pointsRemaining ?? 0) - selectedPoints);
 
   const canAdjust = (stat, amount, currentDeltas = deltas) => {
-    if (!selectedRedemption || busy) return false;
+    if (!selectedRedemption || busy || !eligibility.allowed) return false;
     const next = Number(currentDeltas[stat] ?? 0) + amount;
     if (!selectedRedemption.voucher.allowDecrease && next < 0) return false;
     const otherPoints = Object.entries(currentDeltas).reduce((sum, [key, value]) => key === stat ? sum : sum + Math.abs(value), 0);
@@ -154,7 +152,7 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
             <label>
               <span>{copy.voucher}</span>
               <select value={selectedRedemption.redemptionId} onChange={(event) => { setRedemptionId(event.target.value); setDeltas({}); setMessage(''); }}>
-                {eligible.map((item) => <option key={item.redemptionId} value={item.redemptionId}>{item.voucher.code} · {item.pointsRemaining} {copy.points}</option>)}
+                {candidates.map((item) => <option key={item.redemptionId} value={item.redemptionId}>{item.voucher.code} · {item.pointsRemaining} {copy.points}</option>)}
               </select>
             </label>
             <div className="voucher-edit-summary" aria-live="polite">
@@ -177,7 +175,7 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
                 );
               })}
             </div>
-            <p className="voucher-delta-help">{selectedRedemption.voucher.allowDecrease ? copy.helpDecrease : copy.helpIncrease}</p>
+            <p className="voucher-delta-help">{!eligibility.allowed ? (eligibility.reason === 'edit_limit_reached' ? copy.limitReached : copy.noVoucher) : selectedRedemption.voucher.allowDecrease ? copy.helpDecrease : copy.helpIncrease}</p>
             {message ? <p className="voucher-message" role="alert">{message}</p> : null}
             <div className="confirm-week-actions">
               <button type="button" className="secondary-button" onClick={onClose}>{copy.cancel}</button>

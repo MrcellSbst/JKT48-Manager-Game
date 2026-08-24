@@ -704,6 +704,10 @@ export function formatDateTime(value, language = activeLanguage, options = {}) {
 // are the canonical keys used by the existing DOM translator. Keeping both
 // trees exported lets tests detect missing counterparts as the dictionary
 // grows, without forcing a second copy of every English string.
+Object.assign(ID, {
+  'Roster status': 'Status roster', 'All members': 'Semua anggota', 'Core': 'Inti', 'Year view': 'Tampilan tahun', 'Month view': 'Tampilan bulan', 'Week view': 'Tampilan minggu', 'Full year': 'Setahun penuh', 'Review planned, confirmed, completed, and cancelled events across the year.': 'Tinjau acara terencana, terkonfirmasi, selesai, dan dibatalkan sepanjang tahun.', 'events': 'acara', 'Event detail': 'Detail acara', 'Planned': 'Terencana', 'Confirmed': 'Terkonfirmasi', 'Completed': 'Selesai', 'Cancelled': 'Dibatalkan', 'Participating Members': 'Anggota yang berpartisipasi', 'Energy Cost': 'Biaya energi', 'Energy after': 'Energi setelah acara', 'Revenue': 'Pendapatan', 'Fan gain/loss': 'Perubahan penggemar', 'Injury / unavailability': 'Cedera / tidak tersedia', 'No events scheduled this month.': 'Tidak ada acara terjadwal bulan ini.', 'All days': 'Semua hari', 'Not recorded': 'Tidak tercatat', 'Schedule history view': 'Tampilan riwayat jadwal', 'Close': 'Tutup', 'Opportunity': 'Peluang', 'Festival Invitation': 'Undangan Festival', 'Physical Load': 'Beban fisik', 'Injury Risk': 'Risiko cedera', 'Currently Unavailable': 'Saat ini tidak tersedia', 'Expected to Recover Before Event': 'Diperkirakan pulih sebelum acara', 'Unavailable on Event Date': 'Tidak tersedia pada tanggal acara', 'Heavy': 'Berat', 'Moderate': 'Sedang', 'Medium': 'Sedang', 'Low': 'Rendah',
+});
+
 export const LOCALIZATION_EN = Object.freeze(Object.fromEntries(Object.keys(ID).map((key) => [key, key])));
 export const LOCALIZATION_ID = Object.freeze({ ...ID });
 
