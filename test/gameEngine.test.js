@@ -2214,7 +2214,7 @@ test('graduation planning protects Year 1 and budgets four to six eligible depar
   assert.ok(planned.every((graduation) => graduation.annualTarget === target.targetCount));
 });
 
-test('active SSK, Request Hour, and Janken entrants cannot receive a graduation roll until the campaign clears', () => {
+test('active SSK, Request Hour, and Janken entrants can roll graduation after their campaign commitment', () => {
   for (const type of ['sousenkyo', 'request-hour', 'janken']) {
     const draft = createGame(`campaign-graduation-protection-${type}`);
     const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
@@ -2228,15 +2228,18 @@ test('active SSK, Request Hour, and Janken entrants cannot receive a graduation 
       members: veteranMembers,
       graduationTargets: { 3: { year: 3, targetCount: 12, scheduledCount: 0 } },
     }, { type, durationWeeks: 8 });
-    const protectedResult = resolveWeek(staged);
-    assert.equal(protectedResult.graduations.filter((graduation) => graduation.planYear === 3).length, 0, `${type} entrants must remain protected`);
-
-    const clearedResult = resolveWeek({ ...staged, campaign: { ...staged.campaign, status: 'completed' } });
-    assert.equal(clearedResult.graduations.filter((graduation) => graduation.planYear === 3).length, 1, `${type} entrants become eligible after campaign completion`);
+    const result = resolveWeek(staged);
+    const graduation = result.graduations.find((item) => item.planYear === 3);
+    assert.ok(graduation, `${type} entrants remain eligible for the graduation roll`);
+    assert.equal(graduation.commitmentType, 'major-campaign');
+    assert.equal(graduation.commitmentEndYear, 3);
+    assert.equal(graduation.commitmentEndWeek, 16);
+    assert.equal(graduation.departureYear, 3);
+    assert.equal(graduation.departureWeek, 20, `${type} departure is four weeks after the projected campaign finish`);
   }
 });
 
-test('legacy active Request Hour saves without member IDs protect the current roster from graduation rolls', () => {
+test('legacy active Request Hour saves without member IDs delay rather than block graduation rolls', () => {
   const draft = createGame('legacy-request-hour-graduation-protection');
   const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
@@ -2250,7 +2253,56 @@ test('legacy active Request Hour saves without member IDs protect the current ro
   }, { type: 'request-hour', durationWeeks: 8 });
   const { memberIds, memberSnapshots, ...legacyParticipants } = staged.campaign.participants;
   const result = resolveWeek({ ...staged, campaign: { ...staged.campaign, participants: legacyParticipants } });
-  assert.equal(result.graduations.filter((graduation) => graduation.planYear === 3).length, 0);
+  const graduation = result.graduations.find((item) => item.planYear === 3);
+  assert.ok(graduation);
+  assert.equal(graduation.commitmentType, 'major-campaign');
+  assert.equal(graduation.departureWeek, 20);
+});
+
+test('MV, concert, and fan-event commitments delay a rolled graduation until four weeks after the latest event', () => {
+  const draft = createGame('graduation-latest-commitment-test');
+  const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
+  const veteranMembers = base.members.map((member) => ({ ...member, joinedYear: 0, joinedWeek: 1 }));
+  const memberIds = veteranMembers.map((member) => member.id);
+  const result = resolveWeek({
+    ...base,
+    year: 3,
+    week: 1,
+    money: 9_000_000_000_000,
+    members: veteranMembers,
+    graduationTargets: { 3: { year: 3, targetCount: 12, scheduledCount: 0 } },
+    singles: [{ id: 'future-mv', status: 'planned', memberIds, releaseYear: 3, releaseWeek: 18, durationWeeks: 4 }],
+    concerts: [{ id: 'future-concert', status: 'selling', memberIds, targetYear: 3, targetWeek: 20 }],
+    fanEventPlans: [{ id: 'future-vc', type: 'videoCall', status: 'announced', memberIds, year: 3, targetWeek: 22, day: 'Sat' }],
+  });
+  const graduation = result.graduations.find((item) => item.planYear === 3);
+  assert.ok(graduation);
+  assert.equal(graduation.commitmentType, 'videoCall');
+  assert.equal(graduation.commitmentEndWeek, 22);
+  assert.equal(graduation.departureWeek, 26);
+});
+
+test('an announced graduation is pushed again when a major campaign finishes later than expected', () => {
+  const draft = createGame('graduation-reconciliation-test');
+  const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
+  const graduate = base.members[0];
+  const result = resolveWeek({
+    ...base,
+    year: 3,
+    week: 10,
+    members: base.members.map((member) => member.id === graduate.id ? { ...member, graduationPending: true } : member),
+    graduations: [{ id: 'delayed-graduation', memberId: graduate.id, memberName: graduate.nickname || graduate.name, planYear: 3, announcementYear: 3, announcementWeek: 1, departureYear: 3, departureWeek: 11, announced: true, completed: false }],
+    campaign: {
+      id: 'late-campaign', type: 'janken', status: 'mv-production', mvProductionWeeks: 3, mvProductionDurationWeeks: 4,
+      participants: { memberIds: [graduate.id] }, result: { winnerMemberId: graduate.id },
+    },
+  });
+  assert.equal(result.graduations[0].departureYear, 3);
+  assert.equal(result.graduations[0].departureWeek, 14);
+  assert.equal(result.graduations[0].commitmentDelayWeeks, 4);
+  assert.equal(result.notifications.some((notification) => notification.text.includes('graduation moves')), true);
 });
 
 test('graduated member returns to the audition pool after exactly two years with reset stats', () => {
