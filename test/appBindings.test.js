@@ -179,3 +179,13 @@ test('fan-event warning trusts the concrete campaign conflict type', async () =>
   assert.ok(start >= 0);
   assert.doesNotMatch(blocker, /meetGreetUsed/);
 });
+
+test('starting a new year persists locally before its dedicated cloud checkpoint', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('const applySettlementAction');
+  const block = source.slice(start, source.indexOf('const renovate =', start));
+  assert.match(block, /const startedNewYear = Boolean\(game\.pendingYearEndSettlement\)/);
+  assert.match(block, /await saveActiveRun\(next\);[\s\S]*const verifiedLocal = await loadActiveRun\(\);[\s\S]*canonicalJson\(verifiedLocal\.state\) !== canonicalJson\(next\)[\s\S]*setGame\(next\);/);
+  assert.match(block, /if \(startedNewYear && user\)[\s\S]*await pushSave\('new-year'\)/);
+  assert.match(block, /New year saved locally, but cloud sync failed/);
+});

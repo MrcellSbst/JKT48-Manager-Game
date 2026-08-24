@@ -99,7 +99,7 @@ Administration dashboards have no player-facing navigation links. Open `/admin/v
 
 ## Save Data
 
-Guest saves remain in browser IndexedDB. Account saves use the same IndexedDB data locally and upload an encrypted snapshot to the Manager-only `jkt48_manager_data` D1 table.
+Guest saves remain in browser IndexedDB. Account saves use the same data locally and upload independently compressed and encrypted `core`, `roster`, `operations`, `history`, and `profile` sections to `jkt48_manager_data_v2`. The legacy `jkt48_manager_data` table is read only for verified migration and its rows are deleted after conversion.
 
 - Only one run can be active at a time.
 - Local progress saves after founding setup and each resolved week.
@@ -108,6 +108,8 @@ Guest saves remain in browser IndexedDB. Account saves use the same IndexedDB da
 - Logging in loads existing account data; explicit Load cloud save is also available from Save and load.
 - Logout waits for successful cloud save and session deletion, then clears all Manager data from local IndexedDB.
 - Clearing browser site data removes guest progress that has not been uploaded.
+
+Before deploying the v2 application, apply the D1 schema with `npm run db:migrate:remote`. Existing accounts migrate lazily when loaded. To inspect or migrate dormant accounts in resumable batches, sign in as `user_id = 1`, set `MANAGER_API_URL` and `MANAGER_SESSION_TOKEN`, then run `npm run db:migrate:saves` for a dry run or `npm run db:migrate:saves -- --commit` to migrate and delete verified legacy rows.
 
 ## Project Structure
 

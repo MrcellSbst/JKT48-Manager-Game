@@ -10,6 +10,30 @@ CREATE TABLE IF NOT EXISTS jkt48_manager_data (
 CREATE INDEX IF NOT EXISTS idx_jkt48_manager_data_updated_at
   ON jkt48_manager_data(updated_at);
 
+-- Version 2 stores independently encrypted save sections so large snapshots do
+-- not need to fit in one D1 column. Legacy rows are removed per user only after
+-- a successful read-back and equivalence check.
+CREATE TABLE IF NOT EXISTS jkt48_manager_data_v2 (
+  user_id TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  manifest TEXT NOT NULL,
+  core TEXT NOT NULL,
+  roster TEXT NOT NULL,
+  operations TEXT NOT NULL,
+  history TEXT NOT NULL,
+  profile TEXT NOT NULL,
+  format_version INTEGER NOT NULL DEFAULT 2,
+  revision INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES user_h(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_jkt48_manager_data_v2_updated_at
+  ON jkt48_manager_data_v2(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_jkt48_manager_data_v2_revision
+  ON jkt48_manager_data_v2(revision);
+
 -- Voucher system tables. Voucher ownership and edits are account-bound and
 -- intentionally separate from the encrypted game save.
 CREATE TABLE IF NOT EXISTS vouchers (

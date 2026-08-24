@@ -1,4 +1,5 @@
 import { getSessionUser } from './_session.js';
+import { decodeV2Sections, reconstructSnapshot } from './_saveFormat.js';
 
 export const VOUCHER_TYPE = 'member-stat-editor';
 export const EDITABLE_MEMBER_STATS = Object.freeze([
@@ -308,9 +309,11 @@ function checksum(value) {
 }
 
 export async function loadSnapshot(env, userId) {
+  const v2 = await env.DB.prepare('SELECT manifest, core, roster, operations, history, profile, revision, updated_at FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(userId).first().catch(() => null);
+  if (v2?.manifest) return { row: v2, snapshot: reconstructSnapshot(await decodeV2Sections(v2)), format: 2 };
   const row = await env.DB.prepare('SELECT save_data, updated_at FROM jkt48_manager_data WHERE user_id = ?').bind(userId).first();
   if (!row?.save_data) throw new VoucherError('No account save exists yet. Start or save a run before using a voucher.', 409, 'save_unavailable');
-  return { row, snapshot: decryptSnapshot(row.save_data) };
+  return { row, snapshot: decryptSnapshot(row.save_data), format: 1 };
 }
 
 export function buildVoucherInsert(voucher, userId, now = new Date().toISOString()) {
