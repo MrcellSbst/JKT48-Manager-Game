@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDate, formatMoney, getLocalizationParity, setActiveLanguage, translateIndonesian } from '../src/localization.js';
+import { formatDate, formatMoney, getLocalizationParity, LOCALIZATION_ALLOWLIST, LOCALIZATION_ID, setActiveLanguage, translateIndonesian } from '../src/localization.js';
 
 test('English and Indonesian localization dictionaries stay in parity', () => {
   const parity = getLocalizationParity();
@@ -43,7 +43,7 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   assert.equal(translateIndonesian('Intensive Dance training'), 'Latihan tari intensif');
   assert.equal(
     translateIndonesian('Campaign blocked: Video Call already occupies this month.'),
-    'Kampanye diblokir: Video Call sudah mengisi bulan ini.',
+    'Kampanye belum dapat dimulai: Video Call sudah mengisi bulan ini.',
   );
   assert.equal(
     translateIndonesian("Fans argue that Fiony's ability deserves more attention."),
@@ -55,7 +55,7 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   );
   assert.equal(
     translateIndonesian('Fiony leads a 12-member MV lineup with a medium budget. Production starts Year 1 · Jan · Week 3; release is Year 1 · Feb · Week 4.'),
-    'Fiony memimpin lineup MV berisi 12 anggota dengan anggaran menengah. Produksi dimulai Tahun 1 · Jan · Minggu 3; rilis pada Tahun 1 · Feb · Minggu 4.',
+    'Fiony memimpin susunan anggota MV berisi 12 anggota dengan anggaran menengah. Produksi dimulai Tahun 1 · Jan · Minggu 3; rilis pada Tahun 1 · Feb · Minggu 4.',
   );
   assert.equal(
     translateIndonesian('Spend $40m. Sales start now for Year 2 · Oct · Week 1; every active member receives 300 slots at $50k.'),
@@ -67,4 +67,17 @@ test('translator safely handles missing and non-string history fields', () => {
   assert.equal(translateIndonesian(undefined), '');
   assert.equal(translateIndonesian(null), '');
   assert.equal(translateIndonesian(12), '12');
+});
+
+test('Indonesian glossary uses clear fan wording and preserves official terms', () => {
+  assert.equal(LOCALIZATION_ID.Fanbase, 'Jumlah Penggemar');
+  assert.equal(LOCALIZATION_ID.Roster, 'Daftar Anggota');
+  assert.equal(LOCALIZATION_ID.Lineup, 'Susunan Anggota');
+  assert.equal(LOCALIZATION_ID.Occupancy, 'Keterisian');
+  assert.equal(translateIndonesian('Fan event'), 'Acara Penggemar');
+  assert.equal(translateIndonesian('Campaign blocked: Video Call already occupies this month.'), 'Kampanye belum dapat dimulai: Video Call sudah mengisi bulan ini.');
+  assert.equal(translateIndonesian('Video Call'), 'Video Call');
+  assert.equal(translateIndonesian('Meet & Greet'), 'Meet & Greet');
+  assert.ok(LOCALIZATION_ALLOWLIST.includes('Center'));
+  assert.equal(Object.values(LOCALIZATION_ID).filter((value) => /kipas/i.test(value)).length, 0);
 });

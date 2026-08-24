@@ -418,8 +418,46 @@ Object.assign(ID, {
   'View individual skill gains':'Lihat peningkatan kemampuan tiap anggota',
 });
 
+// Shared Indonesian glossary. Official JKT48 terms stay unchanged.
+Object.assign(ID, {
+  'Fanbase': 'Jumlah Penggemar',
+  'Roster': 'Daftar Anggota',
+  'Member roster': 'Daftar Anggota',
+  'Lineup': 'Susunan Anggota',
+  'Current lineup': 'Susunan Anggota saat ini',
+  'Fan event': 'Acara Penggemar',
+  'Campaign blocked': 'Kampanye belum dapat dimulai',
+  'Occupancy': 'Keterisian',
+  'Video Call': 'Video Call',
+  'Meet & Greet': 'Meet & Greet',
+  'Tutorial coach': 'Panduan singkat',
+  'Skip tutorial': 'Lewati tutorial',
+  'Replay Tutorial': 'Putar ulang tutorial',
+  'Tutorial replay': 'Ulang tutorial',
+  'Build the weekly Schedule': 'Susun Jadwal mingguan',
+  'Select a member, choose an activity and day, then make one assignment. Theater shows need exactly 12 members; campaign days stay locked.': 'Pilih anggota, aktivitas, dan hari, lalu buat satu penugasan. Pertunjukan teater membutuhkan tepat 12 anggota; hari kampanye tetap terkunci.',
+  'Plan member Training': 'Rencanakan Latihan anggota',
+  'Check free days and projected Energy, then queue one session. Training resolves on the earliest day not occupied by Schedule or Campaigns.': 'Periksa hari kosong dan perkiraan Energi, lalu tambahkan satu sesi. Latihan dijalankan pada hari paling awal yang tidak dipakai Jadwal atau Kampanye.',
+  'Explore Campaigns': 'Pelajari Kampanye',
+  'Open Video Call or Meet & Greet, choose the details and optional title, then open Review. Confirming and spending money are optional.': 'Buka Video Call atau Meet & Greet, pilih rincian dan judul opsional, lalu buka Tinjau. Konfirmasi dan pengeluaran biaya tidak wajib.',
+  'Complete the weekly loop': 'Selesaikan alur mingguan',
+  'Return to Command, compare Schedule and Training totals, then open Resolve Week. Resolving Week 4 completes the tutorial.': 'Kembali ke Komando, bandingkan total Jadwal dan Latihan, lalu buka Selesaikan Minggu. Menyelesaikan Minggu 4 akan menuntaskan tutorial.',
+  'Open Schedule': 'Buka Jadwal', 'Make one assignment': 'Buat satu penugasan', 'Open Training': 'Buka Latihan', 'Queue one session': 'Tambahkan satu sesi',
+  'Open Campaigns': 'Buka Kampanye', 'Open a fan-event review': 'Buka tinjauan acara penggemar', 'Return to Command': 'Kembali ke Komando', 'Review Resolve Week': 'Tinjau Selesaikan Minggu',
+  'Got it': 'Mengerti', 'Continue': 'Lanjut', 'Previous': 'Sebelumnya', 'Next': 'Berikutnya', 'Finish replay': 'Selesai',
+  'Event title': 'Judul acara', 'Scheduled fan events': 'Acara penggemar terjadwal',
+  '1 week': '1 minggu', '2 weeks': '2 minggu', '4 weeks': '4 minggu', '8 weeks': '8 minggu', '12 weeks': '12 minggu',
+});
+
+export const LOCALIZATION_ALLOWLIST = Object.freeze([
+  'JKT48', 'JKT48V', 'MV', 'VC', 'M&G', 'Video Call', 'Meet & Greet',
+  'Center', 'Trainee', 'Setlist', 'Senbatsu', 'Sousenkyo', 'Request Hour', 'Janken',
+  'FouReality', 'FouReality JKT48 Gacha Photocard Oshi',
+]);
+
 const patterns = [
-  [/^Campaign blocked: (.+)$/, (_, reason) => `Kampanye diblokir: ${ID[reason] ?? reason}`],
+  [/^Week (\d+) tutorial$/, 'Tutorial Minggu $1'], [/^Open (.+)$/, (_, section) => `Buka ${ID[section] ?? section}`],
+  [/^Campaign blocked: (.+)$/, (_, reason) => `Kampanye belum dapat dimulai: ${ID[reason] ?? reason}`],
   [/^Level (\d+)\/5$/, 'Level $1/5'], [/^Level (\d+) · (.+)$/, 'Level $1 · $2'],
   [/^Current effect (.+) · locked into equipped runs$/, 'Efek saat ini $1 · terkunci dalam permainan yang memasangnya'], [/^Unlock Level 1 effect (.+)$/, 'Buka efek Level 1 $1'],
   [/^Review (\d+) recruits?$/, 'Tinjau $1 rekrutan'], [/^Confirm (\d+) recruits?$/, 'Konfirmasi $1 rekrutan'],
@@ -668,8 +706,18 @@ export function translateIndonesian(value) {
   if (birthday) return source.replace(text, `Ulang tahun ${monthNames[birthday[1]] ?? birthday[1]} ${birthday[2]}${birthday[3] ? ` · Usia ${birthday[3]}` : ''}`);
   if (monthNames[text]) return source.replace(text, monthNames[text]);
   const direct = ID[text];
-  if (direct) return source.replace(text, direct);
-  for (const [pattern, replacement] of patterns) if (pattern.test(text)) return source.replace(text, text.replace(pattern, replacement));
+  const normalizeGlossary = (localized) => String(localized)
+    .replace(/Basis penggemar/gi, 'Jumlah Penggemar')
+    .replace(/\bRoster\b/gi, 'Daftar Anggota')
+    .replace(/\blineup\b/gi, 'susunan anggota')
+    .replace(/\bOkupansi\b/gi, 'Keterisian')
+    .replace(/Panggilan Video/gi, 'Video Call')
+    .replace(/Temu Penggemar/gi, 'Meet & Greet');
+  if (direct) return source.replace(text, normalizeGlossary(direct));
+  for (const [pattern, replacement] of patterns) if (pattern.test(text)) {
+    const localized = text.replace(pattern, replacement);
+    return source.replace(text, normalizeGlossary(localized));
+  }
   return source;
 }
 
@@ -678,6 +726,8 @@ const rendered = new WeakMap();
 const attributes = ['aria-label', 'title', 'placeholder'];
 
 function localizeNode(node, language) {
+  if (node instanceof Element && node.closest('[data-i18n-ignore]')) return;
+  if (node.nodeType === Node.TEXT_NODE && node.parentElement?.closest('[data-i18n-ignore]')) return;
   if (node.nodeType === Node.TEXT_NODE) {
     const current = node.nodeValue;
     if (rendered.get(node) !== current) sources.set(node, current);

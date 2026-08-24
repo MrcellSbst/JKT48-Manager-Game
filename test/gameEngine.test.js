@@ -186,26 +186,34 @@ test('schedule activity groups are ordered and cover every player-selectable act
   assert.deepEqual(new Set(TRAINING_ACTIVITY_GROUPS.flatMap((group) => group.activities)), new Set(Object.entries(BALANCE.activities).filter(([, activity]) => activity.skill).map(([id]) => id)));
 });
 
-test('same seed creates same fictional roster stats', () => {
+test('same seed creates different fictional roster stats unless run salt is reused', () => {
   const first = createGame('test-seed');
   const second = createGame('test-seed');
-  assert.deepEqual(first.members, second.members);
+  assert.notEqual(first.runSalt, second.runSalt);
+  assert.notDeepEqual(first.members, second.members);
+
+  const repeated = createGame('test-seed', 'active', false, { runSalt: first.runSalt });
+  assert.deepEqual(first.members, repeated.members);
 });
 
 test('SekaiSein@1903@Marcell seed maxes member ratings and team chemistry while leaving ego seeded', () => {
   const game = createGame('SekaiSein@1903@Marcell');
+  const repeated = createGame('SekaiSein@1903@Marcell', 'active', false, { runSalt: 'ignored-random-salt' });
   const ratingKeys = ['vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'consistency', 'adaptability', 'popularity', 'energy', 'potential', 'development'];
   assert.ok(game.members.length > 0);
   assert.ok(game.members.every((member) => ratingKeys.every((key) => member[key] === 100)));
   assert.ok(game.members.some((member) => member.ego !== 100));
+  assert.equal(game.runSalt, 'all90-fixed');
+  assert.deepEqual(game.members, repeated.members);
 
   const chemistry = getMemberChemistry(game, game.members[0].id, game.members[1].id);
   assert.ok(Object.values(chemistry).every((value) => value === 100));
 });
 
 test('initial fictional stats follow member identity instead of roster card position', () => {
-  const allMembers = createGame('identity-stat-seed', 'all').members;
-  const exMembers = createGame('identity-stat-seed', 'ex').members;
+  const options = { runSalt: 'identity-scope-test' };
+  const allMembers = createGame('identity-stat-seed', 'all', false, options).members;
+  const exMembers = createGame('identity-stat-seed', 'ex', false, options).members;
   const allByIdentity = new Map(allMembers.map((member) => [`${member.generation}:${member.name}`, member]));
   const statKeys = ['archetype', 'traits', 'vocal', 'dance', 'performance', 'mc', 'variety', 'stamina', 'consistency', 'adaptability', 'developmentCurve', 'popularity', 'ego', 'potential', 'development', 'fanbase', 'fanComposition', 'careerStage'];
   const pickStats = (member) => Object.fromEntries(statKeys.map((key) => [key, member[key]]));
@@ -1743,7 +1751,7 @@ test('B023 does not reduce drama damage reserved for B024', () => {
   BALANCE.dramaChance = 1;
   try {
     const resolveDrama = (withPerk) => {
-      const draft = { ...createGame('b023-drama-isolation'), year: 2, dramaCooldown: 0 };
+      const draft = { ...createGame('b023-drama-isolation', 'active', false, { runSalt: 'b023-drama-isolation' }), year: 2, dramaCooldown: 0 };
       const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
       const game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Drama Test', withPerk ? ['B023'] : [], { bonusLevels: { B023: 1 } });
       return resolveWeek(game);
@@ -1756,7 +1764,7 @@ test('B023 does not reduce drama damage reserved for B024', () => {
 
 test('B026 boosts fan acquisition from Live Stream, Video Call, and MV work', () => {
   const runActivity = (activity, withPerk) => {
-    const draft = createGame(`b026-${activity}`);
+    const draft = createGame(`b026-${activity}`, 'active', false, { runSalt: `b026-${activity}` });
     const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
     let game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Digital Test', withPerk ? ['B026'] : [], { bonusLevels: { B026: 1 } });
     if (activity === 'mvProduction') game = startSingleProduction(game, game.members[0].id, 'Mon', game.members.slice(1, 12).map((member) => member.id));
@@ -1789,7 +1797,7 @@ test('B029 raises the seeded MV quality floor and release views', () => {
 
 test('B030 reduces theater unfamiliarity penalty for emergency lineups', () => {
   const perform = (withPerk) => {
-    const draft = createGame('b030-theater');
+    const draft = createGame('b030-theater', 'active', false, { runSalt: 'b030-theater' });
     const memberIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
     let game = finalizeGameSetupEngine(draft, 'community', memberIds, 'Understudy Test', withPerk ? ['B030'] : [], { bonusLevels: { B030: 1 } });
     game = { ...game, members: game.members.map((member) => ({ ...member, setlistFamiliarity: { [SETLISTS[0].id]: 0 } })) };

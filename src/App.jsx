@@ -21,6 +21,7 @@ import { VoucherEditModal, VoucherInventory } from './components/VoucherUI.jsx';
 import VoucherAdminDashboard from './components/VoucherAdminDashboard.jsx';
 import PatchnoteNotice from './components/PatchnoteNotice.jsx';
 import PatchnotesAdminDashboard from './components/PatchnotesAdminDashboard.jsx';
+import { getTutorialChapter, markTutorialStep, normalizeTutorialState, skipTutorial, TUTORIAL_CHAPTERS } from './engine/tutorial.js';
 
 const portraitModules = import.meta.glob([
   './Asset/member_active/*',
@@ -105,6 +106,12 @@ const campaignMonthOptions = (game, minimumLead) => Array.from({ length: 18 }, (
   return { value: `${year}-${month}`, year, month, targetWeek, absolute: absoluteWeek(year, targetWeek), label: calendarLabel(year, targetWeek) };
 }).filter((option) => option.absolute - absoluteWeek(game.year, game.week) >= minimumLead);
 const displayName = (member) => member.nickname || member.name.split(' ')[0];
+const fanEventPlanFor = (game, memberId, day, activityId, year = game.year, week = game.week) => {
+  if (activityId === 'yearEndMeetGreet') return (game.yearEndMeetGreets ?? []).find((event) => event.status !== 'cancelled' && event.year === year && event.targetWeek === week && event.day === day && (event.memberSessions ?? []).some((session) => session.memberId === memberId)) ?? null;
+  const type = activityId?.startsWith?.('vc') ? 'videoCall' : activityId?.startsWith?.('mg') ? 'meetGreet' : null;
+  if (!type) return null;
+  return (game.fanEventPlans ?? []).find((plan) => plan.type === type && plan.year === year && plan.targetWeek === week && plan.day === day && (plan.memberIds ?? []).includes(memberId)) ?? null;
+};
 const birthdayLabel = (member) => Number.isFinite(member?.birthMonth) && Number.isFinite(member?.birthYear) ? `${MONTHS[member.birthMonth - 1]} ${member.birthYear}` : 'Unknown';
 const birthdayMeta = (member, year = 1) => { const age = getMemberAge(member, year); return age === null ? birthdayLabel(member) : `${birthdayLabel(member)} · Age ${age}`; };
 const overall = getMemberOverall;
@@ -131,12 +138,13 @@ const normalizeSessionActivities = (state) => {
   return migrateEconomyState(migrateInjuryHistoryState(migrateGraduatedRosterState(migrateTrainingState({
     ...state,
     calendarWeeks: BALANCE.weeksPerYear,
+    runSalt: state.runSalt ?? `legacy-${String(state.seed ?? 'run')}`,
     hardMode: state.hardMode ?? false,
     rosterScope: state.rosterScope ?? 'active',
     group: { ...state.group, fanPools: { coreWota: Math.round((state.group?.fanbase ?? 0) * 0.27), casual: Math.round((state.group?.fanbase ?? 0) * 0.25), generalPublic: Math.round((state.group?.fanbase ?? 0) * 0.14), digital: Math.round((state.group?.fanbase ?? 0) * 0.2), event: Math.round((state.group?.fanbase ?? 0) * 0.14), oshi: Math.round((state.group?.fanbase ?? 0) * 0.23), groupFans: Math.round((state.group?.fanbase ?? 0) * 0.3), ...(state.group?.fanPools ?? {}) }, fanSentiment: { coreWota: 0, casual: 0, generalPublic: 0, digital: 0, event: 0, oshi: 0, groupFans: 0, ...(state.group?.fanSentiment ?? {}) } },
     week: convertWeek(state.week),
     bonusLoadout, bonusLevels, graduationTargets: state.graduationTargets ?? {},
-    schedule, singles, scheduleTemplates: state.scheduleTemplates ?? [], theaterShows: state.theaterShows ?? {}, theaterHistory: state.theaterHistory ?? [], concertVenueOffers: state.concertVenueOffers?.length ? state.concertVenueOffers : undefined, auditionCampaign, annualReviews: state.annualReviews ?? [], fanTarget: state.fanTarget?.formulaVersion === 2 ? state.fanTarget : createFanTargetForYear(state.year, inferredYearStartFans), fanTargetHistory: (state.fanTargetHistory ?? []).filter((target) => target.formulaVersion === 2), fanTargetMetaReward: state.fanTargetMetaReward ?? 0, mentorships: state.mentorships ?? [], mentorshipHistory: state.mentorshipHistory ?? [], promotions: state.promotions ?? [], chemistry: state.chemistry ?? {}, demandHistory: state.demandHistory ?? [], opportunityHistory: state.opportunityHistory ?? [], pendingOpportunity: state.pendingOpportunity ?? null, fanEventPlans: state.fanEventPlans ?? [], departures: state.departures ?? [], ledger: state.ledger ?? { pendingUpkeep: 0, pendingOperations: 0, debt: { salary: 0, upkeep: 0, operations: 0 }, unpaidSalaryMonths: 0, settlements: [] }, loans: state.loans ?? [], loanOffers: state.loanOffers ?? [], seitansaiObligations: state.seitansaiObligations ?? [],
+    schedule, singles, tutorialState: normalizeTutorialState(state.tutorialState), scheduleTemplates: state.scheduleTemplates ?? [], theaterShows: state.theaterShows ?? {}, theaterHistory: state.theaterHistory ?? [], concertVenueOffers: state.concertVenueOffers?.length ? state.concertVenueOffers : undefined, auditionCampaign, annualReviews: state.annualReviews ?? [], fanTarget: state.fanTarget?.formulaVersion === 2 ? state.fanTarget : createFanTargetForYear(state.year, inferredYearStartFans), fanTargetHistory: (state.fanTargetHistory ?? []).filter((target) => target.formulaVersion === 2), fanTargetMetaReward: state.fanTargetMetaReward ?? 0, mentorships: state.mentorships ?? [], mentorshipHistory: state.mentorshipHistory ?? [], promotions: state.promotions ?? [], chemistry: state.chemistry ?? {}, demandHistory: state.demandHistory ?? [], opportunityHistory: state.opportunityHistory ?? [], pendingOpportunity: state.pendingOpportunity ?? null, fanEventPlans: state.fanEventPlans ?? [], departures: state.departures ?? [], ledger: state.ledger ?? { pendingUpkeep: 0, pendingOperations: 0, debt: { salary: 0, upkeep: 0, operations: 0 }, unpaidSalaryMonths: 0, settlements: [] }, loans: state.loans ?? [], loanOffers: state.loanOffers ?? [], seitansaiObligations: state.seitansaiObligations ?? [],
     financialEvents: convertEntries(state.financialEvents), activeDrama: state.activeDrama ? { ...state.activeDrama, dramaSource: state.activeDrama.dramaSource ?? 'member' } : null, activeManagementDrama: state.activeManagementDrama ? { ...state.activeManagementDrama, dramaSource: 'management' } : null, dramaCooldown: state.dramaCooldown ?? 0, memberDramaCooldown: state.memberDramaCooldown ?? state.dramaCooldown ?? 0, managementDramaCooldown: state.managementDramaCooldown ?? 0, campaign: state.campaign ?? null, firstCampaignYear: state.firstCampaignYear ?? 2, nextCampaignConfig: null, lastCampaignType: state.lastCampaignType ?? null, campaignHistory: state.campaignHistory ?? [], hardMode: state.hardMode ?? false, rosterScope: state.rosterScope ?? 'active',
     members: (state.members ?? []).map((member) => ({ ...member, joinedYear: Number.isFinite(member.joinedYear) ? member.joinedYear : 1, joinedWeek: Number.isFinite(member.joinedWeek) ? convertWeek(member.joinedWeek) : 1, consistency: member.consistency ?? 60, adaptability: member.adaptability ?? 60, developmentCurve: member.developmentCurve ?? 'steady', fanComposition: member.fanComposition ?? { core: 25, casual: 25, digital: 25, event: 25 }, oshiSentiment: member.oshiSentiment ?? 0, salary: member.salary ?? null, setlistFamiliarity: member.setlistFamiliarity ?? {}, injury: member.injury ?? null, weeksWithoutEvent: member.weeksWithoutEvent ?? 0, rosterScope: member.rosterScope ?? (member.graduated ? 'ex' : 'active'), ...backfillBirthday(state.seed, member) })), unsignedMembers: (state.unsignedMembers ?? []).map((member) => ({ ...member, salary: member.salary ?? null, injury: member.injury ?? null, weeksWithoutEvent: member.weeksWithoutEvent ?? 0, rosterScope: member.rosterScope ?? (member.graduated ? 'ex' : 'active'), ...backfillBirthday(state.seed, member) })), fanNarratives: state.fanNarratives ?? [], dramaMemory: state.dramaMemory ?? [], failureCounters: state.failureCounters ?? { negativeCashWeeks: 0, lowTrustWeeks: 0, lowReputationWeeks: 0, lowFanbaseWeeks: 0 },
     history: convertEntries(state.history), activityEvents: convertEntries(state.activityEvents), weeklyReports: convertEntries(state.weeklyReports), concerts: convertEntries(state.concerts), yearEndMeetGreets: convertEntries(state.yearEndMeetGreets), renovations: convertEntries(state.renovations), graduations: convertEntries(state.graduations),
@@ -256,7 +264,7 @@ function LegacyWiki({ game }) {
   </div>;
 }
 
-function Wiki({ game, language = 'en' }) {
+function Wiki({ game, language = 'en', onReplayTutorial = null }) {
   const id = language === 'id';
   const text = (en, indonesian) => {
     const replacements = {
@@ -337,7 +345,7 @@ function Wiki({ game, language = 'en' }) {
   );
   const nav = [['wiki-stats', text('Stats', 'Statistik')], ['wiki-income', text('Income and costs', 'Pendapatan dan biaya')], ['wiki-demand', text('Demand', 'Permintaan')], ['wiki-rules', text('Rules', 'Aturan')], ['wiki-hidden', text('Hidden mechanics', 'Mekanik tersembunyi')]];
   return <div className="page wiki-page">
-    <section className="page-heading"><div><span className="eyebrow">{text('Game reference', 'Referensi permainan')}</span><h1>{text('Manager wiki', 'Wiki manajer')}</h1><p>{text('Rules, demand formulas, income sources, fulfillment tactics, and hidden mechanics used by this run.', 'Aturan, rumus permintaan, sumber pendapatan, cara memenuhi permintaan, dan mekanik tersembunyi yang digunakan permainan ini.')}</p></div></section>
+    <section className="page-heading"><div><span className="eyebrow">{text('Game reference', 'Referensi permainan')}</span><h1>{text('Manager wiki', 'Wiki manajer')}</h1><p>{text('Rules, demand formulas, income sources, fulfillment tactics, and hidden mechanics used by this run.', 'Aturan, rumus permintaan, sumber pendapatan, cara memenuhi permintaan, dan mekanik tersembunyi yang digunakan permainan ini.')}</p></div>{onReplayTutorial ? <button type="button" className="secondary-button tutorial-replay-button" onClick={onReplayTutorial}>{text('Replay Tutorial', 'Ulangi Tutorial')}</button> : null}</section>
     <nav className="wiki-jump" aria-label={text('Wiki sections', 'Bagian wiki')}>{nav.map(([href, label]) => <a key={href} href={'#' + href}>{label}</a>)}</nav>
     <section className="wiki-section" id="wiki-stats"><div className="wiki-section-head"><span>01</span><div><h2>{text('Member stats', 'Statistik anggota')}</h2><p>{text('Visible and hidden values all come from the run seed.', 'Nilai terlihat dan tersembunyi semuanya berasal dari seed permainan.')}</p></div></div><div className="wiki-definition-grid">{stats.map(([enName, idName, enDescription, idDescription]) => <article key={enName}><strong>{text(enName, idName)}</strong><p>{text(enDescription, idDescription)}</p></article>)}</div></section>
     <section className="wiki-section" id="wiki-income"><div className="wiki-section-head"><span>02</span><div><h2>{text('Income and costs', 'Pendapatan dan biaya')}</h2><p>{text('Income comes from demand fulfillment, campaign sales, management opportunities, and special events; activity and operating costs determine the margin.', 'Pendapatan berasal dari pemenuhan permintaan, penjualan kampanye, peluang manajemen, dan acara khusus; biaya aktivitas dan operasional menentukan margin.')}</p></div></div><div className="wiki-callout"><CircleDollarSign size={20} /><div><strong>{text('Operating costs', 'Biaya operasional')}</strong><p>{text('Weekly operations and theater upkeep are deducted from run finances. Activity costs are charged per participating member; hard mode settles fixed costs and salaries monthly.', 'Operasional mingguan dan biaya teater dipotong dari keuangan permainan. Biaya aktivitas dibebankan per anggota yang ikut; mode sulit menyelesaikan biaya tetap dan gaji setiap bulan.')}</p></div></div><div className="wiki-table-wrap"><table className="wiki-table"><thead><tr><th>{text('Income source', 'Sumber pendapatan')}</th><th>{text('Income calculation', 'Perhitungan pendapatan')}</th><th>{text('Cost and limit', 'Biaya dan batas')}</th></tr></thead><tbody>{incomeRows.map(([source, income, limits]) => <tr key={source}><td><strong>{source}</strong></td><td>{income}</td><td>{limits}</td></tr>)}</tbody></table></div><p className="wiki-note">{text('Statistics separates regular activity income, 2Shot income, opportunities, and other income such as graduation merchandise. Use sold-through and unmet demand together: full capacity means income is capped, while unmet demand points to a capacity, popularity, or fan-segment opportunity.', 'Statistik memisahkan pendapatan aktivitas rutin, pendapatan 2Shot, peluang, dan pendapatan lain seperti merchandise kelulusan. Gunakan tingkat penjualan dan permintaan tidak terpenuhi bersama-sama: kapasitas penuh berarti pendapatan sudah dibatasi, sedangkan permintaan tidak terpenuhi menunjukkan peluang pada kapasitas, popularitas, atau segmen penggemar.')}</p></section>
@@ -381,7 +389,27 @@ function PreGameMenu({ theme, onToggleTheme, language, onToggleLanguage, user, o
   </>;
 }
 
-function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndRun, onManualSave, onToggleTheme, onToggleLanguage, onOpenAccount, onLogout, user, accountBusy, advancing, manualSaving, saveMessage, theme, language, children }) {
+function TutorialCoach({ game, language, activeView, onNavigate, onAction, onSkip, replayChapter, onReplayChapter, onCloseReplay }) {
+  const tutorial = normalizeTutorialState(game.tutorialState);
+  const chapter = replayChapter ? TUTORIAL_CHAPTERS[replayChapter - 1] : getTutorialChapter(tutorial, game.year, game.week);
+  if (!chapter) return null;
+  const t = (value) => translate(language, value);
+  const completed = new Set(tutorial.completedStepIds);
+  if (!replayChapter && completed.has(`${chapter.id}-understood`)) return null;
+  const plannedTraining = Object.values(game.trainingPlans ?? {}).reduce((sum, sessions) => sum + sessions.length, 0);
+  const copy = {
+    schedule: { title: 'Build the weekly Schedule', body: 'Select a member, choose an activity and day, then make one assignment. Theater shows need exactly 12 members; campaign days stay locked.', steps: [['schedule-opened', activeView === 'schedule', 'Open Schedule'], ['schedule-assigned', Object.keys(game.schedule ?? {}).length > 0, 'Make one assignment']] },
+    training: { title: 'Plan member Training', body: 'Check free days and projected Energy, then queue one session. Training resolves on the earliest day not occupied by Schedule or Campaigns.', steps: [['training-opened', activeView === 'training', 'Open Training'], ['training-queued', plannedTraining > 0, 'Queue one session']] },
+    campaigns: { title: 'Explore Campaigns', body: 'Open Video Call or Meet & Greet, choose the details and optional title, then open Review. Confirming and spending money are optional.', steps: [['campaigns-opened', activeView === 'campaigns', 'Open Campaigns'], ['fan-event-reviewed', completed.has('fan-event-reviewed'), 'Open a fan-event review']] },
+    'weekly-loop': { title: 'Complete the weekly loop', body: 'Return to Command, compare Schedule and Training totals, then open Resolve Week. Resolving Week 4 completes the tutorial.', steps: [['command-opened', activeView === 'dashboard', 'Return to Command'], ['resolve-reviewed', completed.has('resolve-reviewed'), 'Review Resolve Week']] },
+  }[chapter.id];
+  const replay = Boolean(replayChapter);
+  const allDone = copy.steps.every(([, done]) => done);
+  const targetLabel = chapter.view === 'dashboard' ? 'Command' : chapter.view[0].toUpperCase() + chapter.view.slice(1);
+  return <aside className="tutorial-coach" aria-label={t('Tutorial coach')} aria-live="polite"><header><span>{t(replay ? 'Tutorial replay' : `Week ${chapter.week} tutorial`)}</span><strong>{chapter.week}/4</strong></header><h2>{t(copy.title)}</h2><p>{t(copy.body)}</p><ul>{copy.steps.map(([id, liveDone, label]) => { const done = !replay && (completed.has(id) || liveDone); return <li key={id} className={done ? 'done' : ''}><Check size={16} aria-hidden="true" /><span>{t(label)}</span></li>; })}</ul><div className="tutorial-coach-actions">{replay ? <><button type="button" className="secondary-button" disabled={replayChapter === 1} onClick={() => onReplayChapter(replayChapter - 1)}>{t('Previous')}</button><button type="button" onClick={() => replayChapter === 4 ? onCloseReplay() : onReplayChapter(replayChapter + 1)}>{t(replayChapter === 4 ? 'Finish replay' : 'Next')}</button></> : <><button type="button" className="secondary-button" onClick={onSkip}>{t('Skip tutorial')}</button><button type="button" onClick={() => activeView === chapter.view ? onAction(`${chapter.id}-understood`) : onNavigate(chapter.view)}>{t(activeView === chapter.view ? allDone ? 'Got it' : 'Continue' : `Open ${targetLabel}`)}</button></>}</div></aside>;
+}
+
+function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndRun, onManualSave, onToggleTheme, onToggleLanguage, onOpenAccount, onLogout, user, accountBusy, advancing, manualSaving, saveMessage, theme, language, onTutorialAction, tutorialCoach, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
@@ -428,13 +456,14 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
         <IconButton label={translate(language, menuExpanded ? 'Close menu' : 'Open menu')} aria-expanded={menuExpanded} aria-controls="main-sidebar" onClick={toggleMenu}><Menu size={20} /></IconButton>
         <div className="week-title"><span>{translate(language, 'Year')} {game.year}</span><strong>{calendarParts(game.week).month} <small>· {translate(language, 'Week')} {calendarParts(game.week).weekOfMonth}/4</small></strong></div>
         <div className="topbar-status"><span><CircleDollarSign size={16} />{money(game.money)}</span><span><Users size={16} />{number.format(game.group.fanbase)} {translate(language, 'fans')}</span></div>
-        <button className="advance-button" type="button" onClick={() => setConfirmAdvance(true)} disabled={advancing || Boolean(game.pendingYearEndSettlement)}>{translate(language, game.pendingYearEndSettlement ? 'Year-end settlement pending' : advancing ? 'Resolving…' : 'Resolve week')} <ChevronRight size={19} /></button>
+        <button className="advance-button" type="button" onClick={() => { setConfirmAdvance(true); onTutorialAction?.('resolve-reviewed'); }} disabled={advancing || Boolean(game.pendingYearEndSettlement)}>{translate(language, game.pendingYearEndSettlement ? 'Year-end settlement pending' : advancing ? 'Resolving…' : 'Resolve week')} <ChevronRight size={19} /></button>
       </header>
        {children}
        <footer className="app-footer"><span>{translate(language, 'JKT48 Manager')} · {translate(language, 'Alternate timeline simulator')}</span><small>{translate(language, 'Fictional gameplay data for entertainment.')} · {translate(language, 'All rights reserved.')}</small></footer>
     </main>
     {isMobileViewport && mobileOpen ? <button className="scrim" aria-label={translate(language, 'Close menu')} type="button" onClick={() => setMobileOpen(false)} /> : null}
     {confirmAdvance ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmAdvance(false); }}><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-week-title"><div className="confirm-week-icon"><Clock3 aria-hidden="true" size={25} /></div><span className="eyebrow">{translate(language, 'Schedule confirmation')}</span><h2 id="confirm-week-title">{translate(language, 'End this week?')}</h2><p>{translate(language, 'All scheduled activities and planned training will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.')}</p><div className="resolve-week-counts"><span><CalendarDays aria-hidden="true" size={18} /><small>{translate(language, 'Schedule activities')}</small><strong>{scheduledActivityCount}</strong></span><span><Dumbbell aria-hidden="true" size={18} /><small>{translate(language, 'Training sessions')}</small><strong>{plannedTrainingCount}</strong></span></div>{game.week === BALANCE.weeksPerYear ? <p className="fan-target-warning"><ShieldAlert aria-hidden="true" size={18} />{translate(language, 'The annual fan result resolves after this week. It affects Fan Trust, Reputation, annual grade, and Management Token reward, but does not end the run.')}</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmAdvance(false)}>{translate(language, 'Cancel')}</button><button type="button" className="setup-primary" onClick={() => { setConfirmAdvance(false); onAdvance(); }}>{translate(language, 'End week')} <ChevronRight aria-hidden="true" size={18} /></button></div></section></div></ModalPortal> : null}
+    {tutorialCoach}
   </div>;
 }
 
@@ -518,7 +547,7 @@ function RunEndRiskWarnings({ game, language = 'en' }) {
   return <section className="notice-strip run-risk-warnings" aria-label={id ? 'Peringatan risiko akhir permainan' : 'Run-ending risk warnings'} aria-live="polite">{warnings.map((warning) => <div key={warning.id} className={warning.severity}><ShieldAlert aria-hidden="true" size={18} /><span>{copy(warning)}</span></div>)}</section>;
 }
 
-function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, language = 'en' }) {
+function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, language = 'en', onReplayTutorial }) {
   const t = (value) => translate(language, value);
   const topMembers = useMemo(() => [...game.members].filter((m) => m.status !== 'graduated').sort((a, b) => b.popularity - a.popularity).slice(0, 5), [game.members]);
   const releasedSingles = useMemo(() => [...game.singles].filter((single) => single.status === 'released').reverse(), [game.singles]);
@@ -548,7 +577,7 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
   const targetPerformance = getFanTargetPerformance(game.group.fanbase, game.fanTarget.targetFanbase);
   const fanGrowthMultiplier = getFanGrowthMultiplier(game.group.fanbase, game.fanTarget.targetFanbase);
   return <div className="page dashboard-page">
-    <section className="page-heading"><div><span className="eyebrow">Management briefing</span><h1>Command center</h1><p>Balance this week’s exposure, development, energy, and financial risk.</p></div><div className="seed">Seed <code>{game.seed}</code></div></section>
+    <section className="page-heading"><div><span className="eyebrow">Management briefing</span><h1>Command center</h1><p>Balance this week’s exposure, development, energy, and financial risk.</p></div><div className="seed">Seed <code>{game.seed}</code></div><button type="button" className="secondary-button tutorial-replay-button" onClick={onReplayTutorial}>{t('Replay Tutorial')}</button></section>
      {visibleNotifications.length ? <section className="notice-strip">{visibleNotifications.map((item, index) => <div key={`${item.text}-${index}`} className={item.type}><Sparkles size={17} /><span>{t(item.text)}{item.skillChanges?.length ? <details className="notification-skill-gains"><summary>{t('View individual skill gains')}</summary><ul>{item.skillChanges.map((change, changeIndex) => <li key={`${change.memberId}-${change.skill}-${changeIndex}`}>{change.memberName}: {t(visibleStatLabel(change.skill))} {change.delta > 0 ? '+' : ''}{change.delta}</li>)}</ul></details> : null}</span></div>)}</section> : null}
       <RunEndRiskWarnings game={game} language={language} />
       {(() => { const hasSeitansaiThisWeek = (memberId) => DAYS.some((day) => { const show = game.theaterShows?.[day]; return show?.isSeitansai && show.seitansaiMemberId === memberId; }); const hasCompletedSeitansai = (item) => (game.theaterHistory ?? []).some((show) => show.isSeitansai && show.seitansaiMemberId === item.memberId && show.year === item.year); const obligations = (game.seitansaiObligations ?? []).filter((item) => (item.status === 'open' || (item.status === 'overdue' && item.year === game.year)) && !hasSeitansaiThisWeek(item.memberId) && !hasCompletedSeitansai(item)); const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth); const weekOneCandidates = game.hardMode && game.week % BALANCE.weeksPerMonth === 1 ? game.members.filter((member) => ['active', 'trainee'].includes(member.status) && member.birthMonth === currentMonth && !(game.seitansaiObligations ?? []).some((item) => item.memberId === member.id && item.year === game.year && item.month === currentMonth) && !hasSeitansaiThisWeek(member.id) && !hasCompletedSeitansai({ memberId: member.id, year: game.year })) : []; const warningMemberIds = [...new Set([...obligations.map((item) => item.memberId), ...weekOneCandidates.map((member) => member.id)])]; return warningMemberIds.length ? <section className="notice-strip"><div className="critical"><CalendarDays size={17} /><span>Seitansai pending: {warningMemberIds.map((memberId) => game.members.find((member) => member.id === memberId)?.name ?? 'Member').join(', ')}. Schedule that member's Seitansai theater show before the due date.</span></div></section> : null; })()}
@@ -709,7 +738,7 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember, language =
         <div className="theater-lineups"><div><Building2 size={18} /><span><strong>Theater requires 12 members</strong><small>Incomplete lineups cancel without fatigue or revenue.</small></span></div>{DAYS.map((day) => theaterCounts[day] > 0 ? <button type="button" key={day} className={theaterCounts[day] >= 12 ? 'ready clearable' : ''} onClick={() => toggleRequiredLineup(day, 'theater')}><span>{t(day)}</span><strong>{theaterCounts[day]}/12</strong>{t(theaterCounts[day] >= 12 ? 'Empty' : 'Fill')}</button> : null)}</div>
         <div className="theater-lineups off-air-lineups"><div><Clapperboard size={18} /><span><strong>Off-air performance requires 12 members</strong><small>Income uses the total Popularity of the complete lineup.</small></span></div>{DAYS.map((day) => offAirCounts[day] > 0 ? <button type="button" key={day} className={offAirCounts[day] >= 12 ? 'ready clearable' : ''} onClick={() => toggleRequiredLineup(day, 'offAir')}><span>{t(day)}</span><strong>{offAirCounts[day]}/12</strong>{t(offAirCounts[day] >= 12 ? 'Empty' : 'Fill')}</button> : null)}</div>
         <TheaterPlanner game={game} setGame={setGame} theaterCounts={theaterCounts} />
-         <div className="calendar-row">{DAYS.map((day) => { const key = `${member.id}:${day}`; const existing = game.schedule[key]; const locked = AUTOMATIC_ACTIVITY_LOCKS.includes(existing); return <button type="button" key={day} disabled={!['active','trainee'].includes(member.status) || locked} className={existing ? `assigned${locked ? ' locked' : ''}` : 'rest-day'} onClick={() => setGame((current) => assignActivity(current, member.id, day, existing === activity ? 'clear' : activity))}><span>{t(day)}</span><strong>{t(existing ? BALANCE.activities[existing].label : 'Rest')}</strong><small>{t(locked ? 'Campaign date locked' : existing === 'theater' ? `Lineup ${theaterCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing === 'offAir' ? `Lineup ${offAirCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing ? `${activityEnergyLabel(BALANCE.activities[existing])} base energy` : 'Unassigned day restores energy')}</small></button>; })}</div>
+         <div className="calendar-row">{DAYS.map((day) => { const key = `${member.id}:${day}`; const existing = game.schedule[key]; const locked = AUTOMATIC_ACTIVITY_LOCKS.includes(existing); const plan = fanEventPlanFor(game, member.id, day, existing); return <button type="button" key={day} disabled={!['active','trainee'].includes(member.status) || locked} className={existing ? `assigned${locked ? ' locked' : ''}` : 'rest-day'} onClick={() => setGame((current) => assignActivity(current, member.id, day, existing === activity ? 'clear' : activity))}><span>{t(day)}</span><strong>{plan?.customTitle ? <span data-i18n-ignore="true">{plan.title}</span> : t(plan?.title ?? (existing ? BALANCE.activities[existing].label : 'Rest'))}</strong><small>{t(locked ? 'Campaign date locked' : existing === 'theater' ? `Lineup ${theaterCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing === 'offAir' ? `Lineup ${offAirCounts[day]}/12 · ${activityEnergyLabel(BALANCE.activities[existing])} energy` : existing ? `${activityEnergyLabel(BALANCE.activities[existing])} base energy` : 'Unassigned day restores energy')}</small></button>; })}</div>
         <div className="member-stats">{VISIBLE_MEMBER_STAT_KEYS.map((key) => <div key={key}><span>{visibleStatLabel(key)}</span><div><i style={{ width: `${member[key]}%` }} /></div><strong>{Math.round(member[key])}</strong></div>)}</div>
       </section> : null}
     </div>
@@ -969,52 +998,80 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   const [anniversaryBudget, setAnniversaryBudget] = useState('standard');
   const [anniversaryVenue, setAnniversaryVenue] = useState(venues[0]?.id ?? 'hall');
   const [anniversaryTitle, setAnniversaryTitle] = useState('');
+  const [mgTitle, setMgTitle] = useState('');
   const [confirm, setConfirm] = useState(null);
   // A controlled select whose saved value is no longer in its options renders
   // the first option while React keeps the stale value. Use the visible week
   // for conflict checks, confirmation copy, and the eventual engine action.
-  const selectedMgWeek = mgWeeks.includes(requestedMgWeek) ? requestedMgWeek : mgWeeks[0] ?? null;
-  const selectedAnniversaryWeek = anniversaryWeeks.includes(requestedAnniversaryWeek) ? requestedAnniversaryWeek : anniversaryWeeks[0] ?? null;
+  const selectedMgWeek = mgWeeks.includes(requestedMgWeek) ? requestedMgWeek : (mgWeeks[0] ?? null);
+  const selectedAnniversaryWeek = anniversaryWeeks.includes(requestedAnniversaryWeek) ? requestedAnniversaryWeek : (anniversaryWeeks[0] ?? null);
   const mgWeek = selectedMgWeek;
   const anniversaryWeek = selectedAnniversaryWeek;
-  const runBonusValue = (id) => game.bonusLoadout?.includes(id) ? getBonusValueAtLevel(BONUS_BY_ID[id], game.bonusLevels?.[id] ?? 1) : 0;
+  const runBonusValue = (id) => (game.bonusLoadout?.includes(id) ? getBonusValueAtLevel(BONUS_BY_ID[id], game.bonusLevels?.[id] ?? 1) : 0);
   const selectedAnniversaryBudget = CONCERT_BUDGETS.find((budget) => budget.id === anniversaryBudget) ?? CONCERT_BUDGETS[0];
   const selectedAnniversaryVenue = venues.find((venue) => venue.id === anniversaryVenue) ?? venues[0];
   const anniversaryUpfrontCost = Math.round((selectedAnniversaryBudget?.cost ?? 0) * (1 + runBonusValue('B006'))) + Math.round((selectedAnniversaryVenue?.cost ?? 0) * (1 + runBonusValue('B008')));
-  const eligibleCountFor = (activityId, targetWeek) => targetWeek ? game.members.filter((member) => canMemberPerform(member, activityId) && memberAvailableOnCampaignDate(game, member, game.year, targetWeek)).length : 0;
+  const eligibleCountFor = (activityId, targetWeek) => (targetWeek ? game.members.filter((member) => canMemberPerform(member, activityId) && memberAvailableOnCampaignDate(game, member, game.year, targetWeek)).length : 0);
   const mgEligibleCount = eligibleCountFor('yearEndMeetGreet', selectedMgWeek);
   const anniversaryEligibleCount = eligibleCountFor('concert', selectedAnniversaryWeek);
-  const yearEndMeetGreetLockReason = game.week < 25
-    ? `Year-end Meet & Greet bookings open from ${monthWeekLabel(25)}.`
-    : !mgWeeks.length ? 'Year-end Meet & Greet has no eligible future Q4 date.'
-    : mgEligibleCount < BALANCE.theaterMinimumMembers ? `Year-end Meet & Greet requires ${BALANCE.theaterMinimumMembers} available members; ${mgEligibleCount} available.`
-    : game.money < 40_000_000 ? `Requires ${money(40_000_000)}; current funds: ${money(game.money)}.` : '';
-  const mgScheduleConflicts = selectedMgWeek ? getCampaignConflictReasons(game, { year: game.year, week: selectedMgWeek, type: 'yearEndMeetGreet', day: mgDay, monthScope: true }) : [];
+  const yearEndMeetGreetLockReason = game.week < 25 ? `Year-end Meet & Greet bookings open from ${monthWeekLabel(25)}.` : !mgWeeks.length ? 'Year-end Meet & Greet has no eligible future Q4 date.' : mgEligibleCount < BALANCE.theaterMinimumMembers ? `Year-end Meet & Greet requires ${BALANCE.theaterMinimumMembers} available members; ${mgEligibleCount} available.` : game.money < 40_000_000 ? `Requires ${money(40_000_000)}; current funds: ${money(game.money)}.` : '';
+  const mgScheduleConflicts = selectedMgWeek
+    ? getCampaignConflictReasons(game, {
+        year: game.year,
+        week: selectedMgWeek,
+        type: 'yearEndMeetGreet',
+        day: mgDay,
+        monthScope: true,
+      })
+    : [];
   const mgConflicts = yearEndMeetGreetLockReason ? [yearEndMeetGreetLockReason] : mgScheduleConflicts;
-  const anniversaryBookingLockReason = game.week < 25
-    ? `Anniversary Concert bookings open from ${monthWeekLabel(25)}.`
-    : !anniversaryWeeks.length
-      ? 'Anniversary Concert requires a future date with at least two weeks of lead time.'
-    : anniversaryEligibleCount < BALANCE.theaterMinimumMembers ? `Anniversary Concert requires ${BALANCE.theaterMinimumMembers} available members; ${anniversaryEligibleCount} available.`
-    : game.money < anniversaryUpfrontCost ? `Requires ${money(anniversaryUpfrontCost)}; current funds: ${money(game.money)}.` : '';
-  const anniversaryScheduleConflicts = selectedAnniversaryWeek ? getCampaignConflictReasons(game, { year: game.year, week: selectedAnniversaryWeek, type: 'concert', days: [anniversaryDay, 'Tue', 'Thu'], monthScope: true }) : [];
+  const anniversaryBookingLockReason = game.week < 25 ? `Anniversary Concert bookings open from ${monthWeekLabel(25)}.` : !anniversaryWeeks.length ? 'Anniversary Concert requires a future date with at least two weeks of lead time.' : anniversaryEligibleCount < BALANCE.theaterMinimumMembers ? `Anniversary Concert requires ${BALANCE.theaterMinimumMembers} available members; ${anniversaryEligibleCount} available.` : game.money < anniversaryUpfrontCost ? `Requires ${money(anniversaryUpfrontCost)}; current funds: ${money(game.money)}.` : '';
+  const anniversaryScheduleConflicts = selectedAnniversaryWeek
+    ? getCampaignConflictReasons(game, {
+        year: game.year,
+        week: selectedAnniversaryWeek,
+        type: 'concert',
+        days: [anniversaryDay, 'Tue', 'Thu'],
+        monthScope: true,
+      })
+    : [];
   const anniversaryConflicts = anniversaryBookingLockReason ? [anniversaryBookingLockReason] : anniversaryScheduleConflicts;
-  useEffect(() => { if (!mgWeeks.includes(requestedMgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]); }, [game.year, game.week]);
-  useEffect(() => { if (!anniversaryWeeks.includes(requestedAnniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]); }, [game.year, game.week]);
+  useEffect(() => {
+    if (!mgWeeks.includes(requestedMgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]);
+  }, [game.year, game.week]);
+  useEffect(() => {
+    if (!anniversaryWeeks.includes(requestedAnniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]);
+  }, [game.year, game.week]);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
   const commitAnnualEvent = (action, failureText, failureCode, succeeded) => {
     setGame((current) => {
       const next = action(current);
-      if (succeeded(next, current)) return { ...next, notifications: (next.notifications ?? []).filter((item) => item.text !== failureText) };
+      if (succeeded(next, current))
+        return {
+          ...next,
+          notifications: (next.notifications ?? []).filter((item) => item.text !== failureText),
+        };
       if (next !== current) return next;
-      return { ...current, notifications: [{ type: 'critical', code: failureCode, year: current.year, week: current.week, text: failureText }, ...(current.notifications ?? [])].slice(0, 20) };
+      return {
+        ...current,
+        notifications: [
+          {
+            type: 'critical',
+            code: failureCode,
+            year: current.year,
+            week: current.week,
+            text: failureText,
+          },
+          ...(current.notifications ?? []),
+        ].slice(0, 20),
+      };
     });
     setConfirm(null);
   };
   const scheduleMg = () => {
     if (!selectedMgWeek || mgConflicts.length) return;
     commitAnnualEvent(
-      (current) => scheduleYearEndMeetGreet(current, selectedMgWeek, mgDay, current.week),
+      (current) => scheduleYearEndMeetGreet(current, selectedMgWeek, mgDay, current.week, {}, mgTitle),
       YEAR_END_MEET_GREET_FAILURE,
       YEAR_END_MEET_GREET_FAILURE_CODE,
       (next, current) => (next.yearEndMeetGreets ?? []).length > (current.yearEndMeetGreets ?? []).length,
@@ -1029,7 +1086,7 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
       (next, current) => (next.concerts ?? []).length > (current.concerts ?? []).length,
     );
   };
-  return <section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, mgExisting.targetWeek)} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div> : <><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select></label><div className="annual-event-rule"><span>Per member ticket</span><strong>300 slots · $50k</strong></div><div className="annual-event-rule"><span>Booking cost</span><strong>$40m</strong></div></div>{mgScheduleConflicts.length ? <p className="event-conflict-warning campaign-block-reason" role="status">{calendarLabel(game.year, mgWeek)} unavailable: {mgScheduleConflicts.join(' ')}</p> : yearEndMeetGreetLockReason ? <p className="campaign-block-reason" role="status">{t(yearEndMeetGreetLockReason)}</p> : null}<button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || mgConflicts.length > 0 || game.money < 40_000_000}>Review End-of-Year Meet&amp;Greet</button></>}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? <div className="annual-event-status"><strong>{calendarLabel(game.year, anniversaryExisting.targetWeek)} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div> : <><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue', 'Thu'].includes(day)).map((day) => <option key={day}>{day}</option>)}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>)}</select></label></div>{anniversaryScheduleConflicts.length ? <p className="event-conflict-warning campaign-block-reason" role="status">{calendarLabel(game.year, anniversaryWeek)} unavailable: {anniversaryScheduleConflicts.join(' ')}</p> : anniversaryBookingLockReason ? <p className="campaign-block-reason" role="status">{t(anniversaryBookingLockReason)}</p> : null}<button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length || anniversaryConflicts.length > 0}>Review anniversary</button></>}</article></div>{confirm ? <ModalPortal><div className="setup-modal-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirm(null); }}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="annual-campaign-confirm-title"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2 id="annual-campaign-confirm-title">Confirm {confirm === 'mg' ? 'year-end Meet &amp; Greet' : 'Anniversary Concert'}?</h2><p>{confirm === 'mg' ? `Spend $40m. Sales start now for ${calendarLabel(game.year, mgWeek)}; every active member receives 300 slots at $50k.` : `Book ${calendarLabel(game.year, anniversaryWeek)}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" disabled={confirm === 'mg' ? mgConflicts.length > 0 : anniversaryConflicts.length > 0} onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}</section>;
+  return (<section className="annual-events"><div className="annual-events-head"><span className="eyebrow">Annual rhythm</span><h2>Year-end events</h2><p>Commit Q4 calendar space before the season closes.</p></div><div className="annual-event-grid"><article><span>October-November</span><h3>Year-end Meet &amp; Greet</h3>{mgExisting ? (<div className="annual-event-status"><strong data-i18n-ignore={mgExisting.customTitle ? 'true' : undefined}>{mgExisting.customTitle ? mgExisting.title : t(mgExisting.title ?? 'Year-end Meet & Greet')}</strong><strong>{calendarLabel(game.year, mgExisting.targetWeek)} · {mgExisting.day}</strong><span>{mgExisting.memberSessions.reduce((sum, session) => sum + session.sold, 0)} / {mgExisting.memberSessions.reduce((sum, session) => sum + session.capacity, 0)} tickets · {mgExisting.status}</span></div>) : (<><label className="campaign-title-field">Event title<input name="year-end-meet-greet-title" autoComplete="off" value={mgTitle} maxLength={60} onChange={(event) => setMgTitle(event.target.value)} placeholder="Year-end Meet & Greet" /></label><div className="annual-event-fields"><label>Event week<select value={mgWeek} onChange={(event) => setMgWeek(Number(event.target.value))}>{mgWeeks.map((week) => (<option key={week} value={week}>{calendarLabel(game.year, week)}</option>))}</select></label><label>Event day<select value={mgDay} onChange={(event) => setMgDay(event.target.value)}>{DAYS.map((day) => (<option key={day}>{day}</option>))}</select></label><div className="annual-event-rule"><span>Per member ticket</span><strong>300 slots · $50k</strong></div><div className="annual-event-rule"><span>Booking cost</span><strong>$40m</strong></div></div>{mgScheduleConflicts.length ? (<p className="event-conflict-warning campaign-block-reason" role="status">{calendarLabel(game.year, mgWeek)} unavailable: {mgScheduleConflicts.join(' ')}</p>) : yearEndMeetGreetLockReason ? (<p className="campaign-block-reason" role="status">{t(yearEndMeetGreetLockReason)}</p>) : null}<button type="button" onClick={() => setConfirm('mg')} disabled={!mgWeeks.length || mgConflicts.length > 0 || game.money < 40_000_000}>Review End-of-Year Meet&amp;Greet</button></>)}</article><article><span>December</span><h3>Anniversary Concert</h3>{anniversaryExisting ? (<div className="annual-event-status"><strong>{calendarLabel(game.year, anniversaryExisting.targetWeek)} · {anniversaryExisting.day}</strong><span>{anniversaryExisting.venueName} · {anniversaryExisting.status}</span></div>) : (<><label className="campaign-title-field">Concert title<input value={anniversaryTitle} maxLength={60} onChange={(event) => setAnniversaryTitle(event.target.value)} placeholder={`JKT48 Anniversary ${game.year}`} /></label><div className="annual-event-fields"><label>Event week<select value={anniversaryWeek} onChange={(event) => setAnniversaryWeek(Number(event.target.value))}>{anniversaryWeeks.map((week) => (<option key={week} value={week}>{calendarLabel(game.year, week)}</option>))}</select></label><label>Show day<select value={anniversaryDay} onChange={(event) => setAnniversaryDay(event.target.value)}>{DAYS.filter((day) => !['Tue', 'Thu'].includes(day)).map((day) => (<option key={day}>{day}</option>))}</select></label><label>Production<select value={anniversaryBudget} onChange={(event) => setAnniversaryBudget(event.target.value)}>{CONCERT_BUDGETS.map((budget) => (<option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>))}</select></label><label>Venue<select value={anniversaryVenue} onChange={(event) => setAnniversaryVenue(event.target.value)}>{venues.map((venue) => (<option key={venue.id} value={venue.id}>{venue.name} · {number.format(venue.capacity)}</option>))}</select></label></div>{anniversaryScheduleConflicts.length ? (<p className="event-conflict-warning campaign-block-reason" role="status">{calendarLabel(game.year, anniversaryWeek)} unavailable: {anniversaryScheduleConflicts.join(' ')}</p>) : anniversaryBookingLockReason ? (<p className="campaign-block-reason" role="status">{t(anniversaryBookingLockReason)}</p>) : null}<button type="button" onClick={() => setConfirm('anniversary')} disabled={!anniversaryWeeks.length || anniversaryConflicts.length > 0}>Review anniversary</button></>)}</article></div>{confirm ? (<ModalPortal><div className="setup-modal-backdrop confirmation-backdrop"role="presentation"onMouseDown={(event) => {if (event.target === event.currentTarget) setConfirm(null);}}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="annual-campaign-confirm-title"><div className="confirm-week-icon">{confirm === 'mg' ? <Users size={24} /> : <Ticket size={24} />}</div><h2 id="annual-campaign-confirm-title">Confirm <span data-i18n-ignore="true">{confirm === 'mg' ? mgTitle.trim() || 'Year-end Meet & Greet' : 'Anniversary Concert'}</span>?</h2><p>{confirm === 'mg' ? `Spend $40m. Sales start now for ${calendarLabel(game.year, mgWeek)}; every active member receives 300 slots at $50k.` : `Book ${calendarLabel(game.year, anniversaryWeek)}. Tuesday and Thursday become rehearsals; ${anniversaryDay} becomes the concert day.`}</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirm(null)}>Cancel</button><button type="button" className="setup-primary" disabled={confirm === 'mg' ? mgConflicts.length > 0 : anniversaryConflicts.length > 0} onClick={confirm === 'mg' ? scheduleMg : scheduleAnniversary}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal>) : null}</section>);
 }
 
 function AnnualEvents({ game, setGame, language = 'en' }) {
@@ -1104,20 +1161,26 @@ function FanEventCampaignsCore({ game, setGame }) {
    return <section className="fan-event-campaigns"><header><div><h2>Fan event campaigns</h2><p>Schedule Video Call and Meet &amp; Greet sessions for this week or a future week.</p></div><div className="fan-event-tabs" role="tablist" aria-label="Fan event type"><button type="button" role="tab" aria-selected={eventType === 'videoCall'} className={eventType === 'videoCall' ? 'active' : ''} onClick={() => setEventType('videoCall')}><PhoneCall size={16} /> Video Call</button><button type="button" role="tab" aria-selected={eventType === 'meetGreet'} className={eventType === 'meetGreet' ? 'active' : ''} onClick={() => setEventType('meetGreet')}><Users size={16} /> Meet &amp; Greet</button></div></header>{selectedWeekConflicts.length ? <EventConflictNotice game={game} week={eventWeek} eventType={eventType} day={eventDay} memberIds={eventType === 'videoCall' ? chosenIds : []} /> : null}<div className="fan-event-setup"><div className="fan-event-facts"><span><small>Ticket price</small><strong>{money(activity.ticket)}</strong></span><span><small>Slots / member</small><strong>{activity.capacity}</strong></span><span><small>Energy / member</small><strong>{activity.energy}</strong></span><span><small>Frequency</small><strong>{eventType === 'videoCall' ? 'Once / member / month' : 'Once / month'}</strong></span></div><div className="fan-event-date-fields"><label className="fan-event-day">Event week<select value={eventWeek} onChange={(event) => setEventWeek(Number(event.target.value))}>{eventWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label className="fan-event-day">Event day<select value={eventDay} onChange={(event) => setEventDay(event.target.value)}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label></div>{eventType === 'videoCall' ? <div className="fan-event-members"><div><strong>Select members</strong><span>{chosenIds.length} selected · {vcMembers.length} available</span><button type="button" onClick={() => setSelectedIds(chosenIds.length === vcMembers.length ? [] : vcMembers.map((member) => member.id))}>{chosenIds.length === vcMembers.length ? 'Clear all' : 'Select all'}</button></div><div>{vcMembers.map((member) => <label key={member.id}><input type="checkbox" checked={chosenIds.includes(member.id)} onChange={() => setSelectedIds((current) => current.includes(member.id) ? current.filter((id) => id !== member.id) : [...current, member.id])} /><Portrait member={member} size="tiny" /><span><strong>{displayName(member)}</strong><small>POP {member.popularity} · Energy {member.energy}</small></span></label>)}</div>{vcMembers.length ? null : <p>No members available for another Video Call in this month.</p>}</div> : <div className="fan-event-group-status"><Users size={20} /><span><strong>{eligibleMembers.length} members participate</strong><small>{meetGreetUsed ? 'Meet &amp; Greet already scheduled or completed for this week.' : dayHasCampaignLock ? 'Selected day conflicts with an automatic campaign.' : 'All available active members and trainees will be assigned.'}</small></span></div>}<div className="fan-event-action"><span><strong>{money((eventType === 'videoCall' ? chosenIds.length : eligibleMembers.length) * activity.cost)}</strong><small>Projected activity cost</small></span><button type="button" disabled={disabled} onClick={() => setConfirmEvent(true)}>Review event</button></div></div>{confirmEvent ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmEvent(false); }}><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="fan-event-confirm-title"><div className="confirm-week-icon">{eventType === 'videoCall' ? <PhoneCall size={24} /> : <Users size={20} />}</div><h2 id="fan-event-confirm-title">Confirm {eventType === 'videoCall' ? 'Video Call' : 'Meet & Greet'} campaign?</h2><p>Schedule {eventType === 'videoCall' ? `${chosenIds.length} selected member(s)` : `all ${eligibleMembers.length} available members`} for {calendarParts(eventWeek).month} · Week {calendarParts(eventWeek).weekOfMonth}, {eventDay}.</p><div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmEvent(false)}>Cancel</button><button type="button" className="setup-primary" onClick={scheduleEvent}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}</section>;
 }
 
-function FixedFanEventCampaigns({ game, setGame, language = 'en' }) {
+function FixedFanEventCampaigns({ game, setGame, language = 'en', onTutorialAction }) {
   const t = (value) => translate(language, value);
+  const announcedEvents = (game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && ['videoCall', 'meetGreet'].includes(plan.type)).sort((a, b) => a.targetWeek - b.targetWeek);
   const [eventType, setEventType] = useState('videoCall');
   const [eventDay, setEventDay] = useState(DAYS[5]);
   const [eventWeek, setEventWeek] = useState(game.week);
   const [selectedIds, setSelectedIds] = useState([]);
   const [confirmEvent, setConfirmEvent] = useState(false);
+  const [eventTitles, setEventTitles] = useState({ videoCall: '', meetGreet: '' });
   const eventWeeks = useMemo(() => Array.from({ length: BALANCE.weeksPerYear - game.week + 1 }, (_, index) => game.week + index), [game.week]);
   const targetMonth = Math.ceil(eventWeek / BALANCE.weeksPerMonth);
   const eligibleMembers = game.members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0 && memberAvailableOnCampaignDate(game, member, game.year, eventWeek));
   const eventSchedule = eventWeek === game.week ? game.schedule : {};
   const currentMonth = Math.ceil(game.week / BALANCE.weeksPerMonth);
   const completedVcIds = new Set((game.activityEvents ?? []).filter((event) => event.type === 'videoCall' && event.year === game.year && event.month === targetMonth).map((event) => event.memberId));
-  const scheduledVcIds = new Set(Object.entries(currentMonth === targetMonth ? game.schedule : {}).filter(([, activityId]) => activityId === 'vc1').map(([key]) => key.slice(0, key.lastIndexOf(':'))));
+  const scheduledVcIds = new Set(
+    Object.entries(currentMonth === targetMonth ? game.schedule : {})
+      .filter(([, activityId]) => activityId === 'vc1')
+      .map(([key]) => key.slice(0, key.lastIndexOf(':'))),
+  );
   const plannedVcIds = new Set((game.fanEventPlans ?? []).filter((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'videoCall').flatMap((plan) => plan.memberIds));
   const vcMembers = eligibleMembers.filter((member) => !completedVcIds.has(member.id) && !scheduledVcIds.has(member.id) && !plannedVcIds.has(member.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(eventSchedule[`${member.id}:${eventDay}`]));
   const chosenIds = selectedIds.filter((memberId) => vcMembers.some((member) => member.id === memberId));
@@ -1126,33 +1189,50 @@ function FixedFanEventCampaigns({ game, setGame, language = 'en' }) {
   const meetGreetUsed = eventType === 'meetGreet' && ((game.activityEvents ?? []).some((event) => event.type === 'meetGreet' && event.year === game.year && event.month === targetMonth) || currentMonthHasMeetGreet || (game.fanEventPlans ?? []).some((plan) => plan.year === game.year && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth && plan.type === 'meetGreet'));
   const dayHasCampaignLock = (eventType === 'videoCall' ? chosenIds : eligibleMembers).some((member) => AUTOMATIC_ACTIVITY_LOCKS.includes(eventSchedule[`${member.id}:${eventDay}`]));
   const activity = BALANCE.activities[eventType === 'videoCall' ? 'vc1' : 'mg1'];
-  const blockerReason = conflicts[0]
-    || (!eligibleMembers.length ? 'No eligible members are available for the selected date.' : '')
-    || (eventType === 'videoCall' && !vcMembers.length ? 'No members remain eligible for another Video Call in this month.' : '')
-    || (eventType === 'videoCall' && !chosenIds.length ? 'Select at least one available member.' : '')
-    || (eventType === 'meetGreet' && meetGreetUsed ? 'Meet & Greet is already scheduled or completed for this month.' : '')
-    || (dayHasCampaignLock ? 'Selected day conflicts with an automatic campaign.' : '');
+  const blockerReason = conflicts[0] || (!eligibleMembers.length ? 'No eligible members are available for the selected date.' : '') || (eventType === 'videoCall' && !vcMembers.length ? 'No members remain eligible for another Video Call in this month.' : '') || (eventType === 'videoCall' && !chosenIds.length ? 'Select at least one available member.' : '') || (dayHasCampaignLock ? 'Selected day conflicts with an automatic campaign.' : '');
   const disabled = Boolean(blockerReason);
-  useEffect(() => { setEventWeek((current) => Math.max(game.week, Math.min(current, BALANCE.weeksPerYear))); }, [game.week]);
-  useEffect(() => { setSelectedIds((current) => current.filter((memberId) => vcMembers.some((member) => member.id === memberId))); }, [eventWeek, eventDay, game.year, game.week, game.schedule, game.fanEventPlans]);
-  useEffect(() => { if (!confirmEvent) return undefined; const close = (event) => { if (event.key === 'Escape') setConfirmEvent(false); }; window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close); }, [confirmEvent]);
+  const eventTitle = eventTitles[eventType];
+  const displayedEventTitle = eventTitle.trim() || (eventType === 'videoCall' ? 'Video Call' : 'Meet & Greet');
+  useEffect(() => {
+    setEventWeek((current) => Math.max(game.week, Math.min(current, BALANCE.weeksPerYear)));
+  }, [game.week]);
+  useEffect(() => {
+    setSelectedIds((current) => current.filter((memberId) => vcMembers.some((member) => member.id === memberId)));
+  }, [eventWeek, eventDay, game.year, game.week, game.schedule, game.fanEventPlans]);
+  useEffect(() => {
+    if (!confirmEvent) return undefined;
+    const close = (event) => {
+      if (event.key === 'Escape') setConfirmEvent(false);
+    };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [confirmEvent]);
   const scheduleEvent = () => {
     const memberIds = eventType === 'videoCall' ? chosenIds : [];
     // Always commit against the latest state. The engine re-checks conflicts and
     // records a notification instead of silently dropping a stale confirmation.
     setGame((current) => {
-      const next = scheduleFanCampaign(current, eventType, eventDay, memberIds, eventWeek);
+      const next = scheduleFanCampaign(current, eventType, eventDay, memberIds, eventWeek, eventTitle);
       if (next !== current) return next;
       const label = eventType === 'videoCall' ? 'Video Call' : 'Meet & Greet';
-      return { ...current, notifications: [{ type: 'critical', text: `${label} could not be scheduled. Check the selected date, member availability, funds, and campaign conflicts.` }, ...(current.notifications ?? [])].slice(0, 20) };
+      return {
+        ...current,
+        notifications: [
+          {
+            type: 'critical',
+            text: `${label} could not be scheduled. Check the selected date, member availability, funds, and campaign conflicts.`,
+          },
+          ...(current.notifications ?? []),
+        ].slice(0, 20),
+      };
     });
     setConfirmEvent(false);
   };
-  return <section className="fan-event-campaigns"><header><div><h2>Fan event campaigns</h2><p>Schedule Video Call and Meet &amp; Greet sessions for this week or a future week.</p></div><div className="fan-event-tabs" role="tablist" aria-label="Fan event type"><button type="button" role="tab" aria-selected={eventType === 'videoCall'} className={eventType === 'videoCall' ? 'active' : ''} onClick={() => setEventType('videoCall')}><PhoneCall size={16} /> Video Call</button><button type="button" role="tab" aria-selected={eventType === 'meetGreet'} className={eventType === 'meetGreet' ? 'active' : ''} onClick={() => setEventType('meetGreet')}><Users size={16} /> Meet &amp; Greet</button></div></header>{conflicts.length ? <EventConflictNotice game={game} week={eventWeek} eventType={eventType} day={eventDay} memberIds={eventType === 'videoCall' ? chosenIds : []} /> : null}<div className="fan-event-setup"><div className="fan-event-facts"><span><small>Ticket price</small><strong>{money(activity.ticket)}</strong></span><span><small>Slots / member</small><strong>{activity.capacity}</strong></span><span><small>Energy / member</small><strong>{activity.energy}</strong></span><span><small>Frequency</small><strong>{eventType === 'videoCall' ? 'Once / member / month' : 'Once / month'}</strong></span></div><div className="fan-event-date-fields"><label className="fan-event-day">Event week<select value={eventWeek} onChange={(event) => setEventWeek(Number(event.target.value))}>{eventWeeks.map((week) => <option key={week} value={week}>{calendarLabel(game.year, week)}</option>)}</select></label><label className="fan-event-day">Event day<select value={eventDay} onChange={(event) => setEventDay(event.target.value)}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label></div>{eventType === 'videoCall' ? <div className="fan-event-members"><div><strong>Select members</strong><span>{chosenIds.length} selected · {vcMembers.length} available</span><button type="button" onClick={() => setSelectedIds(chosenIds.length === vcMembers.length ? [] : vcMembers.map((member) => member.id))}>{chosenIds.length === vcMembers.length ? 'Clear all' : 'Select all'}</button></div><div>{vcMembers.map((member) => <label key={member.id}><input type="checkbox" checked={chosenIds.includes(member.id)} onChange={() => setSelectedIds((current) => current.includes(member.id) ? current.filter((id) => id !== member.id) : [...current, member.id])} /><Portrait member={member} size="tiny" /><span><strong>{displayName(member)}</strong><small>POP {member.popularity} · Energy {member.energy}</small></span></label>)}</div>{vcMembers.length ? null : <p>No members available for another Video Call in this month.</p>}</div> : <div className="fan-event-group-status"><Users size={20} /><span><strong>{eligibleMembers.length} members participate</strong><small>{meetGreetUsed ? 'Meet &amp; Greet already scheduled or completed for this week.' : dayHasCampaignLock ? 'Selected day conflicts with an automatic campaign.' : 'All available active members and trainees will be assigned.'}</small></span></div>}{blockerReason ? <p className="campaign-block-reason" role="status">{t(blockerReason)}</p> : null}<div className="fan-event-action"><span><strong>{money((eventType === 'videoCall' ? chosenIds.length : eligibleMembers.length) * activity.cost)}</strong><small>Projected activity cost</small></span><button type="button" disabled={disabled} onClick={() => setConfirmEvent(true)}>Review event</button></div></div>{confirmEvent ? <ModalPortal><div className="setup-modal-backdrop confirmation-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmEvent(false); }}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="fan-event-confirm-title"><div className="confirm-week-icon">{eventType === 'videoCall' ? <PhoneCall size={24} /> : <Users size={20} />}</div><h2 id="fan-event-confirm-title">Confirm {eventType === 'videoCall' ? 'Video Call' : 'Meet &amp; Greet'} campaign?</h2><p>Schedule {eventType === 'videoCall' ? `${chosenIds.length} selected member(s)` : `all ${eligibleMembers.length} available members`} for {calendarLabel(game.year, eventWeek)}, {eventDay}.</p>{conflicts.length ? <p className="event-conflict-warning">This slot is no longer available: {conflicts.join(' ')}</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmEvent(false)}>Cancel</button><button type="button" className="setup-primary" disabled={disabled} onClick={scheduleEvent}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal> : null}</section>;
+  return (<section className="fan-event-campaigns"><header><div><h2>Fan event campaigns</h2><p>Schedule Video Call and Meet &amp; Greet sessions for this week or a future week.</p></div><div className="fan-event-tabs" role="tablist" aria-label="Fan event type"><button type="button" role="tab" aria-selected={eventType === 'videoCall'} className={eventType === 'videoCall' ? 'active' : ''} onClick={() => setEventType('videoCall')}><PhoneCall size={16} /> Video Call</button><button type="button" role="tab" aria-selected={eventType === 'meetGreet'} className={eventType === 'meetGreet' ? 'active' : ''} onClick={() => setEventType('meetGreet')}><Users size={16} /> Meet &amp; Greet</button></div></header>{conflicts.length ? <EventConflictNotice game={game} week={eventWeek} eventType={eventType} day={eventDay} memberIds={eventType === 'videoCall' ? chosenIds : []} /> : null}<div className="fan-event-setup"><label className="campaign-title-field">Event title<input name={`${eventType}-title`} autoComplete="off" value={eventTitle} maxLength={60} onChange={(event) => setEventTitles((current) => ({ ...current, [eventType]: event.target.value }))} placeholder={eventType === 'videoCall' ? 'Video Call' : 'Meet & Greet'} /></label><div className="fan-event-facts"><span><small>Ticket price</small><strong>{money(activity.ticket)}</strong></span><span><small>Slots / member</small><strong>{activity.capacity}</strong></span><span><small>Energy / member</small><strong>{activity.energy}</strong></span><span><small>Frequency</small><strong>{eventType === 'videoCall' ? 'Once / member / month' : 'Once / month'}</strong></span></div><div className="fan-event-date-fields"><label className="fan-event-day">Event week<select value={eventWeek} onChange={(event) => setEventWeek(Number(event.target.value))}>{eventWeeks.map((week) => (<option key={week} value={week}>{calendarLabel(game.year, week)}</option>))}</select></label><label className="fan-event-day">Event day<select value={eventDay} onChange={(event) => setEventDay(event.target.value)}>{DAYS.map((day) => (<option key={day} value={day}>{day}</option>))}</select></label></div>{eventType === 'videoCall' ? (<div className="fan-event-members"><div><strong>Select members</strong><span>{chosenIds.length} selected · {vcMembers.length} available</span><button type="button" onClick={() => setSelectedIds(chosenIds.length === vcMembers.length ? [] : vcMembers.map((member) => member.id))}>{chosenIds.length === vcMembers.length ? 'Clear all' : 'Select all'}</button></div><div>{vcMembers.map((member) => (<label key={member.id}><input type="checkbox" checked={chosenIds.includes(member.id)} onChange={() => setSelectedIds((current) => (current.includes(member.id) ? current.filter((id) => id !== member.id) : [...current, member.id]))} /><Portrait member={member} size="tiny" /><span><strong>{displayName(member)}</strong><small>POP {member.popularity} · Energy {member.energy}</small></span></label>))}</div>{vcMembers.length ? null : <p>No members available for another Video Call in this month.</p>}</div>) : (<div className="fan-event-group-status"><Users size={20} /><span><strong>{eligibleMembers.length} members participate</strong><small>{meetGreetUsed ? 'Meet &amp; Greet already scheduled or completed for this week.' : dayHasCampaignLock ? 'Selected day conflicts with an automatic campaign.' : 'All available active members and trainees will be assigned.'}</small></span></div>)}{blockerReason ? (<p className="campaign-block-reason" role="status">{t(blockerReason)}</p>) : null}<div className="fan-event-action"><span><strong>{money((eventType === 'videoCall' ? chosenIds.length : eligibleMembers.length) * activity.cost)}</strong><small>Projected activity cost</small></span><button type="button"disabled={disabled}onClick={() => {setConfirmEvent(true);onTutorialAction?.('fan-event-reviewed');}}>Review event</button></div></div>{announcedEvents.length ? (<div className="fan-event-plan-list" aria-label={t('Scheduled fan events')}>{announcedEvents.map((plan) => (<article key={plan.id}><span><strong {...(plan.customTitle ? { 'data-i18n-ignore': 'true' } : {})}>{plan.title ?? (plan.type === 'videoCall' ? 'Video Call' : 'Meet & Greet')}</strong><small>{calendarLabel(plan.year, plan.targetWeek)} · {t(plan.day)}</small></span><b>{t('Announced')}</b></article>))}</div>) : null}{confirmEvent ? (<ModalPortal><div className="setup-modal-backdrop confirmation-backdrop"role="presentation"onMouseDown={(event) => {if (event.target === event.currentTarget) setConfirmEvent(false);}}><section className="confirm-week-modal campaign-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="fan-event-confirm-title"><div className="confirm-week-icon">{eventType === 'videoCall' ? <PhoneCall size={24} /> : <Users size={20} />}</div><h2 id="fan-event-confirm-title">Confirm <span data-i18n-ignore="true">{displayedEventTitle}</span>?</h2><p>Schedule {eventType === 'videoCall' ? `${chosenIds.length} selected member(s)` : `all ${eligibleMembers.length} available members`} for {calendarLabel(game.year, eventWeek)}, {eventDay}.</p>{conflicts.length ? <p className="event-conflict-warning">This slot is no longer available: {conflicts.join(' ')}</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmEvent(false)}>Cancel</button><button type="button" className="setup-primary" disabled={disabled} onClick={scheduleEvent}>Confirm event <ChevronRight size={18} /></button></div></section></div></ModalPortal>) : null}</section>);
 }
 
-function FanEventCampaigns({ game, setGame, language = 'en' }) {
-  return <div className="fan-event-box"><FixedFanEventCampaigns game={game} setGame={setGame} language={language} /></div>;
+function FanEventCampaigns({ game, setGame, language = 'en', onTutorialAction }) {
+  return (<div className="fan-event-box"><FixedFanEventCampaigns game={game} setGame={setGame} language={language} onTutorialAction={onTutorialAction} /></div>);
 }
 
 function MajorCampaignPanel({ game, setGame, language = 'en' }) {
@@ -1306,7 +1386,7 @@ function CampaignRewardStatus({ game, language = 'en' }) {
   return <section className="major-campaign-panel campaign-reward-status"><div className="major-campaign-head"><div><span className="eyebrow">{text('Reward pipeline', 'Alur hadiah')}</span><h2>{text('Voting → Concert → MV Release', 'Voting → Konser → Rilis MV')}</h2><p>{text('Campaign reward production follows the configured budget and keeps concert/MV work above VC and template assignments.', 'Produksi hadiah kampanye memakai anggaran yang dipilih dan menempatkan konser/MV di atas VC serta template.')}</p></div></div><div className="major-campaign-metrics"><div><span>{text('Concert budget', 'Anggaran konser')}</span><strong>{concertBudget?.name ?? campaign.concertBudgetId}</strong></div><div><span>{text('MV budget', 'Anggaran MV')}</span><strong>{mvBudget?.name ?? campaign.mvBudgetId}</strong></div><div><span>{text('Concert status', 'Status konser')}</span><strong>{rewardConcert?.status ?? campaign.rewardConcertStatus ?? text('Waiting', 'Menunggu')}</strong></div><div><span>{text('Performers', 'Penampil')}</span><strong>{campaign.rewardConcertMemberIds?.length ?? 0}</strong></div></div></section>;
 }
 
-function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate, language = 'en' }) {
+function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovate, language = 'en', onTutorialAction }) {
   const t = (value) => translate(language, value);
   const [confirmSingle, setConfirmSingle] = useState(false);
   const productionConfirmRef = useRef(null);
@@ -1465,7 +1545,7 @@ function Campaigns({ game, setGame, selectedMember, setSelectedMember, onRenovat
     <JankenLuckNotice game={game} language={language} />
     <CampaignRewardStatus game={game} language={language} />
     <CampaignBracketPreview game={game} language={language} />
-    <FanEventCampaigns game={game} setGame={setGame} language={language} />
+    <FanEventCampaigns game={game} setGame={setGame} language={language} onTutorialAction={onTutorialAction} />
     <AnnualEvents game={game} setGame={setGame} language={language} />
     <section className="campaign-grid">
       <article className="campaign-feature"><div className="campaign-icon"><Disc3 size={26} /></div><span className="eyebrow">Release project</span><h2>Produce next single</h2><p>Choose a release month. Production begins five weeks before release and occupies four weekly schedule days.</p><label className="campaign-title-field">Single / MV title<input type="text" maxLength={60} value={singleTitle} onChange={(event) => setSingleTitle(event.target.value)} placeholder={`Single ${game.singles.length + 1}`} disabled={singleProjectBlocked} /></label><div className="concert-option-grid single-budget-grid"><label>Production budget<select value={singleBudgetId} onChange={(event) => setSingleBudgetId(event.target.value)} disabled={singleProjectBlocked}>{SINGLE_BUDGETS.map((option) => <option key={option.id} value={option.id}>{option.name} · {money(Math.round(option.cost * singleProductionRate))}</option>)}</select></label><div className="budget-impact"><span>Release impact</span><strong>Popularity +{selectedSingleBudget.popularityGain} · Fan trust {selectedSingleBudget.fanTrustGain >= 0 ? '+' : ''}{selectedSingleBudget.fanTrustGain}</strong></div></div>{center ? <div className="center-select"><Portrait member={center} size="small" /><label>Center<select value={center.id} onChange={(event) => selectMvPosition(0, event.target.value)} disabled={singleProjectBlocked}>{mvRosterMembers.map((member) => <option key={member.id} value={member.id} disabled={!eligibleMemberIds.has(member.id)}>{displayName(member)}</option>)}</select></label></div> : null}{activeSingle ? <><div className="production-progress"><div><strong>{activeSingle.title}</strong><span>{activeSingle.status === 'planned' ? 'Announced' : activeSingle.status === 'ready' ? 'Production complete' : `${activeSingle.progressWeeks}/${activeSingle.durationWeeks} weeks`}</span></div><progress aria-label={`${activeSingle.title} production progress`} max={activeSingle.durationWeeks} value={activeSingle.progressWeeks}>{Math.round(activeSingle.progressWeeks / activeSingle.durationWeeks * 100)}%</progress><small>Release: {calendarLabel(activeSingle.releaseYear, activeSingle.releaseWeek)} · {activeSingle.productionDay} production day</small></div><ParticipantDetails game={game} single={activeSingle} language={language} /></> : <><div className="mv-roster-select"><div className="mv-roster-heading"><div><strong>{t('MV members')}</strong><span>{t('Choose or swap the 11 positions beside the center. Unavailable members are disabled.')}</span></div><button type="button" className="secondary-button" onClick={autoFillMv} disabled={rankedEligibleMembers.length < 12 || singleProjectBlocked}>{t('Auto Fill')}</button></div><div>{Array.from({ length: 11 }, (_, index) => <label key={index}><span>{index + 2}</span><select aria-label={`${t('MV member')} ${index + 2}`} value={mvLineupIds[index] ?? ''} onChange={(event) => selectMvPosition(index + 1, event.target.value)} disabled={activeMajorCampaign}><option value="" disabled>{t('Choose member')}</option>{mvRosterMembers.map((member) => <option key={member.id} value={member.id} disabled={!eligibleMemberIds.has(member.id)}>{displayName(member)}</option>)}</select></label>)}</div></div><div className="campaign-date-grid"><label>Release month<select value={releaseTarget} onChange={(event) => setReleaseTarget(event.target.value)} disabled={activeMajorCampaign}>{releaseOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label>Production day<select value={productionDay} onChange={(event) => setProductionDay(event.target.value)} disabled={activeMajorCampaign}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label></div>{selectedRelease ? <div className="campaign-timeline"><span>Production starts</span><strong>{calendarLabel(Math.floor((selectedRelease.absolute - 6) / BALANCE.weeksPerYear) + 1, ((selectedRelease.absolute - 6) % BALANCE.weeksPerYear) + 1)}</strong><small>Four production weeks · release in Week 4</small></div> : null}<div className="mv-lineup-status"><strong>{mvMembers.length}/12 members ready</strong><span aria-live="polite">{activeMajorCampaign ? 'Finish the current major campaign before producing a regular MV.' : mvMembers.length < 12 ? 'At least 12 eligible members are required; announced graduates are unavailable after their Last Show week.' : productionDayOccupied ? 'Choose a free production day.' : `${displayName(center)} leads the selected 12-member lineup.`}</span></div></>}{singleBlockReason ? <p className="campaign-block-reason" role="status">{t(singleBlockReason)}</p> : null}<div className="campaign-action"><span><strong>{money(singleProductionCost)}</strong><small>Production + promotion</small></span><button type="button" onClick={() => setConfirmSingle(true)} disabled={Boolean(singleBlockReason)}>{activeSingle ? activeSingle.campaignId ? 'Campaign MV in production' : 'Single scheduled' : activeMajorCampaign ? 'Major campaign in progress' : 'Review production'}</button></div></article>
@@ -1500,30 +1580,39 @@ function localizedInjuryEventCopy(event, language) {
 function HistoryView({ game, language = 'en' }) {
   const t = (value) => translate(language, value);
   const reviews = [...(game.annualReviews ?? [])].reverse();
-  const buildHistoryEntries = (events, status) => events.reduce((groups, event) => {
-    const year = event.year;
-    const week = event.week ?? event.targetWeek;
-    const key = `${year}-${week}-${event.type}`;
-    const group = groups.get(key) ?? {
-      ...event,
-      id: `history-${key}`,
-      memberIds: [],
-      type: event.type,
-      title: event.type === 'videoCall' ? `Video Call ${status}` : `Meet & Greet ${status}`,
-      year,
-      week,
-    };
-    if (event.memberId) group.memberIds.push(event.memberId);
-    if (event.memberIds) group.memberIds.push(...event.memberIds);
-    groups.set(key, group);
-    return groups;
-  }, new Map());
-  const completedMap = buildHistoryEntries((game.activityEvents ?? []).filter((e) => e.type === 'videoCall' || e.type === 'meetGreet'), 'completed');
-  const plannedMap = buildHistoryEntries((game.fanEventPlans ?? []).filter((e) => e.type === 'videoCall' || e.type === 'meetGreet'), 'scheduled');
+  const buildHistoryEntries = (events, status) =>
+    events.reduce((groups, event) => {
+      const year = event.year;
+      const week = event.week ?? event.targetWeek;
+      const key = event.eventId ?? (status === 'scheduled' ? event.id : null) ?? `${year}-${week}-${event.type}`;
+      const group = groups.get(key) ?? {
+        ...event,
+        id: `history-${key}`,
+        memberIds: [],
+        type: event.type,
+        title: event.title ?? (event.type === 'videoCall' ? 'Video Call' : 'Meet & Greet'),
+        customTitle: Boolean(event.customTitle),
+        eventStatus: status,
+        year,
+        week,
+      };
+      if (event.memberId) group.memberIds.push(event.memberId);
+      if (event.memberIds) group.memberIds.push(...event.memberIds);
+      groups.set(key, group);
+      return groups;
+    }, new Map());
+  const completedMap = buildHistoryEntries(
+    (game.activityEvents ?? []).filter((e) => e.type === 'videoCall' || e.type === 'meetGreet'),
+    'completed',
+  );
+  const plannedMap = buildHistoryEntries(
+    (game.fanEventPlans ?? []).filter((e) => e.type === 'videoCall' || e.type === 'meetGreet'),
+    'scheduled',
+  );
   const combinedMap = new Map([...completedMap, ...plannedMap]);
   const fanEventHistory = [...combinedMap.values()].map((event) => {
     const report = (game.weeklyReports ?? []).find((item) => item.year === event.year && item.week === event.week);
-    const scheduleEntries = Object.entries(report?.schedule ?? {}).filter(([, activityId]) => event.type === 'videoCall' ? activityId === 'vc1' : activityId === 'mg1');
+    const scheduleEntries = Object.entries(report?.schedule ?? {}).filter(([, activityId]) => (event.type === 'videoCall' ? activityId === 'vc1' : activityId === 'mg1'));
     const memberIdsFromSchedule = scheduleEntries.map(([key]) => key.slice(0, key.lastIndexOf(':')));
     const memberIds = [...new Set([...event.memberIds, ...memberIdsFromSchedule])];
     let detail;
@@ -1550,13 +1639,13 @@ function HistoryView({ game, language = 'en' }) {
       });
       detail = `Members: ${names.join(', ')}.`;
     } else {
-      detail = `Group fan event ${event.title.includes('scheduled') ? 'scheduled' : 'completed'}.`;
+      detail = `Group fan event ${event.eventStatus}.`;
     }
     return { ...event, detail };
   });
   const historyEvents = [...game.history, ...fanEventHistory].sort((a, b) => absoluteWeek(b.year, b.week) - absoluteWeek(a.year, a.week));
-   const formatEventDetail = (event) => formatHistoryEventDetail(event.detail, event.year, calendarLabel);
-    return <div className="page history-page"><section className="page-heading"><div><span className="eyebrow">{t('Alternate timeline')}</span><h1>{t('Club history')}</h1><p>{t('Major decisions, breakthroughs, disruptions, and generations remain in this run.')}</p></div></section>{reviews.length ? <section className="annual-review-list"><div><span className="eyebrow">{t('Season archive')}</span><h2>{t('Annual reviews')}</h2></div>{reviews.map((review) => <article key={review.year}><header><span>{t(`Year ${review.year}`)}</span><strong>{review.overallGrade}</strong></header><div>{review.categories.map((category) => <span key={category.id}><small>{t(category.label)}</small><b>{category.grade}</b></span>)}</div><footer>{review.snapshot.fanGrowth ? <><span>{t('Fan target grade')} <strong>{t(review.snapshot.fanGrowth.label)}</strong></span><span>{t('Starting fans')} <strong>{number.format(review.snapshot.fanGrowth.startingFans)}</strong></span><span>{t('Target fans')} <strong>{number.format(review.snapshot.fanGrowth.targetFans)}</strong></span><span>{t('Actual fans')} <strong>{number.format(review.snapshot.fanGrowth.actualFans)}</strong></span><span>{t('Achievement')} <strong>{review.snapshot.fanGrowth.achievementPercent}%</strong></span></> : <span>{t('Fanbase')} <strong>{number.format(review.snapshot.fanbase)}</strong></span>}<span>{t('Net cash')} <strong>{money(review.snapshot.netCash)}</strong></span><span>{t('Roster')} <strong>{review.snapshot.roster}</strong></span></footer></article>)}</section> : null}<section className="timeline">{historyEvents.map((event) => { const injuryCopy = localizedInjuryEventCopy(event, language); return <article key={event.id}><div className={`timeline-mark ${event.type}`} /> <div className="timeline-time"><strong>{t(`Year ${event.year}`)}</strong><span>{t(`${calendarParts(event.week).month} · Week ${calendarParts(event.week).weekOfMonth}`)}</span></div><div><span>{t(event.type)}</span><h2>{injuryCopy?.title ?? t(language === 'id' && event.titleId ? event.titleId : event.title)}</h2><p>{injuryCopy?.detail ?? t(language === 'id' && event.detailId ? event.detailId : formatEventDetail(event))}</p></div></article>; })}</section></div>;
+  const formatEventDetail = (event) => formatHistoryEventDetail(event.detail, event.year, calendarLabel);
+  return (<div className="page history-page"><section className="page-heading"><div><span className="eyebrow">{t('Alternate timeline')}</span><h1>{t('Club history')}</h1><p>{t('Major decisions, breakthroughs, disruptions, and generations remain in this run.')}</p></div></section>{reviews.length ? (<section className="annual-review-list"><div><span className="eyebrow">{t('Season archive')}</span><h2>{t('Annual reviews')}</h2></div>{reviews.map((review) => (<article key={review.year}><header><span>{t(`Year ${review.year}`)}</span><strong>{review.overallGrade}</strong></header><div>{review.categories.map((category) => (<span key={category.id}><small>{t(category.label)}</small><b>{category.grade}</b></span>))}</div><footer>{review.snapshot.fanGrowth ? (<><span>{t('Fan target grade')} <strong>{t(review.snapshot.fanGrowth.label)}</strong></span><span>{t('Starting fans')} <strong>{number.format(review.snapshot.fanGrowth.startingFans)}</strong></span><span>{t('Target fans')} <strong>{number.format(review.snapshot.fanGrowth.targetFans)}</strong></span><span>{t('Actual fans')} <strong>{number.format(review.snapshot.fanGrowth.actualFans)}</strong></span><span>{t('Achievement')} <strong>{review.snapshot.fanGrowth.achievementPercent}%</strong></span></>) : (<span>{t('Fanbase')} <strong>{number.format(review.snapshot.fanbase)}</strong></span>)}<span>{t('Net cash')} <strong>{money(review.snapshot.netCash)}</strong></span><span>{t('Roster')} <strong>{review.snapshot.roster}</strong></span></footer></article>))}</section>) : null}<section className="timeline">{historyEvents.map((event) => {const injuryCopy = localizedInjuryEventCopy(event, language);return (<article key={event.id}><div className={`timeline-mark ${event.type}`} />{' '}<div className="timeline-time"><strong>{t(`Year ${event.year}`)}</strong><span>{t(`${calendarParts(event.week).month} · Week ${calendarParts(event.week).weekOfMonth}`)}</span></div><div><span>{t(event.type)}</span><h2 {...(event.customTitle ? { 'data-i18n-ignore': 'true' } : {})}>{injuryCopy?.title ?? (event.customTitle ? event.title : t(language === 'id' && event.titleId ? event.titleId : event.title))}</h2><p>{injuryCopy?.detail ?? t(language === 'id' && event.detailId ? event.detailId : formatEventDetail(event))}</p></div></article>);})}</section></div>);
 }
 
 function ScheduleTemplates({ game, setGame, language = 'en' }) {
@@ -1650,7 +1739,7 @@ function Saves({ game, activeSave, onLoad, onDelete, user, syncState, onCloudSav
 
 function StartScreen({ saves, onStart, onLoad, metaProfile }) {
   const [seed, setSeed] = useState(randomSeed);
-  const activeSave = saves[0];
+  const activeSave = saves.find((save) => save.state?.runStatus !== 'ended');
   const runHistory = metaProfile.runHistory ?? [];
   return <main className="start-screen">
      <section className="start-brand"><div className="start-number">48</div><div><img className="coming-soon-logo" src={comingSoonImage} alt="Coming soon" /><p>Build the schedule. Develop the roster. Let every decision write a different history.</p></div></section>
@@ -1904,6 +1993,7 @@ export default function App() {
   const [setupDraft, setSetupDraft] = useState(null);
   const [saves, setSaves] = useState([]);
   const [activeView, setActiveView] = useState('dashboard');
+  const [tutorialReplayChapter, setTutorialReplayChapter] = useState(null);
   const [adminRoute, setAdminRoute] = useState(getAdminRoute);
   const [selectedMember, setSelectedMember] = useState(null);
   const [advancing, setAdvancing] = useState(false);
@@ -1933,16 +2023,17 @@ export default function App() {
   const rewardingRef = useRef(false);
   const rewardingPromiseRef = useRef(null);
 
-  const refreshSaves = useCallback(async () => { const active = await getActiveRun(); setSaves(active ? [{ ...active, state: normalizeSessionActivities(active.state) }] : []); return active; }, []);
+  const refreshSaves = useCallback(async () => { const active = await getActiveRun(); const normalized = active ? { ...active, state: normalizeSessionActivities(active.state) } : null; setSaves(normalized?.state.runStatus === 'ended' ? [] : normalized ? [normalized] : []); return normalized; }, []);
   useEffect(() => {
     let cancelled = false;
     Promise.all([getActiveRun(), getMetaProfile()])
       .then(([active, profile]) => {
         if (cancelled) return;
         const normalized = active ? { ...active, state: normalizeSessionActivities(active.state) } : null;
-        setSaves(normalized ? [normalized] : []);
+        const endedRun = normalized?.state.runStatus === 'ended';
+        setSaves(normalized && !endedRun ? [normalized] : []);
         setMetaProfile(profile);
-        if (storageRevision > 0) {
+        if (endedRun || storageRevision > 0) {
           setGame(normalized?.state ?? null);
           setSetupDraft(null);
         }
@@ -1975,9 +2066,9 @@ export default function App() {
 
   const start = (seed) => { setSetupDraft(createGame(seed.trim() || randomSeed())); };
   // Roster scope changes the identity pool, so the seeded draft is rebuilt from the same seed.
-  const changeRosterScope = (scope) => setSetupDraft((current) => current ? createGame(current.seed, scope) : current);
+  const changeRosterScope = (scope) => setSetupDraft((current) => current ? createGame(current.seed, scope, current.hardMode, { runSalt: current.runSalt }) : current);
   // Difficulty changes the seeded stat band, so the draft is rebuilt so founding stats reflect it.
-  const changeDifficulty = (hardMode) => setSetupDraft((current) => current ? createGame(current.seed, current.rosterScope ?? 'active', hardMode) : current);
+  const changeDifficulty = (hardMode) => setSetupDraft((current) => current ? createGame(current.seed, current.rosterScope ?? 'active', hardMode, { runSalt: current.runSalt }) : current);
   const upgradeBonus = async (bonus) => {
     const currentLevel = metaProfile.bonusLevels?.[bonus.id] ?? (metaProfile.unlockedBonusIds.includes(bonus.id) ? 1 : 0);
     if (currentLevel >= MAX_BONUS_LEVEL) return;
@@ -1988,8 +2079,8 @@ export default function App() {
     await saveMetaProfile(next);
     setMetaProfile(next);
   };
-  const completeSetup = async (readyGame) => { await saveActiveRun(readyGame); setSaves([{ slot: 1, state: readyGame, updatedAt: Date.now() }]); setGraduationAlert(null); setGame(readyGame); setSetupDraft(null); setActiveView('dashboard'); };
-  const load = async () => { const save = await loadActiveRun(); if (save) { const normalized = normalizeSessionActivities(save.state); setGraduationAlert(null); setSetupDraft(null); setGame(normalized); setActiveView('dashboard'); } };
+  const completeSetup = async (readyGame) => { await saveActiveRun(readyGame); setSaves([{ slot: 1, state: readyGame, updatedAt: Date.now() }]); setGraduationAlert(null); setTutorialReplayChapter(null); setGame(readyGame); setSetupDraft(null); setActiveView('dashboard'); };
+  const load = async () => { const save = await loadActiveRun(); if (save) { const normalized = normalizeSessionActivities(save.state); setGraduationAlert(null); setTutorialReplayChapter(null); setSetupDraft(null); setGame(normalized); setActiveView('dashboard'); } };
   const remove = async () => {
     await deleteActiveRun();
     setSaves([]);
@@ -2078,6 +2169,7 @@ export default function App() {
     const ended = endRun(game);
     try {
       await saveActiveRun(ended);
+      setSaves([]);
       setGame(ended);
       setConfirmEndRun(false);
     } catch (error) {
@@ -2119,6 +2211,7 @@ export default function App() {
     await deleteActiveRun();
     setMetaProfile(nextMeta);
     setSaves([]);
+    setTutorialReplayChapter(null);
     setGame(null);
   };
 
@@ -2159,6 +2252,37 @@ export default function App() {
     if (typeof document !== 'undefined') document.documentElement.lang = next;
     return next;
   });
+  const commitTutorialAction = (stepId) => {
+    if (!game) return;
+    const tutorialState = markTutorialStep(game.tutorialState, stepId);
+    if (JSON.stringify(tutorialState) === JSON.stringify(game.tutorialState)) return;
+    const next = { ...game, tutorialState };
+    setGame(next);
+    void saveActiveRun(next).catch(console.error);
+  };
+  const skipCurrentTutorial = () => {
+    if (!game) return;
+    const tutorialState = skipTutorial(game.tutorialState);
+    const next = { ...game, tutorialState };
+    setGame(next);
+    void saveActiveRun(next).catch(console.error);
+  };
+  useEffect(() => {
+    if (!game || normalizeTutorialState(game.tutorialState).status !== 'active' || game.year !== 1) return;
+    const steps = [];
+    if (game.week === 1 && activeView === 'schedule') steps.push('schedule-opened');
+    if (game.week === 1 && Object.keys(game.schedule ?? {}).length) steps.push('schedule-assigned');
+    if (game.week === 2 && activeView === 'training') steps.push('training-opened');
+    if (game.week === 2 && Object.values(game.trainingPlans ?? {}).some((sessions) => sessions.length)) steps.push('training-queued');
+    if (game.week === 3 && activeView === 'campaigns') steps.push('campaigns-opened');
+    if (game.week === 4 && activeView === 'dashboard') steps.push('command-opened');
+    if (!steps.length) return;
+    const tutorialState = steps.reduce((current, stepId) => markTutorialStep(current, stepId), game.tutorialState);
+    if (JSON.stringify(tutorialState) === JSON.stringify(game.tutorialState)) return;
+    const next = { ...game, tutorialState };
+    setGame(next);
+    void saveActiveRun(next).catch(console.error);
+  }, [activeView, game]);
   const navigateView = (view) => {
     if (view === 'roster') setSelectedMember(null);
     setActiveView(view);
@@ -2180,16 +2304,16 @@ export default function App() {
   if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{accountLayer}</>;
   if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}</>;
 
-  return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => setGame(null)} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language}>
-    {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={setActiveView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
+  return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => { setTutorialReplayChapter(null); setGame(null); }} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language} onTutorialAction={commitTutorialAction} tutorialCoach={<TutorialCoach game={game} language={language} activeView={activeView} onNavigate={navigateView} onAction={commitTutorialAction} onSkip={skipCurrentTutorial} replayChapter={tutorialReplayChapter} onReplayChapter={setTutorialReplayChapter} onCloseReplay={() => setTutorialReplayChapter(null)} />}>
+    {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={navigateView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} onReplayTutorial={() => setTutorialReplayChapter(1)} /> : null}
     {activeView === 'schedule' ? <Schedule game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'training' ? <Training game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'roster' ? <Roster game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
-    {activeView === 'campaigns' ? <Campaigns game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} onRenovate={renovate} language={language} /> : null}
+    {activeView === 'campaigns' ? <Campaigns game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} onRenovate={renovate} language={language} onTutorialAction={commitTutorialAction} /> : null}
     {activeView === 'templates' ? <ScheduleTemplates game={game} setGame={setGame} language={language} /> : null}
     {activeView === 'statistics' ? <StatisticsDashboard game={game} language={language} /> : null}
     {activeView === 'history' ? <HistoryView game={game} language={language} /> : null}
-    {activeView === 'wiki' ? <Wiki game={game} language={language} /> : null}
+    {activeView === 'wiki' ? <Wiki game={game} language={language} onReplayTutorial={() => setTutorialReplayChapter(1)} /> : null}
     {activeView === 'saves' ? <Saves game={game} activeSave={saves[0]} onLoad={load} onDelete={() => setConfirmDeleteRun(true)} user={user} syncState={syncState} onCloudSave={manualSave} onCloudLoad={() => setConfirmCloudLoad(true)} onOpenAccount={openAccount} /> : null}
     {statisticsReport ? <StatisticsModal report={statisticsReport.weekly} monthlyReport={statisticsReport.monthly} financialEvents={game.financialEvents ?? []} onClose={() => setStatisticsReport(null)} /> : null}
      {!statisticsReport && game.pendingYearEndSettlement ? <YearEndSettlementModal game={game} language={language} busy={settlementBusy} onSettleTax={() => applySettlementAction(settleAnnualTax)} onComplete={(decision, offerId) => applySettlementAction((state) => completeYearEndSettlement(state, decision, offerId))} /> : null}

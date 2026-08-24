@@ -133,12 +133,49 @@ test('Campaign UI explains annual campaign and mutual MV locks', async () => {
 
 test('year-end event Review checks the full target month', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(requestedMgWeek\) \? requestedMgWeek : mgWeeks\[0\] \?\? null/);
-  assert.match(source, /const selectedAnniversaryWeek = anniversaryWeeks\.includes\(requestedAnniversaryWeek\) \? requestedAnniversaryWeek : anniversaryWeeks\[0\] \?\? null/);
+  assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(requestedMgWeek\) \? requestedMgWeek : \(?mgWeeks\[0\] \?\? null\)?/);
+  assert.match(source, /const selectedAnniversaryWeek = anniversaryWeeks\.includes\(requestedAnniversaryWeek\) \? requestedAnniversaryWeek : \(?anniversaryWeeks\[0\] \?\? null\)?/);
   assert.match(source, /const mgWeek = selectedMgWeek/);
   assert.match(source, /const anniversaryWeek = selectedAnniversaryWeek/);
-  assert.match(source, /week: selectedMgWeek, type: 'yearEndMeetGreet', day: mgDay, monthScope: true/);
-  assert.match(source, /week: selectedAnniversaryWeek, type: 'concert', days: \[anniversaryDay, 'Tue', 'Thu'\], monthScope: true/);
-  assert.match(source, /scheduleYearEndMeetGreet\(current, selectedMgWeek, mgDay, current\.week\)/);
+  assert.match(source, /week: selectedMgWeek,\s*type: 'yearEndMeetGreet',\s*day: mgDay,\s*monthScope: true/);
+  assert.match(source, /week: selectedAnniversaryWeek,\s*type: 'concert',\s*days: \[anniversaryDay, 'Tue', 'Thu'\],\s*monthScope: true/);
+  assert.match(source, /scheduleYearEndMeetGreet\(current, selectedMgWeek, mgDay, current\.week(?:, \{\}, mgTitle)?\)/);
   assert.match(source, /announceAnniversaryConcert\(current, selectedAnniversaryWeek, anniversaryDay/);
+});
+
+test('setup rebuilds preserve difficulty and per-run stat salt', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /createGame\(current\.seed, scope, current\.hardMode, \{ runSalt: current\.runSalt \}\)/);
+  assert.match(source, /createGame\(current\.seed, current\.rosterScope \?\? 'active', hardMode, \{ runSalt: current\.runSalt \}\)/);
+});
+
+test('ended local runs reopen their summary and are not offered as resumable saves', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const activeSave = saves\.find\(\(save\) => save\.state\?\.runStatus !== 'ended'\)/);
+  assert.match(source, /const endedRun = normalized\?\.state\.runStatus === 'ended'/);
+  assert.match(source, /if \(endedRun \|\| storageRevision > 0\)/);
+  assert.match(source, /setSaves\(normalized && !endedRun \? \[normalized\] : \[\]\)/);
+  assert.match(source, /await saveActiveRun\(ended\);\s+setSaves\(\[\]\);\s+setGame\(ended\)/);
+});
+
+test('fan-event History keeps legacy grouping and renders custom titles verbatim', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /event\.eventId \?\? \(status === 'scheduled' \? event\.id : null\) \?\? `\$\{year\}-\$\{week\}-\$\{event\.type\}`/);
+  assert.match(source, /event\.customTitle \? event\.title : t\(/);
+});
+
+test('member cards grow with copy and Training keeps a taller desktop member rail', async () => {
+  const css = await readFile(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.founding-member-grid\{grid-auto-rows:360px/);
+  assert.match(css, /\.member-card \.card-body\{flex:1;min-width:0;display:flex;flex-direction:column\}/);
+  assert.match(css, /\.training-layout\{min-height:760px\}\.training-member-rail\{max-height:calc\(100dvh - 130px\)\}/);
+  assert.match(css, /@media\(max-width:820px\)\{\.training-layout\{min-height:0\}/);
+});
+
+test('fan-event warning trusts the concrete campaign conflict type', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('const blockerReason = conflicts[0]');
+  const blocker = source.slice(start, source.indexOf(';', start));
+  assert.ok(start >= 0);
+  assert.doesNotMatch(blocker, /meetGreetUsed/);
 });

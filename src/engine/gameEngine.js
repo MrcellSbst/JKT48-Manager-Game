@@ -8,6 +8,7 @@ import { BONUS_BY_ID, getBonusValueAtLevel, normalizeBonusLevel } from '../data/
 import { createRng, hashSeed, randomInt, weightedPick } from './rng.js';
 import { appendManagementContext, getManagementDramaChanceMultiplier, getManagementDramaContext, personalizeDramaText, selectManagementDramaTemplate } from './dramaEngine.js';
 import { advanceCampaign, CAMPAIGN_DEFAULT_CONCERT_DAY, clampCampaignDuration, configureNextCampaign, isMajorCampaignActive, nextCampaignType, startCampaign } from './campaignEngine.js';
+import { completeTutorialWeek, createTutorialState } from './tutorial.js';
 
 export { getMajorCampaignStartBlockReason, isMajorCampaignActive } from './campaignEngine.js';
 
@@ -26,12 +27,37 @@ const ALL_NINETY_STATS = Object.fromEntries([
 const AUDITION_CANDIDATE_COUNT = 12;
 const AUDITION_MAX_INTAKE = 6;
 const ALL_NINETY_SEED = 'SEKAISEIN@1903@MARCELL';
+const ALL_NINETY_RUN_SALT = 'all90-fixed';
 const TRAINING_SCHEMA_VERSION = 1;
 const INJURY_HISTORY_SCHEMA_VERSION = 1;
 const ECONOMY_SCHEMA_VERSION = 1;
 const TRAINING_ACTIVITY_SET = new Set(TRAINING_ACTIVITY_IDS);
+const FAN_EVENT_DEFAULT_TITLES = Object.freeze({ videoCall: 'Video Call', meetGreet: 'Meet & Greet', yearEndMeetGreet: 'Year-end Meet & Greet' });
+
+const normalizeEventTitle = (requestedTitle, type) => {
+  const customTitle = typeof requestedTitle === 'string' ? requestedTitle.trim() : '';
+  if (customTitle.length > 60) return null;
+  return { title: customTitle || FAN_EVENT_DEFAULT_TITLES[type], customTitle: Boolean(customTitle) };
+};
+
+const nextFanEventId = (state, type, targetWeek, day) => {
+  const prefix = `fan-event-${type}-${state.year}-${targetWeek}-${day}`;
+  const used = new Set((state.fanEventPlans ?? []).map((plan) => plan.id));
+  let sequence = 1;
+  while (used.has(`${prefix}-${sequence}`)) sequence += 1;
+  return `${prefix}-${sequence}`;
+};
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
+
+export function createRunSalt() {
+  const bytes = new Uint32Array(4);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+    return [...bytes].map((value) => value.toString(16).padStart(8, '0')).join('');
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
 const voucherAdjustmentFor = (member, stat) => Number(member?.voucherAdjustments?.[stat] ?? 0);
 const voucherNaturalCap = (member, stat) => ({
   min: -voucherAdjustmentFor(member, stat),
@@ -544,7 +570,7 @@ function makePoolCandidate(member, poolSize, qualityBonus = 0) {
 function recycleMemberForPool(member, state, graduation) {
   const identityId = member.identityId ?? member.id;
   const incarnation = (member.incarnation ?? 0) + 1;
-  const rng = createRng(hashSeed(`${state.seed}:pool-return:${graduation.id}:${incarnation}`));
+  const rng = createRng(hashSeed(`${state.seed}:salt:${state.runSalt ?? 'legacy'}:pool-return:${graduation.id}:${incarnation}`));
   const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
   const injuryHistory = (member.injuryHistory ?? []).map((incident) => {
     if (incident.status !== 'active') return incident;
@@ -1316,15 +1342,18 @@ export function getActiveRoster() {
   return getRosterPool('active');
 }
 
-export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 12).toUpperCase()}`, rosterScope = 'active', hardMode = false) {
+export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 12).toUpperCase()}`, rosterScope = 'active', hardMode = false, options = {}) {
   const scope = ROSTER_SCOPES.includes(rosterScope) ? rosterScope : 'active';
   const allNinety = isAllNinetySeed(seed);
+  const requestedSalt = typeof options?.runSalt === 'string' ? options.runSalt.trim() : '';
+  const runSalt = allNinety ? ALL_NINETY_RUN_SALT : requestedSalt || createRunSalt();
   const members = getRosterPool(scope).map((identity) => {
     const identityKey = `${identity.generation}:${identity.name}`;
     const memberId = slug(identityKey);
+    const careerStageRng = createRng(hashSeed(`${seed}:career-stage:${identityKey}`));
     // Every card owns its seeded stream. Reordering cards or changing roster scope must not move
     // fictional stats from one member to another.
-    const rng = createRng(hashSeed(`${seed}:member:${identityKey}`));
+    const rng = createRng(hashSeed(`${seed}:salt:${runSalt}:member:${identityKey}`));
     const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
     const stats = makeStats(rng, archetype, hardMode);
     const member = {
@@ -1352,7 +1381,7 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
       trainingProgress: 0,
       theaterAppearances: 0,
       status: 'active',
-      careerStage: ['Early', 'Established', 'Veteran'][randomInt(rng, 0, 2)],
+      careerStage: ['Early', 'Established', 'Veteran'][randomInt(careerStageRng, 0, 2)],
       joinedYear: 0,
       joinedWeek: 1,
       canPerformTheater: true,
@@ -1371,12 +1400,14 @@ export function createGame(seed = `JKT48-${Math.random().toString(36).slice(2, 1
     version: 1,
     calendarWeeks: BALANCE.weeksPerYear,
     seed,
+    runSalt,
     rosterScope: scope,
     hardMode,
     managementName: '',
     rngStep: 1,
     year: 1,
     week: 1,
+    tutorialState: createTutorialState('active'),
     money: BALANCE.startingMoney,
     economySchemaVersion: ECONOMY_SCHEMA_VERSION,
     taxTrackingStartYear: 1,
@@ -1676,9 +1707,11 @@ export function assignActivity(state, memberId, day, activityId, options = {}) {
   return { ...state, schedule };
 }
 
-export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek = state.week) {
+export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek = state.week, requestedTitle = '') {
   if (state.runStatus === 'ended' || !DAYS.includes(day) || !['videoCall', 'meetGreet'].includes(type)) return state;
   if (!Number.isInteger(targetWeek) || targetWeek < state.week || targetWeek > BALANCE.weeksPerYear) return state;
+  const eventTitle = normalizeEventTitle(requestedTitle, type);
+  if (!eventTitle) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type, day, memberIds });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const activityId = type === 'videoCall' ? 'vc1' : 'mg1';
@@ -1715,15 +1748,19 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
       });
       if (hasExisting) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.']);
     }
-    return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: `fan-event-${type}-${state.year}-${targetWeek}-${day}`, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
+    return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: nextFanEventId(state, type, targetWeek, day), ...eventTitle, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
   }
+  const selectedIds = type === 'meetGreet' ? eligibleIds : [...new Set(memberIds)].filter((memberId) => eligibleIds.includes(memberId));
+  if (!selectedIds.length) return state;
+  const plan = { id: nextFanEventId(state, type, targetWeek, day), ...eventTitle, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' };
   if (type === 'meetGreet') {
     const hasCampaignLock = eligibleIds.some((memberId) => isCampaignActivity(state.schedule[`${memberId}:${day}`]));
-    return hasCampaignLock ? state : assignActivity(state, eligibleIds[0], day, activityId, { source: 'campaign' });
+    if (hasCampaignLock) return state;
+    const scheduled = assignActivity(state, eligibleIds[0], day, activityId, { source: 'campaign' });
+    return scheduled === state ? state : { ...scheduled, fanEventPlans: [...(scheduled.fanEventPlans ?? []), plan] };
   }
-  const requestedIds = [...new Set(memberIds)].filter((memberId) => eligibleIds.includes(memberId));
-  if (!requestedIds.length) return state;
-  return requestedIds.reduce((next, memberId) => assignActivity(next, memberId, day, activityId, { source: 'campaign' }), state);
+  const scheduled = selectedIds.reduce((next, memberId) => assignActivity(next, memberId, day, activityId, { source: 'campaign' }), state);
+  return scheduled === state ? state : { ...scheduled, fanEventPlans: [...(scheduled.fanEventPlans ?? []), plan] };
 }
 
 export function configureMajorCampaign(state, options = {}) {
@@ -1845,19 +1882,21 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
   return { ...state, money: state.money - upfrontCost, financialEvents: addImmediateExpense(state, `${concert.id}-upfront-cost`, `${concert.title} production`, upfrontCost), concerts: [...state.concerts, concert], history: [{ id: concert.id, type: 'concert', title: `${concert.title} announced`, detail: `${venue.name} · ${capacity.toLocaleString()} seats · ${budget.name} · Year ${targetYear}, Month ${targetMonth}, Week ${targetWeekOfMonth} on ${concertDay}.`, year: state.year, week: state.week }, ...state.history] };
 }
 
-export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}) {
+export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}, requestedTitle = '') {
   if (state.runStatus === 'ended' || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
   if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year)) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day, monthScope: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons);
   const cost = 40_000_000;
   if (state.money < cost) return state;
+  const eventTitle = normalizeEventTitle(requestedTitle, 'yearEndMeetGreet');
+  if (!eventTitle) return state;
   const eligible = campaignEligibleMembers(state, 'yearEndMeetGreet', state.year, targetWeek);
   if (eligible.length < BALANCE.theaterMinimumMembers) return state;
   const normalMeetGreet = BALANCE.activities.mg1;
   const memberSessions = eligible.map((member) => ({ memberId: member.id, sessions: 1, capacity: normalMeetGreet.capacity, sold: 0 }));
-  const event = { id: `year-end-mg-${state.year}`, eventType: 'yearEndMeetGreet', year: state.year, targetWeek, day, announcementWeek: state.week, salesStartWeek, status: salesStartWeek === state.week ? 'selling' : 'announced', ticketPrice: normalMeetGreet.ticket, memberSessions, revenue: 0, cost };
-  return { ...state, money: state.money - cost, financialEvents: addImmediateExpense(state, `${event.id}-cost`, 'Year-end Meet & Greet booking', cost), yearEndMeetGreets: [...(state.yearEndMeetGreets ?? []), event], history: [{ id: event.id, type: 'meetGreet', title: 'Year-end Meet & Greet announced', detail: `Sales begin Week ${salesStartWeek}; event is Week ${targetWeek} on ${day}.`, year: state.year, week: state.week }, ...state.history] };
+  const event = { id: `year-end-mg-${state.year}`, ...eventTitle, eventType: 'yearEndMeetGreet', year: state.year, targetWeek, day, announcementWeek: state.week, salesStartWeek, status: salesStartWeek === state.week ? 'selling' : 'announced', ticketPrice: normalMeetGreet.ticket, memberSessions, revenue: 0, cost };
+  return { ...state, money: state.money - cost, financialEvents: addImmediateExpense(state, `${event.id}-cost`, `${event.title} booking`, cost), yearEndMeetGreets: [...(state.yearEndMeetGreets ?? []), event], history: [{ id: event.id, type: 'meetGreet', title: `${event.title} announced`, customTitle: event.customTitle, detail: `Sales begin Week ${salesStartWeek}; event is Week ${targetWeek} on ${day}.`, year: state.year, week: state.week }, ...state.history] };
 }
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
@@ -2600,8 +2639,16 @@ export function resolveWeek(state) {
   });
   const activityEvents = [...(state.activityEvents ?? [])];
   if (scheduledEntries.some(([, activity]) => activity === 'concert')) activityEvents.push({ id: `concert-${state.year}-${state.week}`, type: 'concert', year: state.year, week: state.week, month });
-  if (scheduledEntries.some(([, activity]) => activity.startsWith('mg'))) activityEvents.push({ id: `meet-greet-${state.year}-${state.week}`, type: 'meetGreet', year: state.year, week: state.week, month });
-  scheduledEntries.filter(([, activity]) => activity.startsWith('vc')).forEach(([scheduleKey]) => activityEvents.push({ id: `video-call-${state.year}-${state.week}-${scheduleKey}`, type: 'videoCall', memberId: scheduleKey.split(':')[0], year: state.year, week: state.week, month }));
+  const planForAssignment = (type, memberId, day) => activatedPlans.find((plan) => plan.type === type && plan.day === day && (plan.memberIds ?? []).includes(memberId));
+  const meetGreetPlan = activatedPlans.find((plan) => plan.type === 'meetGreet');
+  if (scheduledEntries.some(([, activity]) => activity.startsWith('mg'))) activityEvents.push({ id: meetGreetPlan?.id ?? `meet-greet-${state.year}-${state.week}`, eventId: meetGreetPlan?.id ?? null, title: meetGreetPlan?.title ?? FAN_EVENT_DEFAULT_TITLES.meetGreet, customTitle: Boolean(meetGreetPlan?.customTitle), type: 'meetGreet', year: state.year, week: state.week, month });
+  scheduledEntries.filter(([, activity]) => activity.startsWith('vc')).forEach(([scheduleKey]) => {
+    const separator = scheduleKey.lastIndexOf(':');
+    const memberId = scheduleKey.slice(0, separator);
+    const day = scheduleKey.slice(separator + 1);
+    const plan = planForAssignment('videoCall', memberId, day);
+    activityEvents.push({ id: `${plan?.id ?? `video-call-${state.year}-${state.week}-${day}`}-${memberId}`, eventId: plan?.id ?? null, title: plan?.title ?? FAN_EVENT_DEFAULT_TITLES.videoCall, customTitle: Boolean(plan?.customTitle), type: 'videoCall', memberId, year: state.year, week: state.week, month, day });
+  });
   const effectiveTheater = state.theater ?? state.theaterOffers?.[0];
   const theaterEconomics = Object.fromEntries([...validTheaterDays].map((day) => [day, createTheaterEconomics({ ...state, schedule: weekSchedule }, day, effectiveTheater)]));
   const offAirEconomics = Object.fromEntries([...validOffAirDays].map((day) => [day, createOffAirEconomics(state, day, effectiveTheater)]));
@@ -2701,6 +2748,13 @@ export function resolveWeek(state) {
     }
     const nextMember = { ...result.member, injury: nextInjury, injuryHistory, weeksWithoutEvent: participated ? 0 : (member.weeksWithoutEvent ?? 0) + 1 };
     return nextMember.status === 'trainee' ? { ...nextMember, traineeWeeks: (nextMember.traineeWeeks ?? 0) + 1 } : nextMember;
+  });
+  weeklyDemandRecords.forEach((record) => {
+    if (!['videoCall', 'meetGreet'].includes(record.type)) return;
+    const plan = planForAssignment(record.type, record.memberId, record.day) ?? (record.type === 'meetGreet' ? meetGreetPlan : null);
+    record.eventId = plan?.id ?? null;
+    record.title = plan?.title ?? FAN_EVENT_DEFAULT_TITLES[record.type];
+    record.customTitle = Boolean(plan?.customTitle);
   });
 
   let week = state.week + 1;
@@ -2961,7 +3015,7 @@ export function resolveWeek(state) {
   const nextSchedule = getConfirmedScheduleForWeek({ ...state, year, week, members, singles, concerts, yearEndMeetGreets, schedule: {} }, year, week);
   if (concertSummary) concerts = concerts.map((concert) => concert.targetYear === state.year && concert.targetWeek === state.week ? { ...concert, status: 'completed', summary: concertSummary } : concert);
   const currentYearEndMeetGreet = yearEndMeetGreets.find((event) => event.year === state.year && event.targetWeek === state.week);
-  const yearEndMeetGreetSummary = currentYearEndMeetGreet ? { title: 'Year-end Meet & Greet', attendance: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.sold, 0), capacity: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.capacity, 0), revenue: currentYearEndMeetGreet.revenue, participatingMembers: currentYearEndMeetGreet.memberSessions.length } : null;
+  const yearEndMeetGreetSummary = currentYearEndMeetGreet ? { title: currentYearEndMeetGreet.title ?? FAN_EVENT_DEFAULT_TITLES.yearEndMeetGreet, customTitle: Boolean(currentYearEndMeetGreet.customTitle), attendance: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.sold, 0), capacity: currentYearEndMeetGreet.memberSessions.reduce((sum, session) => sum + session.capacity, 0), revenue: currentYearEndMeetGreet.revenue, participatingMembers: currentYearEndMeetGreet.memberSessions.length } : null;
   if (currentYearEndMeetGreet) yearEndMeetGreets = yearEndMeetGreets.map((event) => event.id === currentYearEndMeetGreet.id ? { ...event, status: 'completed', summary: yearEndMeetGreetSummary } : event);
   const concertTrustDelta = concertSummary?.evaluation.fanTrustDelta ?? 0;
   const protectedConcertTrustDelta = protectNormalTrustLoss(state, concertTrustDelta);
@@ -3174,6 +3228,7 @@ export function resolveWeek(state) {
     activities: Object.keys(reportSchedule).length + completedTrainingSessions.length,
     schedule: reportSchedule,
     trainingSessions: trainingSessionRecords,
+    fanEvents: activatedPlans.map((plan) => ({ id: plan.id, eventId: plan.id, type: plan.type, title: plan.title ?? FAN_EVENT_DEFAULT_TITLES[plan.type], customTitle: Boolean(plan.customTitle), day: plan.day, memberIds: plan.memberIds ?? [], status: 'completed', revenue: weeklyDemandRecords.filter((record) => record.eventId === plan.id).reduce((sum, record) => sum + (record.revenue ?? 0), 0) })),
     skillChanges,
     singleViewChanges,
     promotions: promotionResult.promotions,
@@ -3230,6 +3285,7 @@ export function resolveWeek(state) {
     notifications, activeDrama, activeManagementDrama, dramaMemory, dramaCooldown: memberDramaCooldown, memberDramaCooldown, managementDramaCooldown, campaign: campaignResult.campaign, nextCampaignConfig: campaignResult.nextCampaignConfig, campaignHistory: campaignResult.campaignHistory, fanNarratives, graduations, graduationTargets, departures, seitansaiObligations, records, failureCounters, weeklyReports, concertVenueOffers: nextConcertVenueOffers, ledger: resolvedLedger, loans: resolvedLoans, loanOffers: year !== state.year ? generateLoanOffers(state.seed, year) : state.loanOffers, fanEventPlans: (state.fanEventPlans ?? []).filter((plan) => !activatedPlans.includes(plan)), runStatus: ended ? 'ended' : 'active', rngStep: state.rngStep + 1,
     lastResult,
   };
+  next = { ...next, tutorialState: completeTutorialWeek(state.tutorialState, state.year, state.week) };
   if (!ended && state.week === BALANCE.weeksPerYear) next = { ...next, year: state.year, week: BALANCE.weeksPerYear, pendingYearEndSettlement: createPendingYearEndSettlement(next, state.year) };
   return ended ? { ...next, runEndedAt: { year, week }, runSummary: { ...makeRunSummary(next, members, eligibleCount, records), cause: failureReason } } : next;
 }
