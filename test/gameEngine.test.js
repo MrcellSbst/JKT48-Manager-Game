@@ -1669,6 +1669,21 @@ test('audition campaign progresses for five weeks and finalizes selected trainee
   assert.ok(selected.every((memberId) => !game.unsignedMembers.some((member) => member.id === memberId)));
 });
 
+test('audition and major campaign can start in either order', () => {
+  const draft = createGame('parallel-audition-major-campaign');
+  const base = { ...finalizeGameSetup(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id)), year: 2, week: 37, money: 9_000_000_000 };
+
+  const auditionFirst = startAuditionCampaign(base, 37);
+  const majorAfterAudition = startMajorCampaign(auditionFirst, { type: 'sousenkyo', durationWeeks: 8 });
+  assert.equal(majorAfterAudition.auditionCampaign?.status, 'active');
+  assert.equal(majorAfterAudition.campaign?.type, 'sousenkyo');
+
+  const majorFirst = startMajorCampaign(base, { type: 'sousenkyo', durationWeeks: 8 });
+  const auditionAfterMajor = startAuditionCampaign(majorFirst, 37);
+  assert.equal(auditionAfterMajor.campaign?.type, 'sousenkyo');
+  assert.equal(auditionAfterMajor.auditionCampaign?.status, 'active');
+});
+
 test('audition waits for explicit confirmation and accepts an empty recruit selection', () => {
   const draft = { ...createGame('audition-explicit-confirmation'), week: 37 };
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));

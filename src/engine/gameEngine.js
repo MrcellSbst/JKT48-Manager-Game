@@ -3367,6 +3367,8 @@ export function resolveWeek(state) {
 export function startAuditionCampaign(state, startWeek = state.week) {
   if (state.runStatus === 'ended') return state;
   const auditionCost = applyRate(65_000_000, bonusValue(state, 'B021'));
+  // Auditions are a parallel talent-pipeline process. Active major campaigns,
+  // MVs, concerts, and fan events intentionally do not block this start.
   if (startWeek < BALANCE.auditionStartWeek || startWeek > BALANCE.weeksPerYear || state.money < auditionCost || state.auditionCampaign?.status === 'active' || state.auditions.some((item) => item.year === state.year)) return state;
   const rng = createRng(hashSeed(`${state.seed}:audition-campaign:${state.year}:${startWeek}`));
   const rosterIdentityIds = new Set(state.members.map((member) => member.identityId ?? member.id));

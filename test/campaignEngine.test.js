@@ -92,6 +92,19 @@ test('major campaign start reports a missing-member blocker', () => {
   assert.equal(startCampaign(state, { members: roster, type: 'sousenkyo', durationWeeks: 8 }), state);
 });
 
+test('active or completed auditions do not block a major campaign', () => {
+  const roster = members(16);
+  const base = { seed: 'audition-parallel-major', year: 2, week: 37, members: roster, singles: [], group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, campaignHistory: [], runStatus: 'active' };
+  for (const auditionState of [
+    { auditionCampaign: { id: 'active-audition', status: 'active' }, auditions: [] },
+    { auditionCampaign: null, auditions: [{ year: 2, size: 4 }] },
+  ]) {
+    const state = { ...base, ...auditionState };
+    assert.equal(getMajorCampaignStartBlockReason(state), null);
+    assert.equal(startCampaign(state, { members: roster, type: 'sousenkyo', durationWeeks: 8 }).campaign?.type, 'sousenkyo');
+  }
+});
+
 test('every major campaign persists its member entrants and roster snapshots', () => {
   const roster = members(16);
   const expectedIds = roster.map((member) => member.id).sort();

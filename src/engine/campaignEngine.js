@@ -36,6 +36,8 @@ export function hasMajorCampaignRunInYear(state = {}, year = state.year) {
 
 export function getMajorCampaignStartBlockReason(state = {}) {
   if (state.runStatus === 'ended') return 'run-ended';
+  // Auditions do not consume campaign or Schedule slots and may run alongside
+  // Sousenkyo, Request Hour, or Janken.
   if ((state.year ?? 0) < (state.firstCampaignYear ?? CAMPAIGN_FIRST_YEAR)) return 'campaigns-locked';
   if (isMajorCampaignActive(state)) return 'campaign-in-progress';
   if (hasMajorCampaignRunInYear(state)) return 'campaign-held-this-year';
