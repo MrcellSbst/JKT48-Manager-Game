@@ -1288,7 +1288,7 @@ test('MV projects persist detailed participant snapshots and center role', () =>
   assert.equal(participants.slice(1).every((participant) => participant.role === 'member'), true);
 });
 
-test('announced graduates remain eligible through Last Show week and are blocked afterward', () => {
+test('announced graduates are blocked from new campaigns immediately while existing cutoff dates remain readable', () => {
   const game = createGame('graduation-campaign-cutoff-test');
   const graduate = game.members[0];
   const withGraduation = {
@@ -1297,10 +1297,10 @@ test('announced graduates remain eligible through Last Show week and are blocked
     members: game.members.map((member) => member.id === graduate.id ? { ...member, graduationPending: true } : member),
   };
 
-  assert.equal(memberAvailableOnCampaignDate(withGraduation, graduate, 1, 8), true);
+  assert.equal(memberAvailableOnCampaignDate(withGraduation, graduate, 1, 8), false);
   assert.equal(memberAvailableOnCampaignDate(withGraduation, graduate, 1, 9), false);
   const onCutoff = scheduleFanCampaign(withGraduation, 'videoCall', 'Fri', [graduate.id], 8);
-  assert.equal(onCutoff.fanEventPlans[0].memberIds.includes(graduate.id), true);
+  assert.equal(onCutoff, withGraduation);
   const afterCutoff = scheduleFanCampaign(withGraduation, 'videoCall', 'Fri', [graduate.id], 9);
   assert.equal(afterCutoff, withGraduation);
 
@@ -2283,7 +2283,7 @@ test('graduation planning protects Year 1 and budgets four to six eligible depar
   assert.ok(planned.every((graduation) => graduation.annualTarget === target.targetCount));
 });
 
-test('active SSK, Request Hour, and Janken entrants can roll graduation after their campaign commitment', () => {
+test('active SSK, Request Hour, and Janken entrants can roll graduation one week after their campaign commitment', () => {
   for (const type of ['sousenkyo', 'request-hour', 'janken']) {
     const draft = createGame(`campaign-graduation-protection-${type}`);
     const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
@@ -2304,7 +2304,7 @@ test('active SSK, Request Hour, and Janken entrants can roll graduation after th
     assert.equal(graduation.commitmentEndYear, 3);
     assert.equal(graduation.commitmentEndWeek, 16);
     assert.equal(graduation.departureYear, 3);
-    assert.equal(graduation.departureWeek, 20, `${type} departure is four weeks after the projected campaign finish`);
+    assert.equal(graduation.departureWeek, 17, `${type} departure is one week after the projected campaign finish`);
   }
 });
 
@@ -2325,10 +2325,10 @@ test('legacy active Request Hour saves without member IDs delay rather than bloc
   const graduation = result.graduations.find((item) => item.planYear === 3);
   assert.ok(graduation);
   assert.equal(graduation.commitmentType, 'major-campaign');
-  assert.equal(graduation.departureWeek, 20);
+  assert.equal(graduation.departureWeek, 17);
 });
 
-test('MV, concert, and fan-event commitments delay a rolled graduation until four weeks after the latest event', () => {
+test('future MV, concert, and fan-event bookings do not delay a graduation roll', () => {
   const draft = createGame('graduation-latest-commitment-test');
   const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
@@ -2347,12 +2347,12 @@ test('MV, concert, and fan-event commitments delay a rolled graduation until fou
   });
   const graduation = result.graduations.find((item) => item.planYear === 3);
   assert.ok(graduation);
-  assert.equal(graduation.commitmentType, 'videoCall');
-  assert.equal(graduation.commitmentEndWeek, 22);
-  assert.equal(graduation.departureWeek, 26);
+  assert.equal(graduation.commitmentType, undefined);
+  assert.equal(graduation.commitmentEndWeek, undefined);
+  assert.notEqual(graduation.departureWeek, 26);
 });
 
-test('an announced graduation is pushed again when a major campaign finishes later than expected', () => {
+test('an announced graduation is pushed only for the same active campaign, using a one-week buffer', () => {
   const draft = createGame('graduation-reconciliation-test');
   const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
@@ -2362,16 +2362,18 @@ test('an announced graduation is pushed again when a major campaign finishes lat
     year: 3,
     week: 10,
     members: base.members.map((member) => member.id === graduate.id ? { ...member, graduationPending: true } : member),
-    graduations: [{ id: 'delayed-graduation', memberId: graduate.id, memberName: graduate.nickname || graduate.name, planYear: 3, announcementYear: 3, announcementWeek: 1, departureYear: 3, departureWeek: 11, announced: true, completed: false }],
+    graduations: [{ id: 'delayed-graduation', memberId: graduate.id, memberName: graduate.nickname || graduate.name, planYear: 3, announcementYear: 3, announcementWeek: 1, departureYear: 3, departureWeek: 10, announced: true, completed: false }],
     campaign: {
       id: 'late-campaign', type: 'janken', status: 'mv-production', mvProductionWeeks: 3, mvProductionDurationWeeks: 4,
       participants: { memberIds: [graduate.id] }, result: { winnerMemberId: graduate.id },
     },
   });
   assert.equal(result.graduations[0].departureYear, 3);
-  assert.equal(result.graduations[0].departureWeek, 14);
-  assert.equal(result.graduations[0].commitmentDelayWeeks, 4);
-  assert.equal(result.notifications.some((notification) => notification.text.includes('graduation moves')), true);
+  assert.equal(result.graduations[0].departureWeek, 11);
+  assert.equal(result.graduations[0].commitmentDelayWeeks, 1);
+  assert.equal(result.graduations[0].commitmentType, 'major-campaign');
+  assert.ok(result.notifications.some((item) => /graduation moves to Year 3 · Mar · Week 3/.test(item.text)));
+  assert.ok(result.history.some((item) => /final departure is now Year 3 · Mar · Week 3/.test(item.detail)));
 });
 
 test('graduated member returns to the audition pool after exactly two years with reset stats', () => {

@@ -80,6 +80,13 @@ const applyNaturalStatChange = (member, stat, delta) => {
 const isAllNinetySeed = (seed) => String(seed ?? '').trim().toUpperCase() === ALL_NINETY_SEED;
 const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
+const CALENDAR_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const calendarPositionText = (year, week) => {
+  const safeWeek = Math.max(1, Math.min(BALANCE.weeksPerYear, Number(week) || 1));
+  const monthIndex = Math.floor((safeWeek - 1) / BALANCE.weeksPerMonth);
+  const weekOfMonth = ((safeWeek - 1) % BALANCE.weeksPerMonth) + 1;
+  return `Year ${year} · ${CALENDAR_MONTHS[monthIndex] ?? `Month ${monthIndex + 1}`} · Week ${weekOfMonth}`;
+};
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 const moneyText = (value) => `$${value.toLocaleString('id-ID')}`;
 const hasBonus = (state, id) => (state.bonusLoadout ?? []).includes(id);
@@ -323,12 +330,15 @@ function announcedGraduationFor(state, memberId) {
   return (state.graduations ?? []).find((graduation) => graduation.memberId === memberId && graduation.announced && !graduation.completed) ?? null;
 }
 
-// A member remains available through her announced Last Show week. Any campaign
-// dated after that week must exclude her, even while she still appears in the roster.
-export function memberAvailableOnCampaignDate(state, memberOrId, targetYear, targetWeek) {
+// Already-confirmed work may continue through an announced member's Last Show
+// week. New campaign bookings must exclude an announced graduate immediately,
+// otherwise a graduation roll can be bypassed by booking another campaign before
+// the departure date.
+export function memberAvailableOnCampaignDate(state, memberOrId, targetYear, targetWeek, options = {}) {
   const memberId = typeof memberOrId === 'string' ? memberOrId : memberOrId?.id;
   if (!memberId || !Number.isInteger(targetYear) || !Number.isInteger(targetWeek)) return false;
   const graduation = announcedGraduationFor(state, memberId);
+  if (graduation && options.allowAnnounced !== true) return false;
   return !graduation || toAbsoluteWeek(targetYear, targetWeek) <= toAbsoluteWeek(graduation.departureYear, graduation.departureWeek);
 }
 
@@ -336,11 +346,11 @@ export function memberAvailableOnCampaignDate(state, memberOrId, targetYear, tar
 // rather than condition at booking time. Injury countdowns advance once per
 // resolved week, so an injury with N weeks remaining blocks a campaign N weeks
 // in the future only when N is greater than the weeks until that campaign.
-export function memberCanPerformOnCampaignDate(state, memberOrId, activityId, targetYear, targetWeek) {
+export function memberCanPerformOnCampaignDate(state, memberOrId, activityId, targetYear, targetWeek, options = {}) {
   const member = typeof memberOrId === 'string'
     ? (state.members ?? []).find((item) => item.id === memberOrId)
     : memberOrId;
-  if (!member || !memberAvailableOnCampaignDate(state, member, targetYear, targetWeek)) return false;
+  if (!member || !memberAvailableOnCampaignDate(state, member, targetYear, targetWeek, options)) return false;
   const weeksUntilTarget = toAbsoluteWeek(targetYear, targetWeek) - toAbsoluteWeek(state.year, state.week);
   if (member.temporarilyUnavailable) return false;
   if (!['active', 'trainee'].includes(member.status) && member.status !== 'suspended') return false;
@@ -349,6 +359,13 @@ export function memberCanPerformOnCampaignDate(state, memberOrId, activityId, ta
   if (injuryWeeks <= weeksUntilTarget) return true;
   const blocks = member.injury?.blocks ?? ['all'];
   return !blocks.includes('all') && !blocks.includes(getActivityCategory(activityId));
+}
+
+// This is intentionally separate from new-campaign eligibility. It is used
+// when rebuilding a schedule/report for a campaign that was already confirmed
+// before the graduation announcement.
+function memberCanPerformOnExistingCampaignDate(state, memberOrId, activityId, targetYear, targetWeek) {
+  return memberCanPerformOnCampaignDate(state, memberOrId, activityId, targetYear, targetWeek, { allowAnnounced: true });
 }
 
 function campaignEligibleMembers(state, activityId, targetYear, targetWeek) {
@@ -863,8 +880,8 @@ export function getConfirmedScheduleForWeek(state, targetYear, targetWeek) {
   const canAttend = (memberId, activityId) => {
     const member = membersById.get(memberId);
     if (!member || member.status === 'graduated') return false;
-    return memberCanPerformOnCampaignDate(state, member, activityId, targetYear, targetWeek)
-      || (activityId === 'concertRehearsal' && memberCanPerformOnCampaignDate(state, member, 'concert', targetYear, targetWeek));
+    return memberCanPerformOnExistingCampaignDate(state, member, activityId, targetYear, targetWeek)
+      || (activityId === 'concertRehearsal' && memberCanPerformOnExistingCampaignDate(state, member, 'concert', targetYear, targetWeek));
   };
   const reserve = (memberIds, day, activityId) => {
     if (!DAYS.includes(day)) return;
@@ -2061,7 +2078,7 @@ function mvViewGain(single, group, viewWeek) {
 const activeCampaignMembers = (members = []) => members.filter((member) => ['active', 'trainee'].includes(member.status) && (member.suspensionWeeks ?? 0) === 0 && !member.temporarilyUnavailable);
 
 function campaignRewardMemberIds(state, campaign, members, target) {
-  const eligible = activeCampaignMembers(members).filter((member) => memberAvailableOnCampaignDate(state, member, target.year, target.week));
+  const eligible = activeCampaignMembers(members).filter((member) => memberAvailableOnCampaignDate(state, member, target.year, target.week, { allowAnnounced: true }));
   const byId = new Set(eligible.map((member) => member.id));
   const result = campaign.result ?? {};
   if (campaign.type === 'sousenkyo') {
@@ -2518,49 +2535,82 @@ function projectedMajorCampaignFinishAbsolute(state) {
   return rewardConcertAbsolute + mvDuration;
 }
 
-function latestMemberCommitment(state, memberId, members) {
+function memberCampaignCommitment(state, memberId, members, { activeOnly = true, commitmentId = null } = {}) {
+  const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   let latest = null;
-  const consider = (absolute, type, id) => {
-    if (!Number.isFinite(absolute) || (latest && absolute <= latest.absolute)) return;
-    latest = { absolute, type, id };
+  const consider = (startAbsolute, endAbsolute, type, id) => {
+    if (!Number.isFinite(startAbsolute) || !Number.isFinite(endAbsolute)) return;
+    if (commitmentId && id !== commitmentId) return;
+    if (activeOnly && (currentAbsolute < startAbsolute || currentAbsolute > endAbsolute)) return;
+    if (!latest || endAbsolute > latest.absolute) latest = { absolute: endAbsolute, type, id, startAbsolute };
   };
   (state.singles ?? []).forEach((single) => {
     if (!(single.memberIds ?? []).includes(memberId) || ['released', 'completed', 'cancelled', 'skipped'].includes(single.status)) return;
-    if (Number.isInteger(single.releaseYear) && Number.isInteger(single.releaseWeek)) {
-      consider(toAbsoluteWeek(single.releaseYear, single.releaseWeek), 'mv', single.id);
-      return;
-    }
     const startYear = Number.isInteger(single.productionStartYear) ? single.productionStartYear : single.year;
     const startWeek = Number.isInteger(single.productionStartWeek) ? single.productionStartWeek : single.week;
-    if (Number.isInteger(startYear) && Number.isInteger(startWeek)) consider(toAbsoluteWeek(startYear, startWeek) + (single.durationWeeks ?? 4) - 1, 'mv', single.id);
+    if (!Number.isInteger(startYear) || !Number.isInteger(startWeek)) return;
+    const startAbsolute = toAbsoluteWeek(startYear, startWeek);
+    const productionEnd = startAbsolute + (single.durationWeeks ?? 4) - 1;
+    const releaseAbsolute = Number.isInteger(single.releaseYear) && Number.isInteger(single.releaseWeek)
+      ? toAbsoluteWeek(single.releaseYear, single.releaseWeek)
+      : productionEnd;
+    consider(startAbsolute, releaseAbsolute, 'mv', single.id);
   });
   (state.concerts ?? []).forEach((concert) => {
     if (!(concert.memberIds ?? []).includes(memberId) || ['completed', 'cancelled', 'skipped'].includes(concert.status)) return;
-    if (Number.isInteger(concert.targetYear) && Number.isInteger(concert.targetWeek)) consider(toAbsoluteWeek(concert.targetYear, concert.targetWeek), 'concert', concert.id);
+    if (Number.isInteger(concert.targetYear) && Number.isInteger(concert.targetWeek)) {
+      const targetAbsolute = toAbsoluteWeek(concert.targetYear, concert.targetWeek);
+      consider(targetAbsolute, targetAbsolute, 'concert', concert.id);
+    }
   });
   (state.fanEventPlans ?? []).forEach((event) => {
     if (!(event.memberIds ?? []).includes(memberId) || ['completed', 'cancelled', 'skipped'].includes(event.status)) return;
-    if (Number.isInteger(event.year) && Number.isInteger(event.targetWeek)) consider(toAbsoluteWeek(event.year, event.targetWeek), event.type ?? 'fan-event', event.id);
+    if (Number.isInteger(event.year) && Number.isInteger(event.targetWeek)) {
+      const targetAbsolute = toAbsoluteWeek(event.year, event.targetWeek);
+      consider(targetAbsolute, targetAbsolute, event.type ?? 'fan-event', event.id);
+    }
   });
   (state.yearEndMeetGreets ?? []).forEach((event) => {
     if (!(event.memberSessions ?? []).some((session) => session.memberId === memberId) || ['completed', 'cancelled', 'skipped'].includes(event.status)) return;
-    if (Number.isInteger(event.year) && Number.isInteger(event.targetWeek)) consider(toAbsoluteWeek(event.year, event.targetWeek), 'yearEndMeetGreet', event.id);
+    if (Number.isInteger(event.year) && Number.isInteger(event.targetWeek)) {
+      const targetAbsolute = toAbsoluteWeek(event.year, event.targetWeek);
+      consider(targetAbsolute, targetAbsolute, 'yearEndMeetGreet', event.id);
+    }
   });
-  if (majorCampaignParticipantIds(state, members).has(memberId)) consider(projectedMajorCampaignFinishAbsolute(state), 'major-campaign', state.campaign?.id);
+  const campaign = state.campaign;
+  const campaignStart = Number.isInteger(campaign?.startAbsoluteWeek)
+    ? campaign.startAbsoluteWeek
+    : Number.isInteger(campaign?.startYear) && Number.isInteger(campaign?.startWeek)
+      ? toAbsoluteWeek(campaign.startYear, campaign.startWeek)
+      : campaign && !CLEARED_CAMPAIGN_STATUSES.has(campaign.status)
+        ? currentAbsolute
+        : null;
+  const campaignFinish = projectedMajorCampaignFinishAbsolute(state);
+  if (campaign && majorCampaignParticipantIds(state, members).has(memberId) && Number.isFinite(campaignStart) && Number.isFinite(campaignFinish)) {
+    consider(campaignStart, campaignFinish, 'major-campaign', campaign.id);
+  }
   return latest;
 }
 
 function graduationAfterCommitments(state, graduation, members) {
   if (graduation.completed) return graduation;
-  const commitment = latestMemberCommitment(state, graduation.memberId, members);
-  if (!commitment) return graduation;
-  const delayWeeks = BALANCE.graduation.commitmentCooldownWeeks ?? 4;
+  // A graduation roll checks only the campaign the member is in right now.
+  // Once checked, later campaigns cannot move the date again. If that same
+  // campaign's projected finish changes, reconciliation may still move the
+  // date to keep the one-week buffer intact.
+  const commitment = graduation.commitmentId
+    ? memberCampaignCommitment(state, graduation.memberId, members, { activeOnly: false, commitmentId: graduation.commitmentId })
+    : graduation.commitmentChecked
+      ? null
+      : memberCampaignCommitment(state, graduation.memberId, members, { activeOnly: true });
+  const delayWeeks = BALANCE.graduation.commitmentCooldownWeeks ?? 1;
+  if (!commitment) return { ...graduation, commitmentChecked: true, commitmentDelayWeeks: delayWeeks };
   const minimumDeparture = commitment.absolute + delayWeeks;
   const currentDeparture = toAbsoluteWeek(graduation.departureYear, graduation.departureWeek);
-  if (currentDeparture >= minimumDeparture) return graduation;
-  const departure = fromAbsoluteWeek(minimumDeparture);
   const commitmentEnd = fromAbsoluteWeek(commitment.absolute);
-  return { ...graduation, departureYear: departure.year, departureWeek: departure.week, commitmentEndYear: commitmentEnd.year, commitmentEndWeek: commitmentEnd.week, commitmentType: commitment.type, commitmentId: commitment.id, commitmentDelayWeeks: delayWeeks };
+  if (currentDeparture >= minimumDeparture) return { ...graduation, commitmentChecked: true, commitmentEndYear: commitmentEnd.year, commitmentEndWeek: commitmentEnd.week, commitmentType: commitment.type, commitmentId: commitment.id, commitmentDelayWeeks: delayWeeks };
+  const departure = fromAbsoluteWeek(minimumDeparture);
+  return { ...graduation, departureYear: departure.year, departureWeek: departure.week, commitmentEndYear: commitmentEnd.year, commitmentEndWeek: commitmentEnd.week, commitmentType: commitment.type, commitmentId: commitment.id, commitmentDelayWeeks: delayWeeks, commitmentChecked: true };
 }
 
 function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
@@ -2996,8 +3046,9 @@ export function resolveWeek(state) {
   graduations = graduations.map((graduation) => {
     const adjusted = graduationAfterCommitments(state, graduation, members);
     if (!graduation.announced || adjusted.departureYear === graduation.departureYear && adjusted.departureWeek === graduation.departureWeek) return adjusted;
-    notifications.push({ type: 'critical', text: `${graduation.memberName}'s graduation moves to Year ${adjusted.departureYear}, Week ${adjusted.departureWeek} to finish an existing campaign commitment.` });
-    history.unshift({ id: `${graduation.id}-commitment-delay-${year}-${state.week}`, type: 'member', title: `${graduation.memberName}'s graduation rescheduled`, detail: `The final departure is now Year ${adjusted.departureYear}, Week ${adjusted.departureWeek}, four weeks after the campaign commitment ends.`, year, week: state.week });
+    const adjustedDate = calendarPositionText(adjusted.departureYear, adjusted.departureWeek);
+    notifications.push({ type: 'critical', text: `${graduation.memberName}'s graduation moves to ${adjustedDate} to finish an existing campaign commitment.` });
+    history.unshift({ id: `${graduation.id}-commitment-delay-${year}-${state.week}`, type: 'member', title: `${graduation.memberName}'s graduation rescheduled`, detail: `The final departure is now ${adjustedDate}, one week after the campaign commitment ends.`, year, week: state.week });
     return adjusted;
   });
   graduations = graduations.map((graduation) => {
@@ -3302,7 +3353,7 @@ export function resolveWeek(state) {
     const campaign = campaignResult.campaign;
     const result = campaign.result ?? {};
     const campaignMvLastWeek = fromAbsoluteWeek(toAbsoluteWeek(year, week) + (campaign.mvProductionDurationWeeks ?? 4));
-    const eligible = members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.temporarilyUnavailable && memberAvailableOnCampaignDate(state, member, campaignMvLastWeek.year, campaignMvLastWeek.week));
+    const eligible = members.filter((member) => ['active', 'trainee'].includes(member.status) && !member.temporarilyUnavailable && memberAvailableOnCampaignDate(state, member, campaignMvLastWeek.year, campaignMvLastWeek.week, { allowAnnounced: true }));
     const centerId = result.centerMemberId ?? result.winnerMemberId ?? [...eligible].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))[0]?.id ?? null;
     const preferredIds = campaign.type === 'sousenkyo'
       ? (result.senbatsu ?? [])

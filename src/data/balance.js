@@ -96,7 +96,7 @@ export const BALANCE = {
     developmentBonus: 0.2,
   },
   bonusSlots: 3,
-  graduation: { year1Max: 0, normalMin: 4, normalMax: 6, extremeMax: 6, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, commitmentCooldownWeeks: 4, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
+  graduation: { year1Max: 0, normalMin: 4, normalMax: 6, extremeMax: 6, minGap: 2, maxGap: 4, minLead: 6, maxLead: 12, commitmentCooldownWeeks: 1, minimumTenureYears: 3, idleWeightPerWeek: 1.4 },
   managementTokenMultiplier: 0.5,
   theaterTiers: [
     { id: 'community', name: 'Community Theater', tier: 'Low', priceRange: [90_000_000, 150_000_000], capacityRange: [140, 240], ticketRange: [200_000, 200_000] },

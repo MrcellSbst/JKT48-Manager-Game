@@ -68,7 +68,7 @@ Object.assign(ID, {
 
 Object.assign(ID, { 'Close wiki':'Tutup wiki' });
 Object.assign(ID, { 'Year':'Tahun' });
-Object.assign(ID, { 'Graduation announcement':'Pengumuman kelulusan','Close graduation announcement':'Tutup pengumuman kelulusan','will graduate':'akan lulus','Final theater departure':'Keberangkatan terakhir dari teater','The member remains available for scheduling until the announced departure date.':'Anggota tetap tersedia untuk dijadwalkan sampai tanggal keberangkatan yang diumumkan.','Acknowledge':'Mengerti' });
+Object.assign(ID, { 'Graduation announcement':'Pengumuman kelulusan','Close graduation announcement':'Tutup pengumuman kelulusan','will graduate':'akan lulus','Final theater departure':'Keberangkatan terakhir dari teater','Existing campaign commitments may finish through this date. New campaigns cannot include this member.':'Komitmen kampanye yang sudah dikonfirmasi dapat selesai sampai tanggal ini. Kampanye baru tidak dapat menyertakan anggota ini.','Acknowledge':'Mengerti' });
 Object.assign(ID, { 'Schedule confirmation':'Konfirmasi jadwal','End this week?':'Akhiri minggu ini?','All scheduled activities will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.':'Semua aktivitas terjadwal akan diselesaikan, keuangan akan dihitung, dan kalender akan maju. Tindakan ini tidak dapat dibatalkan.','End week':'Akhiri minggu' });
 Object.assign(ID, {
   'Templates':'Templat','Select all':'Pilih semua','Clear all':'Hapus semua pilihan','Save as template':'Simpan sebagai templat','Create weekly template?':'Buat templat mingguan?','Copy all current assignments except automatic MV production locks. The template stays available in this run.':'Salin semua penugasan saat ini kecuali kunci produksi MV otomatis. Templat tetap tersedia dalam permainan ini.','Template name':'Nama templat','Create template':'Buat templat','Reusable planning':'Perencanaan berulang','Weekly templates':'Templat mingguan','Apply saved member, day, and activity assignments to the current week.':'Terapkan penugasan anggota, hari, dan aktivitas yang tersimpan ke minggu ini.','saved assignments':'penugasan tersimpan','Apply template':'Terapkan templat','No weekly templates':'Belum ada templat mingguan','Build a schedule, then use Save as template from Schedule.':'Susun jadwal, lalu gunakan Simpan sebagai templat dari menu Jadwal.','Available members will be assigned now. Existing unlocked assignments may be replaced.':'Anggota yang tersedia akan langsung ditugaskan. Penugasan lama yang tidak terkunci dapat diganti.','Confirm assignments':'Konfirmasi penugasan','Confirm group assignment?':'Konfirmasi penugasan grup?','Confirm assignment':'Konfirmasi penugasan','Skill growth':'Peningkatan kemampuan','No skill changes this week.':'Tidak ada perubahan kemampuan minggu ini.','Concert setlist':'Daftar lagu konser','songs':'lagu','Team performs':'Tim membawakan','perform':'membawakan','Concert day':'Hari konser','Choose free day':'Pilih hari kosong','Campaign date locked':'Tanggal kampanye terkunci'
@@ -487,6 +487,9 @@ export const LOCALIZATION_ALLOWLIST = Object.freeze([
   'FouReality', 'FouReality JKT48 Gacha Photocard Oshi',
 ]);
 
+const INDONESIAN_MONTH_NAMES = Object.freeze({ Jan:'Jan', Feb:'Feb', Mar:'Mar', Apr:'Apr', May:'Mei', Jun:'Jun', Jul:'Jul', Aug:'Agu', Sep:'Sep', Oct:'Okt', Nov:'Nov', Dec:'Des' });
+const indonesianCalendarDate = (year, month, week) => `Tahun ${year} · ${INDONESIAN_MONTH_NAMES[month] ?? month} · Minggu ${week}`;
+
 const patterns = [
   [/^Week (\d+) tutorial$/, 'Tutorial Minggu $1'], [/^Open (.+)$/, (_, section) => `Buka ${ID[section] ?? section}`],
   [/^Campaign blocked: (.+)$/, (_, reason) => `Kampanye belum dapat dimulai: ${ID[reason] ?? reason}`],
@@ -657,6 +660,8 @@ patterns.push(
   [/^Year (\d+) is ready\.$/, 'Tahun $1 siap dimulai.'],
   [/^Year (\d+) tax settled$/, 'Pajak Tahun $1 diselesaikan'],
   [/^(\$.+) paid(?:; (\$.+) moved to tax debt)?\. Taxable profit: (\$.+) at (\d+)%\.$/, (_, paid, debt, profit, rate) => `${paid} dibayar${debt ? `; ${debt} dipindahkan ke utang pajak` : ''}. Laba kena pajak: ${profit} dengan tarif ${rate}%.`],
+  [/^(.+)'s graduation moves to Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4]) to finish an existing campaign commitment\.$/, (_, name, year, month, week) => `${name} mendapat jadwal kelulusan baru ke ${indonesianCalendarDate(year, month, week)} untuk menyelesaikan komitmen kampanye yang sudah ada.`],
+  [/^The final departure is now Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4]), one week after the campaign commitment ends\.$/, (_, year, month, week) => `Keberangkatan terakhir sekarang ${indonesianCalendarDate(year, month, week)}, satu minggu setelah komitmen kampanye selesai.`],
 );
 
 let activeLanguage = 'en';
@@ -738,7 +743,7 @@ export function translateIndonesian(value) {
   const source = String(value);
   const text = source.trim();
   if (!text) return source;
-  const monthNames = { Jan:'Jan', Feb:'Feb', Mar:'Mar', Apr:'Apr', May:'Mei', Jun:'Jun', Jul:'Jul', Aug:'Agu', Sep:'Sep', Oct:'Okt', Nov:'Nov', Dec:'Des' };
+  const monthNames = INDONESIAN_MONTH_NAMES;
   const calendar = text.match(/^Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4])$/);
   if (calendar) return source.replace(text, `Tahun ${calendar[1]} · ${monthNames[calendar[2]] ?? calendar[2]} · Minggu ${calendar[3]}`);
   const shortCalendar = text.match(/^([A-Z][a-z]{2}) · W([1-4])$/);

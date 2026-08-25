@@ -67,6 +67,14 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
     translateIndonesian('Spend $40m. Sales start now for Year 2 · Oct · Week 1; every active member receives 300 slots at $50k.'),
     'Bayar $40 jt. Penjualan dimulai sekarang untuk Tahun 2 · Okt · Minggu 1; setiap anggota aktif mendapat 300 slot seharga $50 rb.',
   );
+  assert.equal(
+    translateIndonesian("Feni's graduation moves to Year 3 · May · Week 1 to finish an existing campaign commitment."),
+    "Feni mendapat jadwal kelulusan baru ke Tahun 3 · Mei · Minggu 1 untuk menyelesaikan komitmen kampanye yang sudah ada.",
+  );
+  assert.equal(
+    translateIndonesian('The final departure is now Year 3 · May · Week 1, one week after the campaign commitment ends.'),
+    'Keberangkatan terakhir sekarang Tahun 3 · Mei · Minggu 1, satu minggu setelah komitmen kampanye selesai.',
+  );
 });
 
 test('translator safely handles missing and non-string history fields', () => {
