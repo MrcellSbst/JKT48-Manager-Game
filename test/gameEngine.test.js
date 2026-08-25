@@ -2376,6 +2376,31 @@ test('an announced graduation is pushed only for the same active campaign, using
   assert.ok(result.history.some((item) => /final departure is now Year 3 · Mar · Week 3/.test(item.detail)));
 });
 
+test('graduation departures are separated so only one member graduates per calendar month', () => {
+  const draft = createGame('graduation-month-spacing-test');
+  const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
+  const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
+  const first = base.members[0];
+  const second = base.members[1];
+  const result = resolveWeek({
+    ...base,
+    year: 3,
+    week: 10,
+    members: base.members.map((member) => [first.id, second.id].includes(member.id) ? { ...member, graduationPending: true } : member),
+    graduations: [
+      { id: 'first-month-graduation', memberId: first.id, memberName: first.name, planYear: 3, announcementYear: 3, announcementWeek: 1, departureYear: 3, departureWeek: 13, announced: true, completed: false },
+      { id: 'second-month-graduation', memberId: second.id, memberName: second.name, planYear: 3, announcementYear: 3, announcementWeek: 1, departureYear: 3, departureWeek: 14, announced: true, completed: false },
+    ],
+  });
+  const firstGraduation = result.graduations.find((item) => item.id === 'first-month-graduation');
+  const secondGraduation = result.graduations.find((item) => item.id === 'second-month-graduation');
+  assert.equal(firstGraduation.departureWeek, 13);
+  assert.equal(secondGraduation.departureWeek, 18);
+  assert.notEqual(Math.floor((firstGraduation.departureWeek - 1) / BALANCE.weeksPerMonth), Math.floor((secondGraduation.departureWeek - 1) / BALANCE.weeksPerMonth));
+  assert.ok(result.notifications.some((item) => /graduation moves to Year 3 · May · Week 2 so only one member graduates in each month/.test(item.text)));
+  assert.ok(result.history.some((item) => /only one member can graduate in each calendar month/.test(item.detail)));
+});
+
 test('graduated member returns to the audition pool after exactly two years with reset stats', () => {
   const draft = createGame('graduation-pool-return-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));

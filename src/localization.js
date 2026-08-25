@@ -662,6 +662,8 @@ patterns.push(
   [/^(\$.+) paid(?:; (\$.+) moved to tax debt)?\. Taxable profit: (\$.+) at (\d+)%\.$/, (_, paid, debt, profit, rate) => `${paid} dibayar${debt ? `; ${debt} dipindahkan ke utang pajak` : ''}. Laba kena pajak: ${profit} dengan tarif ${rate}%.`],
   [/^(.+)'s graduation moves to Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4]) to finish an existing campaign commitment\.$/, (_, name, year, month, week) => `${name} mendapat jadwal kelulusan baru ke ${indonesianCalendarDate(year, month, week)} untuk menyelesaikan komitmen kampanye yang sudah ada.`],
   [/^The final departure is now Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4]), one week after the campaign commitment ends\.$/, (_, year, month, week) => `Keberangkatan terakhir sekarang ${indonesianCalendarDate(year, month, week)}, satu minggu setelah komitmen kampanye selesai.`],
+  [/^(.+)'s graduation moves to Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4]) so only one member graduates in each month\.$/, (_, name, year, month, week) => `${name} mendapat jadwal kelulusan baru ke ${indonesianCalendarDate(year, month, week)} agar hanya satu anggota lulus setiap bulan.`],
+  [/^The final departure is now Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4]); only one member can graduate in each calendar month\.$/, (_, year, month, week) => `Keberangkatan terakhir sekarang ${indonesianCalendarDate(year, month, week)}, hanya satu anggota yang dapat lulus setiap bulan kalender.`],
 );
 
 let activeLanguage = 'en';

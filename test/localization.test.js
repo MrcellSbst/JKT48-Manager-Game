@@ -75,6 +75,14 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
     translateIndonesian('The final departure is now Year 3 · May · Week 1, one week after the campaign commitment ends.'),
     'Keberangkatan terakhir sekarang Tahun 3 · Mei · Minggu 1, satu minggu setelah komitmen kampanye selesai.',
   );
+  assert.equal(
+    translateIndonesian("Feni's graduation moves to Year 3 · May · Week 2 so only one member graduates in each month."),
+    'Feni mendapat jadwal kelulusan baru ke Tahun 3 · Mei · Minggu 2 agar hanya satu anggota lulus setiap bulan.',
+  );
+  assert.equal(
+    translateIndonesian('The final departure is now Year 3 · May · Week 2; only one member can graduate in each calendar month.'),
+    'Keberangkatan terakhir sekarang Tahun 3 · Mei · Minggu 2, hanya satu anggota yang dapat lulus setiap bulan kalender.',
+  );
 });
 
 test('translator safely handles missing and non-string history fields', () => {

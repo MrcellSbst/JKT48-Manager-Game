@@ -2613,6 +2613,29 @@ function graduationAfterCommitments(state, graduation, members) {
   return { ...graduation, departureYear: departure.year, departureWeek: departure.week, commitmentEndYear: commitmentEnd.year, commitmentEndWeek: commitmentEnd.week, commitmentType: commitment.type, commitmentId: commitment.id, commitmentDelayWeeks: delayWeeks, commitmentChecked: true };
 }
 
+const graduationMonthKey = (year, week) => `${year}-${Math.floor((week - 1) / BALANCE.weeksPerMonth)}`;
+
+// Keep one departure per four-week calendar month. Existing completed departures
+// reserve their month; earlier pending records keep priority over later records.
+function enforceGraduationMonthSpacing(graduations) {
+  const occupiedMonths = new Set((graduations ?? [])
+    .filter((graduation) => graduation.completed && Number.isInteger(graduation.departureYear) && Number.isInteger(graduation.departureWeek))
+    .map((graduation) => graduationMonthKey(graduation.departureYear, graduation.departureWeek)));
+  return (graduations ?? []).map((graduation) => {
+    if (graduation.completed || !Number.isInteger(graduation.departureYear) || !Number.isInteger(graduation.departureWeek)) return graduation;
+    let departureAbsolute = toAbsoluteWeek(graduation.departureYear, graduation.departureWeek);
+    while (true) {
+      const candidate = fromAbsoluteWeek(departureAbsolute);
+      if (!occupiedMonths.has(graduationMonthKey(candidate.year, candidate.week))) break;
+      departureAbsolute += BALANCE.weeksPerMonth;
+    }
+    const departure = fromAbsoluteWeek(departureAbsolute);
+    occupiedMonths.add(graduationMonthKey(departure.year, departure.week));
+    if (departure.year === graduation.departureYear && departure.week === graduation.departureWeek) return graduation;
+    return { ...graduation, departureYear: departure.year, departureWeek: departure.week, monthSpacingAdjusted: true };
+  });
+}
+
 function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
   const config = BALANCE.graduation;
   const existing = state.graduations ?? [];
@@ -3051,6 +3074,15 @@ export function resolveWeek(state) {
     history.unshift({ id: `${graduation.id}-commitment-delay-${year}-${state.week}`, type: 'member', title: `${graduation.memberName}'s graduation rescheduled`, detail: `The final departure is now ${adjustedDate}, one week after the campaign commitment ends.`, year, week: state.week });
     return adjusted;
   });
+  const spacedGraduations = enforceGraduationMonthSpacing(graduations);
+  spacedGraduations.forEach((graduation, index) => {
+    const previous = graduations[index];
+    if (!graduation.announced || !previous || graduation.departureYear === previous.departureYear && graduation.departureWeek === previous.departureWeek) return;
+    const adjustedDate = calendarPositionText(graduation.departureYear, graduation.departureWeek);
+    notifications.push({ type: 'critical', text: `${graduation.memberName}'s graduation moves to ${adjustedDate} so only one member graduates in each month.` });
+    history.unshift({ id: `${graduation.id}-month-spacing-${year}-${state.week}`, type: 'member', title: `${graduation.memberName}'s graduation rescheduled`, detail: `The final departure is now ${adjustedDate}; only one member can graduate in each calendar month.`, year, week: state.week });
+  });
+  graduations = spacedGraduations;
   graduations = graduations.map((graduation) => {
     if (!graduation.announced && graduation.announcementYear === year && graduation.announcementWeek === state.week) {
       notifications.push({ type: 'critical', text: `${graduation.memberName} announces graduation for Year ${graduation.departureYear}, Week ${graduation.departureWeek}.` });
