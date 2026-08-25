@@ -12,6 +12,13 @@ export const VOUCHER_STAT_LABELS = Object.freeze({
 
 export const voucherStatLabel = (stat) => VOUCHER_STAT_LABELS[stat] ?? String(stat ?? '').replace(/[-_]/g, ' ');
 
+/** Voucher stat usage is scoped to one member within one redemption. */
+export function getVoucherMemberStatUsage(redemption, memberId, stat) {
+  return (redemption?.usage ?? [])
+    .filter((item) => String(item.memberId) === String(memberId) && item.stat === stat)
+    .reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0);
+}
+
 /** Single eligibility contract shared by voucher editors and validation callers. */
 export function getVoucherEditEligibility(redemption, memberId) {
   const voucher = redemption?.voucher ?? {};

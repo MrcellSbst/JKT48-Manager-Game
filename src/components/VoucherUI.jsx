@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Check, Plus, Ticket, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useVouchers } from '../context/VoucherContext.jsx';
-import { VOUCHER_MEMBER_STATS, getVoucherEditEligibility, voucherStatLabel } from '../data/voucher.js';
+import { VOUCHER_MEMBER_STATS, getVoucherEditEligibility, getVoucherMemberStatUsage, voucherStatLabel } from '../data/voucher.js';
 import { getActiveLanguage } from '../localization.js';
 
 const formatDate = (value) => value ? new Intl.DateTimeFormat(getActiveLanguage() === 'id' ? 'id-ID' : 'en-US', { dateStyle: 'medium', timeZone: 'Asia/Jakarta' }).format(new Date(value)) : null;
@@ -94,7 +94,7 @@ export function VoucherEditModal({ member, initialStat = 'vocal', language = 'en
     ?? eligible[0];
   const eligibility = getVoucherEditEligibility(selectedRedemption, member.id);
   const editableStats = useMemo(() => VOUCHER_MEMBER_STATS.filter((stat) => selectedRedemption?.voucher.allowedStats.includes(stat)), [selectedRedemption]);
-  const usageByStat = useMemo(() => Object.fromEntries(editableStats.map((stat) => [stat, (selectedRedemption?.usage ?? []).filter((item) => item.stat === stat).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0)])), [editableStats, selectedRedemption]);
+  const usageByStat = useMemo(() => Object.fromEntries(editableStats.map((stat) => [stat, getVoucherMemberStatUsage(selectedRedemption, member.id, stat)])), [editableStats, member.id, selectedRedemption]);
   const memberUsed = selectedRedemption?.usage?.filter((item) => String(item.memberId) === String(member.id)).reduce((sum, item) => sum + Number(item.pointsUsed ?? 0), 0) ?? 0;
   const selectedPoints = Object.values(deltas).reduce((sum, value) => sum + Math.abs(value), 0);
   const remainingPoints = Math.max(0, Number(selectedRedemption?.pointsRemaining ?? 0) - selectedPoints);

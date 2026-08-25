@@ -62,6 +62,8 @@ Recommended conceptual shape:
 }
 ```
 
+`maxIncreasePerStat` applies separately to each member and stat within one redemption. `maxIncreasePerMember` remains the cumulative cap across all edited stats for that member.
+
 Adapt field names to the project conventions.
 
 ## Voucher Code

@@ -44,10 +44,10 @@ export async function onRequestPost({ request, env }) {
     const pointsUsed = Number(row.points_used ?? 0);
     if (pointsUsed + pointsCost > Number(row.points_total)) throw new VoucherError('No points remaining.', 409, 'points_exhausted');
 
-    const statUsageResult = await env.DB.prepare('SELECT stat, COALESCE(SUM(ABS(delta)), 0) AS used FROM voucher_edit_log WHERE redemption_id = ? GROUP BY stat').bind(redemptionId).all();
+    const statUsageResult = await env.DB.prepare('SELECT stat, COALESCE(SUM(ABS(delta)), 0) AS used FROM voucher_edit_log WHERE redemption_id = ? AND member_id = ? GROUP BY stat').bind(redemptionId, memberId).all();
     const statUsage = Object.fromEntries((statUsageResult.results ?? []).map((item) => [item.stat, Number(item.used ?? 0)]));
     if (edits.some((item) => Number(statUsage[item.stat] ?? 0) + Math.abs(item.delta) > Number(row.max_increase_per_stat))) {
-      throw new VoucherError('Maximum per-stat adjustment reached.', 409, 'stat_limit');
+      throw new VoucherError('Maximum per-member stat adjustment reached.', 409, 'stat_limit');
     }
     const memberUsageRow = await env.DB.prepare('SELECT COALESCE(SUM(ABS(delta)), 0) AS used FROM voucher_edit_log WHERE redemption_id = ? AND member_id = ?').bind(redemptionId, memberId).first();
     if (Number(memberUsageRow?.used ?? 0) + pointsCost > Number(row.max_increase_per_member)) throw new VoucherError('Maximum per-member adjustment reached.', 409, 'member_limit');

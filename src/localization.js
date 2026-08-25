@@ -16,6 +16,8 @@ const ID = {
   'Vocal training':'Latihan vokal','Dance training':'Latihan tari','Performance training':'Latihan penampilan','MC training':'Latihan MC','Stamina training':'Latihan stamina','Theater show':'Pertunjukan teater','Media appearance':'Penampilan media','Photoshoot':'Pemotretan','Concert':'Konser','Rest':'Istirahat',
 };
 Object.assign(ID, {
+  'Max / member / stat': 'Maks. / anggota / statistik',
+  'Maximum per-member stat adjustment reached.': 'Batas penyesuaian statistik per anggota sudah tercapai.',
   'Build an ordered training queue. Sessions use the earliest free days; unfinished sessions carry into next week.':'Susun antrean latihan berurutan. Sesi memakai hari kosong paling awal; sesi yang belum selesai dibawa ke minggu berikutnya.',
   'First session uses the earliest free day; unfinished sessions carry into next week.':'Sesi pertama memakai hari kosong paling awal; sesi yang belum selesai dibawa ke minggu berikutnya.',
   'Will carry into next week':'Dibawa ke minggu berikutnya',

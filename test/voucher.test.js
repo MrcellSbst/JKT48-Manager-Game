@@ -12,13 +12,50 @@ import {
 } from '../functions/api/_voucher.js';
 import { onRequestPost as redeemVoucher } from '../functions/api/voucher/redeem.js';
 import { onRequestPost as createVoucher } from '../functions/api/admin/vouchers/index.js';
-import { getVoucherEditEligibility } from '../src/data/voucher.js';
+import { getVoucherEditEligibility, getVoucherMemberStatUsage } from '../src/data/voucher.js';
 
 test('voucher edit eligibility keeps limit-minus-one editable and locks exactly at limit', () => {
   const base = { status: 'active', pointsRemaining: 4, usage: [{ memberId: 'm1', stat: 'vocal', pointsUsed: 2 }], voucher: { allowMultipleMembers: true, maxIncreasePerMember: 3, allowedStats: ['vocal'] } };
   assert.equal(getVoucherEditEligibility(base, 'm1').allowed, true);
   assert.equal(getVoucherEditEligibility({ ...base, usage: [{ memberId: 'm1', stat: 'vocal', pointsUsed: 3 }] }, 'm1').reason, 'edit_limit_reached');
   assert.equal(getVoucherEditEligibility({ ...base, pointsRemaining: 0 }, 'm1').reason, 'no_voucher_available');
+});
+
+test('voucher member limits aggregate edits across stats, while members remain independent', () => {
+  const base = {
+    status: 'active',
+    pointsRemaining: 8,
+    voucher: { allowMultipleMembers: true, maxIncreasePerMember: 3, allowedStats: ['vocal', 'dance'] },
+    usage: [
+      { memberId: 'm1', stat: 'vocal', pointsUsed: 1 },
+      { memberId: 'm1', stat: 'dance', pointsUsed: 1 },
+    ],
+  };
+
+  // Intended rule: maxIncreasePerMember is cumulative, regardless of stat.
+  assert.deepEqual(getVoucherEditEligibility(base, 'm1'), {
+    allowed: true,
+    editsUsed: 2,
+    editLimit: 3,
+    vouchersAvailable: 8,
+    reason: null,
+  });
+  assert.equal(getVoucherEditEligibility({ ...base, usage: [...base.usage, { memberId: 'm1', stat: 'vocal', pointsUsed: 1 }] }, 'm1').reason, 'edit_limit_reached');
+
+  // Usage for m1 must not consume m2's per-member allowance.
+  assert.equal(getVoucherEditEligibility(base, 'm2').allowed, true);
+  assert.equal(getVoucherEditEligibility({ ...base, voucher: { ...base.voucher, allowMultipleMembers: false } }, 'm2').allowed, false);
+});
+
+test('voucher per-stat usage is scoped to the selected member', () => {
+  const redemption = { usage: [
+    { memberId: 'm1', stat: 'vocal', pointsUsed: 8 },
+    { memberId: 'm1', stat: 'dance', pointsUsed: 4 },
+    { memberId: 'm2', stat: 'vocal', pointsUsed: 9 },
+  ] };
+  assert.equal(getVoucherMemberStatUsage(redemption, 'm1', 'vocal'), 8);
+  assert.equal(getVoucherMemberStatUsage(redemption, 'm2', 'vocal'), 9);
+  assert.equal(getVoucherMemberStatUsage(redemption, 'm1', 'performance'), 0);
 });
 
 function sessionDb(userId) {
