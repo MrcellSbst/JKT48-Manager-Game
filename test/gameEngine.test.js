@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getCampaignConflictReasons, getConfirmedScheduleForWeek, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getCampaignConflictReasons, getConfirmedScheduleForWeek, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
@@ -160,7 +160,7 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Management Token'), 'Management Token');
   assert.equal(translateIndonesian('Theater results'), 'Hasil teater');
   assert.equal(translateIndonesian('3 unmet'), '3 tidak terpenuhi');
-  assert.equal(translateIndonesian('Save plan · $28m'), 'Simpan rencana · $28m');
+  assert.equal(translateIndonesian('Save plan · FRL28m'), 'Simpan rencana · FRL28m');
   assert.equal(translateIndonesian('Fan target grade'), 'Nilai target penggemar');
   assert.equal(translateIndonesian('Annual fan result: Exceptional (120.5%).'), 'Hasil target penggemar tahunan: Luar biasa (120.5%).');
   assert.equal(translateIndonesian('Statistics'), 'Statistik');
@@ -1443,7 +1443,7 @@ test('resolved schedule snapshots remain authoritative over confirmed reservatio
   assert.deepEqual(snapshot.schedule, { [`${memberId}:Mon`]: 'media' });
 });
 
-test('live stream uses the direct $40k income rate', () => {
+test('live stream uses the direct FRL40k income rate', () => {
   const draft = createGame('live-stream-income-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const member = game.members[0];
@@ -1622,6 +1622,15 @@ test('anniversary concert locks rehearsal and concert dates', () => {
   assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concert').length, 12);
   assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concertRehearsal').length, 24);
   assert.equal(assignActivity(game, game.members[0].id, 'Tue', 'rest'), game);
+});
+
+test('anniversary concert falls back from a stale saved venue selection', () => {
+  const draft = createGame('anniversary-stale-venue-test');
+  const game = finalizeGameSetup({ ...draft, week: 43 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const currentOffers = game.concertVenueOffers.map((venue, index) => ({ ...venue, id: `refreshed-${index + 1}` }));
+  const refreshed = { ...game, concertVenueOffers: currentOffers };
+  const announced = announceAnniversaryConcert(refreshed, 45, 'Sat', 'Anniversary Night', 'standard', game.concertVenueOffers[0].id, ['Tue', 'Thu']);
+  assert.equal(announced.concerts[0].venueId, currentOffers[0].id);
 });
 
 test('anniversary concert booking is unavailable before Month 7 Week 1', () => {
@@ -2399,6 +2408,20 @@ test('graduation departures are separated so only one member graduates per calen
   assert.notEqual(Math.floor((firstGraduation.departureWeek - 1) / BALANCE.weeksPerMonth), Math.floor((secondGraduation.departureWeek - 1) / BALANCE.weeksPerMonth));
   assert.ok(result.notifications.some((item) => /graduation moves to Year 3 · May · Week 2 so only one member graduates in each month/.test(item.text)));
   assert.ok(result.history.some((item) => /only one member can graduate in each calendar month/.test(item.detail)));
+});
+
+test('graduation countdown starts four weeks before departure and crosses year boundaries', () => {
+  const countdown = getGraduationCountdown({
+    year: 3,
+    week: 48,
+    graduations: [
+      { id: 'countdown-four', memberName: 'Four', announced: true, completed: false, departureYear: 4, departureWeek: 4 },
+      { id: 'countdown-five', memberName: 'Five', announced: true, completed: false, departureYear: 4, departureWeek: 5 },
+      { id: 'countdown-hidden', memberName: 'Hidden', announced: false, completed: false, departureYear: 4, departureWeek: 2 },
+      { id: 'countdown-done', memberName: 'Done', announced: true, completed: true, departureYear: 4, departureWeek: 2 },
+    ],
+  });
+  assert.deepEqual(countdown.map(({ id, weeksRemaining }) => ({ id, weeksRemaining })), [{ id: 'countdown-four', weeksRemaining: 4 }]);
 });
 
 test('graduated member returns to the audition pool after exactly two years with reset stats', () => {

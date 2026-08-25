@@ -1330,19 +1330,19 @@ Example:
 ```text
 Venue A
 Capacity: 1,850
-Rental Cost: $240m
+Rental Cost: FRL240m
 Production Ceiling: LOW
 Popularity Gain Potential: LOW
 
 Venue B
 Capacity: 4,200
-Rental Cost: $620m
+Rental Cost: FRL620m
 Production Ceiling: MEDIUM
 Popularity Gain Potential: MEDIUM
 
 Venue C
 Capacity: 8,750
-Rental Cost: $1.45b
+Rental Cost: FRL1.45b
 Production Ceiling: HIGH
 Popularity Gain Potential: HIGH
 Financial Risk: HIGH

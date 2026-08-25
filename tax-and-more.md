@@ -10,10 +10,10 @@
 ## Economy and Campaign Changes
 
 - Set static concert venues to:
-  - Concert Hall: $90M.
-  - City Arena: $180M.
-  - National Stadium: $405M.
-- Increase generated venue costs by changing the per-seat range from $24K–38K to $36K–57K, still rounded to $5M.
+  - Concert Hall: FRL90M.
+  - City Arena: FRL180M.
+  - National Stadium: FRL405M.
+- Increase generated venue costs by changing the per-seat range from FRL24K–38K to FRL36K–57K, still rounded to FRL5M.
 - Use these prices for regular, anniversary, SSK, RH, and Janken reward concerts.
 - Apply venue perk B008 after the increased base cost.
 - Upgrade saved unbooked venue offers once; never retroactively charge already-announced concerts.
@@ -42,7 +42,7 @@
   - Expanded: 1.35× price and 1.20× seats.
   - Metropolitan: 1.70× price and 1.45× seats.
   - Grand: 2.10× price and 1.75× seats.
-- Round gross prices to $5M and capacity to 10 seats.
+- Round gross prices to FRL5M and capacity to 10 seats.
 - Recalculate weekly upkeep with the existing price/capacity formula, then apply B002.
 - Calculate payment as:
   - `discounted new gross price using B001 − 50% current market value`.
@@ -73,7 +73,7 @@
 - Record immediate purchases and income in the financial-event ledger so out-of-week transactions are included without duplicating weekly reports.
 
 - Apply one rate to the entire taxable profit:
-  - Normal: 5% through $500M, 10% through $1.5B, 15% through $3B, then 20%.
+  - Normal: 5% through FRL500M, 10% through FRL1.5B, 15% through FRL3B, then 20%.
   - Hard: 10%, 15%, 20%, then 25% at the same boundaries.
 - Losses and zero profit produce zero tax; losses do not carry forward.
 - Pay as much tax as available cash permits. Put the remainder into tax debt and allow rollover.

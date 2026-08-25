@@ -80,6 +80,25 @@ const applyNaturalStatChange = (member, stat, delta) => {
 const isAllNinetySeed = (seed) => String(seed ?? '').trim().toUpperCase() === ALL_NINETY_SEED;
 const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
+
+// Surface announced graduations only during their final four-week countdown.
+// Keeping this calculation in the engine keeps every UI surface consistent,
+// including countdowns that cross a year boundary.
+export function getGraduationCountdown(state) {
+  const currentAbsolute = toAbsoluteWeek(state?.year ?? 1, state?.week ?? 1);
+  return (state?.graduations ?? [])
+    .filter((graduation) => graduation.announced && !graduation.completed
+      && Number.isInteger(graduation.departureYear) && Number.isInteger(graduation.departureWeek))
+    .map((graduation) => ({
+      ...graduation,
+      weeksRemaining: toAbsoluteWeek(graduation.departureYear, graduation.departureWeek) - currentAbsolute,
+    }))
+    .filter((graduation) => graduation.weeksRemaining >= 0 && graduation.weeksRemaining <= 4)
+    .sort((first, second) => first.weeksRemaining - second.weeksRemaining
+      || String(first.memberName).localeCompare(String(second.memberName))
+      || String(first.id).localeCompare(String(second.id)));
+}
+
 const CALENDAR_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const calendarPositionText = (year, week) => {
   const safeWeek = Math.max(1, Math.min(BALANCE.weeksPerYear, Number(week) || 1));
@@ -88,7 +107,7 @@ const calendarPositionText = (year, week) => {
   return `Year ${year} · ${CALENDAR_MONTHS[monthIndex] ?? `Month ${monthIndex + 1}`} · Week ${weekOfMonth}`;
 };
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-const moneyText = (value) => `$${value.toLocaleString('id-ID')}`;
+const moneyText = (value) => `FRL${value.toLocaleString('id-ID')}`;
 const hasBonus = (state, id) => (state.bonusLoadout ?? []).includes(id);
 const bonusLevel = (state, id) => hasBonus(state, id) ? normalizeBonusLevel(state.bonusLevels?.[id] ?? 1) : 0;
 const bonusValue = (state, id) => getBonusValueAtLevel(BONUS_BY_ID[id], bonusLevel(state, id));
@@ -158,10 +177,12 @@ const campaignMemberOverlap = (requestedMembers, existingMembers) => requestedMe
 const sameCampaignMonth = (firstAbsolute, secondAbsolute) => Math.floor((firstAbsolute - 1) / BALANCE.weeksPerMonth) === Math.floor((secondAbsolute - 1) / BALANCE.weeksPerMonth);
 const sameConcertQuarter = (firstAbsolute, secondAbsolute) => concertQuarterForWeek(((firstAbsolute - 1) % BALANCE.weeksPerYear) + 1) === concertQuarterForWeek(((secondAbsolute - 1) % BALANCE.weeksPerYear) + 1)
   && Math.floor((firstAbsolute - 1) / BALANCE.weeksPerYear) === Math.floor((secondAbsolute - 1) / BALANCE.weeksPerYear);
-const conflictNotification = (state, reasons) => ({
-  ...state,
-  notifications: [{ type: 'critical', text: `Campaign blocked: ${reasons[0]}` }, ...(state.notifications ?? [])].slice(0, 20),
-});
+const conflictNotification = (state, reasons, campaignType = 'campaign') => {
+  const text = `Campaign blocked: ${reasons[0]}`;
+  const notification = { type: 'critical', code: 'campaign-blocked', campaignType, year: state.year, week: state.week, text };
+  const existing = (state.notifications ?? []).filter((item) => !(item.code === 'campaign-blocked' && item.campaignType === campaignType && item.year === state.year && item.week === state.week && item.text === text));
+  return { ...state, notifications: [notification, ...existing].slice(0, 20) };
+};
 
 export function getCampaignConflictReasons(state, options = {}) {
   const targetYear = options.year ?? state.year;
@@ -1789,7 +1810,7 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
   const eventTitle = normalizeEventTitle(requestedTitle, type);
   if (!eventTitle) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type, day, memberIds });
-  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons, type);
   const activityId = type === 'videoCall' ? 'vc1' : 'mg1';
   const eligibleIds = campaignEligibleMembers(state, activityId, state.year, targetWeek).map((member) => member.id);
   if (!eligibleIds.length) return state;
@@ -1801,14 +1822,14 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
       || Object.entries(state.schedule ?? {}).some(([key, activity]) => key.startsWith(`${memberId}:`) && activity?.startsWith?.('vc'))
       || (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.year === state.year && plan.memberIds.includes(memberId) && Math.ceil(plan.targetWeek / BALANCE.weeksPerMonth) === targetMonth)
     ));
-    if (hasExistingMemberEvent) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.']);
+    if (hasExistingMemberEvent) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.'], type);
   }
   if (targetWeek > state.week) {
     const selectedIds = type === 'meetGreet' ? eligibleIds : [...new Set(memberIds)].filter((id) => eligibleIds.includes(id));
     const sameDayPlanExists = (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.day === day && plan.type === type);
     if (!selectedIds.length) return state;
-    if (sameDayPlanExists) return conflictNotification(state, [`${type === 'videoCall' ? 'Video Call' : 'Meet & Greet'} already occupies the requested day.`]);
-    if (type === 'meetGreet' && (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type)) return conflictNotification(state, ['Meet & Greet already occupies the requested week.']);
+    if (sameDayPlanExists) return conflictNotification(state, [`${type === 'videoCall' ? 'Video Call' : 'Meet & Greet'} already occupies the requested day.`], type);
+    if (type === 'meetGreet' && (state.fanEventPlans ?? []).some((plan) => plan.year === state.year && plan.targetWeek === targetWeek && plan.type === type)) return conflictNotification(state, ['Meet & Greet already occupies the requested week.'], type);
     if (type === 'videoCall') {
       const targetMonth = Math.ceil(targetWeek / BALANCE.weeksPerMonth);
       const currentMonth = Math.ceil(state.week / BALANCE.weeksPerMonth);
@@ -1822,7 +1843,7 @@ export function scheduleFanCampaign(state, type, day, memberIds = [], targetWeek
         const plannedSameWeek = (state.fanEventPlans ?? []).some((plan) => plan.type === 'videoCall' && plan.memberIds.includes(memberId) && plan.year === state.year && plan.targetWeek === targetWeek);
         return resolved || planned || scheduled || plannedSameWeek;
       });
-      if (hasExisting) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.']);
+      if (hasExisting) return conflictNotification(state, ['Video Call already scheduled for one of the selected members in this period.'], type);
     }
     return { ...state, fanEventPlans: [...(state.fanEventPlans ?? []), { id: nextFanEventId(state, type, targetWeek, day), ...eventTitle, type, day, memberIds: selectedIds, year: state.year, targetWeek, status: 'announced' }] };
   }
@@ -1908,12 +1929,12 @@ export function startSingleProduction(state, centerId, productionDay, selectedMe
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   if (scheduledRelease && (releaseMonth < 1 || releaseMonth > 12 || productionStartAbsolute < currentAbsolute)) return state;
   const startsNow = productionStartAbsolute === currentAbsolute;
-  if (startsNow && memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return conflictNotification(state, ['MV production cannot use an occupied member and day.']);
+  if (startsNow && memberIds.some((memberId) => state.schedule[`${memberId}:${productionDay}`])) return conflictNotification(state, ['MV production cannot use an occupied member and day.'], 'mv');
   const productionConflictReasons = [...new Set(
     Array.from({ length: 4 }, (_, offset) => fromAbsoluteWeek(productionStartAbsolute + offset))
       .flatMap(({ year, week }) => getCampaignConflictReasons(state, { year, week, type: 'mv', day: productionDay, memberIds })),
   )];
-  if (productionConflictReasons.length) return conflictNotification(state, productionConflictReasons);
+  if (productionConflictReasons.length) return conflictNotification(state, productionConflictReasons, 'mv');
   const schedule = { ...state.schedule };
   if (startsNow) memberIds.forEach((memberId) => { schedule[`${memberId}:${productionDay}`] = 'mvProduction'; });
   const productionStart = fromAbsoluteWeek(productionStartAbsolute);
@@ -1943,13 +1964,13 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
   const allowQ4 = options.allowQ4 === true;
   if (targetAbsolute - currentAbsolute < 2 || (!allowQ4 && concertQuarterForWeek(targetWeek) === 4)) {
     return !allowQ4 && concertQuarterForWeek(targetWeek) === 4
-      ? conflictNotification(state, ['Q4 is reserved for the Anniversary Concert.'])
+      ? conflictNotification(state, ['Q4 is reserved for the Anniversary Concert.'], 'concert')
       : state;
   }
   const existingQuarterConcert = (state.concerts ?? []).some((concert) => concert.targetYear === targetYear && concertQuarterForWeek(concert.targetWeek ?? ((concert.targetMonth ?? 1) * BALANCE.weeksPerMonth)) === concertQuarterForWeek(targetWeek) && !['cancelled', 'skipped'].includes(concert.status));
-  if (existingQuarterConcert) return conflictNotification(state, ['Concert already occupies this quarter.']);
+  if (existingQuarterConcert) return conflictNotification(state, ['Concert already occupies this quarter.'], 'concert');
   const conflictReasons = getCampaignConflictReasons(state, { year: targetYear, week: targetWeek, type: 'concert', day: concertDay, allowQ4 });
-  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'concert');
   const memberIds = campaignEligibleMembers(state, 'concert', targetYear, targetWeek).map((member) => member.id);
   if (memberIds.length < BALANCE.theaterMinimumMembers) return state;
   const salesMultiplier = 1 + bonusValue(state, 'B028');
@@ -1968,7 +1989,7 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
   if (state.runStatus === 'ended' || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
   if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year)) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day, monthScope: true });
-  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'yearEndMeetGreet');
   const cost = 40_000_000;
   if (state.money < cost) return state;
   const eventTitle = normalizeEventTitle(requestedTitle, 'yearEndMeetGreet');
@@ -1984,9 +2005,14 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
   if (state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true, allowQ4: true });
-  if (conflictReasons.length) return conflictNotification(state, conflictReasons);
+  if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'concert');
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;
-  const chosenVenueId = venueId ?? state.concertVenueOffers?.[0]?.id ?? CONCERT_VENUES[0].id;
+  // Saved UI selections can outlive a refreshed venue-offer list. Keep the
+  // annual event bookable by falling back to the first currently valid offer
+  // instead of passing a stale ID into announceConcert.
+  const chosenVenueId = concertVenueFor(state, venueId)
+    ? venueId
+    : state.concertVenueOffers?.[0]?.id ?? CONCERT_VENUES[0].id;
   const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, budgetId, chosenVenueId, targetWeek, { allowQ4: true, eventType: 'anniversary' });
   if (announced === state) return state;
   const createdId = announced.concerts.at(-1).id;

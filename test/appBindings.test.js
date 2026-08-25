@@ -145,6 +145,7 @@ test('Campaign UI explains annual campaign and mutual MV locks', async () => {
   assert.match(source, /const concertBlockReason =/);
   assert.match(source, /const auditionBlockReason =/);
   assert.match(source, /const blockerReason = conflicts\[0\]/);
+  assert.match(source, /You choose when to hold it\. Current date/);
   assert.match(source, /className="campaign-block-reason" role="status"/);
 });
 
@@ -158,6 +159,9 @@ test('year-end event Review checks the full target month', async () => {
   assert.match(source, /week: selectedAnniversaryWeek,\s*type: 'concert',\s*days: \[anniversaryDay, 'Tue', 'Thu'\],\s*monthScope: true/);
   assert.match(source, /scheduleYearEndMeetGreet\(current, selectedMgWeek, mgDay, current\.week(?:, \{\}, mgTitle)?\)/);
   assert.match(source, /announceAnniversaryConcert\(current, selectedAnniversaryWeek, anniversaryDay/);
+  assert.match(source, /memberCanPerformOnCampaignDate\(game, member, activityId, game\.year, targetWeek\)/);
+  assert.match(source, /if \(!venues\.some\(\(venue\) => venue\.id === anniversaryVenue\)\) setAnniversaryVenue\(venues\[0\]\?\.id \?\? ''\)/);
+  assert.match(source, /selectedAnniversaryVenue\?\.id \?\? anniversaryVenue/);
 });
 
 test('setup rebuilds preserve difficulty and per-run stat salt', async () => {

@@ -528,14 +528,14 @@ Examples:
 
 ```text
 English
-$850K
-$1.2M
-$2.5B
+FRL850K
+FRL1.2M
+FRL2.5B
 
 Indonesian
-$850 RB
-$1,2 JT
-$2,5 M
+FRL850 RB
+FRL1,2 JT
+FRL2,5 M
 ```
 
 Important:
@@ -576,10 +576,10 @@ Examples:
 
 ```text
 English:
-$1.5M
+FRL1.5M
 
 Indonesian:
-$1,5 JT
+FRL1,5 JT
 ```
 
 ### Full Number Formatting
@@ -588,10 +588,10 @@ When compact formatting is not used:
 
 ```text
 English:
-$1,500,000
+FRL1,500,000
 
 Indonesian:
-$1.500.000
+FRL1.500.000
 ```
 
 Use the project’s shared formatter or locale-aware formatting such as:
@@ -634,7 +634,7 @@ Audit money formatting in:
 Do not leave components with manual formatting such as:
 
 ```js
-`$${value / 1_000_000}M`
+`FRL${value / 1_000_000}M`
 ```
 
 because that will produce incorrect Indonesian output.
