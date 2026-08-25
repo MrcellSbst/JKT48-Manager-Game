@@ -107,7 +107,7 @@ const calendarPositionText = (year, week) => {
   return `Year ${year} · ${CALENDAR_MONTHS[monthIndex] ?? `Month ${monthIndex + 1}`} · Week ${weekOfMonth}`;
 };
 const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-const moneyText = (value) => `FRL${value.toLocaleString('id-ID')}`;
+const moneyText = (value) => `FRL.${value.toLocaleString('id-ID')}`;
 const hasBonus = (state, id) => (state.bonusLoadout ?? []).includes(id);
 const bonusLevel = (state, id) => hasBonus(state, id) ? normalizeBonusLevel(state.bonusLevels?.[id] ?? 1) : 0;
 const bonusValue = (state, id) => getBonusValueAtLevel(BONUS_BY_ID[id], bonusLevel(state, id));

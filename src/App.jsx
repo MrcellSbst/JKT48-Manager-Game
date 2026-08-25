@@ -54,7 +54,11 @@ const getAdminRoute = () => {
   if (path === ADMIN_PATCHNOTES_PATH) return 'patchnotes';
   return null;
 };
-const translate = (language, text) => language === 'id' ? translateIndonesian(text) : typeof text === 'string' ? text.replaceAll('$', 'FRL') : text;
+const translate = (language, text) => {
+  if (typeof text !== 'string') return text;
+  const normalized = text.replaceAll('$', 'FRL.').replace(/FRL(?=\d)/g, 'FRL.');
+  return language === 'id' ? translateIndonesian(normalized) : normalized;
+};
 
 function ModalPortal({ children }) {
   if (typeof document === 'undefined') return children;

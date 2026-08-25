@@ -697,10 +697,10 @@ export function formatMoney(value, language = activeLanguage, { compact = true }
   const locale = language === 'id' ? 'id-ID' : 'en-US';
   const sign = numeric < 0 ? '-' : '';
   const absolute = Math.abs(numeric);
-  if (!compact || absolute < 1_000) return `FRL${sign}${new Intl.NumberFormat(locale).format(absolute)}`;
+  if (!compact || absolute < 1_000) return `${sign}FRL.${new Intl.NumberFormat(locale).format(absolute)}`;
   const unit = compactUnits[language === 'id' ? 'id' : 'en'].find(([, divisor]) => absolute >= divisor);
   const amount = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(absolute / unit[1]);
-  return language === 'id' ? `FRL${sign}${amount} ${unit[0]}` : `FRL${sign}${amount}${unit[0]}`;
+  return language === 'id' ? `${sign}FRL.${amount} ${unit[0]}` : `${sign}FRL.${amount}${unit[0]}`;
 }
 
 export function formatDate(value, language = activeLanguage, options = {}) {
@@ -750,6 +750,7 @@ export function translateIndonesian(value) {
   if (value === null || value === undefined) return '';
   const source = String(value);
   const text = source.trim();
+  const canonicalText = text.replace(/FRL\.(?=\d)/g, 'FRL');
   if (!text) return source;
   const monthNames = INDONESIAN_MONTH_NAMES;
   const calendar = text.match(/^Year (\d+) · ([A-Z][a-z]{2}) · Week ([1-4])$/);
@@ -763,9 +764,10 @@ export function translateIndonesian(value) {
   const birthday = text.match(/^Birthday ([A-Z][a-z]{2}) (\d{4})(?: · Age (\d+))?$/);
   if (birthday) return source.replace(text, `Ulang tahun ${monthNames[birthday[1]] ?? birthday[1]} ${birthday[2]}${birthday[3] ? ` · Usia ${birthday[3]}` : ''}`);
   if (monthNames[text]) return source.replace(text, monthNames[text]);
-  const direct = ID[text];
+  const direct = ID[text] ?? ID[canonicalText];
   const normalizeGlossary = (localized) => String(localized)
-    .replaceAll('$', 'FRL')
+    .replaceAll('$', 'FRL.')
+    .replace(/FRL(?=\d)/g, 'FRL.')
     .replace(/Basis penggemar/gi, 'Jumlah Penggemar')
     .replace(/\bRoster\b/gi, 'Daftar Anggota')
     .replace(/\blineup\b/gi, 'susunan anggota')
@@ -773,8 +775,8 @@ export function translateIndonesian(value) {
     .replace(/Panggilan Video/gi, 'Video Call')
     .replace(/Temu Penggemar/gi, 'Meet & Greet');
   if (direct) return source.replace(text, normalizeGlossary(direct));
-  for (const [pattern, replacement] of patterns) if (pattern.test(text)) {
-    const localized = text.replace(pattern, replacement);
+  for (const [pattern, replacement] of patterns) if (pattern.test(canonicalText)) {
+    const localized = canonicalText.replace(pattern, replacement);
     return source.replace(text, normalizeGlossary(localized));
   }
   return source.replace(text, normalizeGlossary(text));
@@ -791,7 +793,7 @@ function localizeNode(node, language) {
     const current = node.nodeValue;
     if (rendered.get(node) !== current) sources.set(node, current);
     const source = sources.get(node) ?? current;
-    const next = language === 'id' ? translateIndonesian(source) : source;
+    const next = (language === 'id' ? translateIndonesian(source) : source).replace(/FRL(?=\d)/g, 'FRL.');
     rendered.set(node, next);
     if (current !== next) node.nodeValue = next;
     return;
@@ -802,7 +804,7 @@ function localizeNode(node, language) {
     const sourceAttribute = `data-i18n-source-${attribute}`;
     const source = node.getAttribute(sourceAttribute) ?? node.getAttribute(attribute);
     node.setAttribute(sourceAttribute, source);
-    node.setAttribute(attribute, language === 'id' ? translateIndonesian(source) : source);
+    node.setAttribute(attribute, (language === 'id' ? translateIndonesian(source) : source).replace(/FRL(?=\d)/g, 'FRL.'));
   }
   node.childNodes.forEach((child) => localizeNode(child, language));
 }

@@ -9,13 +9,13 @@ test('English and Indonesian localization dictionaries stay in parity', () => {
 });
 
 test('compact money uses locale-specific suffixes and decimal separators', () => {
-  assert.equal(formatMoney(850_000, 'en'), 'FRL850K');
-  assert.equal(formatMoney(1_250_000, 'en'), 'FRL1.3M');
-  assert.equal(formatMoney(2_500_000_000, 'en'), 'FRL2.5B');
-  assert.equal(formatMoney(850_000, 'id'), 'FRL850 RB');
-  assert.equal(formatMoney(1_250_000, 'id'), 'FRL1,3 JT');
-  assert.equal(formatMoney(2_500_000_000, 'id'), 'FRL2,5 M');
-  assert.equal(formatMoney(1_500_000, 'id', { compact: false }), 'FRL1.500.000');
+  assert.equal(formatMoney(850_000, 'en'), 'FRL.850K');
+  assert.equal(formatMoney(1_250_000, 'en'), 'FRL.1.3M');
+  assert.equal(formatMoney(2_500_000_000, 'en'), 'FRL.2.5B');
+  assert.equal(formatMoney(850_000, 'id'), 'FRL.850 RB');
+  assert.equal(formatMoney(1_250_000, 'id'), 'FRL.1,3 JT');
+  assert.equal(formatMoney(2_500_000_000, 'id'), 'FRL.2,5 M');
+  assert.equal(formatMoney(1_500_000, 'id', { compact: false }), 'FRL.1.500.000');
   setActiveLanguage('en');
 });
 
@@ -60,7 +60,7 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   );
   assert.equal(
     translateIndonesian('Festival Invitation completed: FRL24m revenue and 7,000 new fans.'),
-    'Undangan Festival selesai: pendapatan FRL24m dan 7,000 penggemar baru.',
+    'Undangan Festival selesai: pendapatan FRL.24m dan 7,000 penggemar baru.',
   );
   assert.equal(
     translateIndonesian('Fiony leads a 12-member MV lineup with a medium budget. Production starts Year 1 · Jan · Week 3; release is Year 1 · Feb · Week 4.'),
@@ -68,7 +68,7 @@ test('reported gameplay surfaces translate dynamic Indonesian copy', () => {
   );
   assert.equal(
     translateIndonesian('Spend FRL40m. Sales start now for Year 2 · Oct · Week 1; every active member receives 300 slots at FRL50k.'),
-    'Bayar FRL40 jt. Penjualan dimulai sekarang untuk Tahun 2 · Okt · Minggu 1; setiap anggota aktif mendapat 300 slot seharga FRL50 rb.',
+    'Bayar FRL.40 jt. Penjualan dimulai sekarang untuk Tahun 2 · Okt · Minggu 1; setiap anggota aktif mendapat 300 slot seharga FRL.50 rb.',
   );
   assert.equal(
     translateIndonesian("Feni's graduation moves to Year 3 · May · Week 1 to finish an existing campaign commitment."),

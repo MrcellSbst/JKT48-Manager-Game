@@ -160,7 +160,7 @@ test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Management Token'), 'Management Token');
   assert.equal(translateIndonesian('Theater results'), 'Hasil teater');
   assert.equal(translateIndonesian('3 unmet'), '3 tidak terpenuhi');
-  assert.equal(translateIndonesian('Save plan · FRL28m'), 'Simpan rencana · FRL28m');
+  assert.equal(translateIndonesian('Save plan · FRL28m'), 'Simpan rencana · FRL.28m');
   assert.equal(translateIndonesian('Fan target grade'), 'Nilai target penggemar');
   assert.equal(translateIndonesian('Annual fan result: Exceptional (120.5%).'), 'Hasil target penggemar tahunan: Luar biasa (120.5%).');
   assert.equal(translateIndonesian('Statistics'), 'Statistik');
