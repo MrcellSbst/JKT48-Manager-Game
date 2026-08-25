@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { normalizePatchnote, parseJakartaDateTime } from '../functions/api/_patchnotes.js';
 import { onRequestGet as getLatestPatchnote } from '../functions/api/patchnotes/latest.js';
+import { onRequestGet as getPatchnotes } from '../functions/api/patchnotes/index.js';
 import { onRequestPost as createPatchnote } from '../functions/api/admin/patchnotes/index.js';
 import {
   hardRefreshPage,
@@ -24,6 +25,24 @@ function memoryStorage() {
 
 function latestDb(row) {
   return { prepare() { return { bind() { return { first: async () => row }; } }; } };
+}
+
+function publicPatchnotesDb(rows) {
+  return {
+    prepare(sql) {
+      return {
+        bind(...values) {
+          return {
+            first: async () => sql.includes('COUNT(*)') ? { count: rows.length } : null,
+            all: async () => {
+              const offset = Number(values[2] ?? 0);
+              return { results: rows.slice(offset, offset + 5) };
+            },
+          };
+        },
+      };
+    },
+  };
 }
 
 function adminCreateDb(userId = '1') {
@@ -75,6 +94,45 @@ test('latest public patchnote endpoint returns published content without caching
   assert.equal((await response.json()).patchnote.patchnoteId, 'patchnote-1');
 });
 
+test('public patchnotes endpoint returns five published notes with pagination metadata', async () => {
+  const rows = Array.from({ length: 6 }, (_, index) => ({
+    patchnote_id: `patchnote-${index}`,
+    version_label: `v${index}`,
+    title_en: `Update ${index}`,
+    title_id: `Pembaruan ${index}`,
+    body_en: 'Body',
+    body_id: 'Isi',
+    lifecycle_status: 'published',
+    published_at: `2026-08-${String(25 - index).padStart(2, '0')}T13:30:00.000Z`,
+    created_at: '2026-08-23T13:00:00.000Z',
+    updated_at: '2026-08-23T13:00:00.000Z',
+  }));
+  const request = (page) => new Request(`https://manager.example/api/patchnotes?page=${page}`);
+  const response = await getPatchnotes({ request: request(1), env: { DB: publicPatchnotesDb(rows) } });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.pageSize, 5);
+  assert.equal(body.page, 1);
+  assert.equal(body.total, 6);
+  assert.equal(body.totalPages, 2);
+  assert.equal(body.patchnotes.length, 5);
+  assert.equal(body.patchnotes[0].patchnoteId, 'patchnote-0');
+
+  const second = await (await getPatchnotes({ request: request(2), env: { DB: publicPatchnotesDb(rows) } })).json();
+  assert.deepEqual(second.patchnotes.map((note) => note.patchnoteId), ['patchnote-5']);
+});
+
+test('public patchnotes endpoint returns an empty paginated response when table is unavailable', async () => {
+  const db = {
+    prepare() {
+      return { bind() { return { first: async () => { throw new Error('no such table: manager_patchnotes'); } }; } };
+    },
+  };
+  const response = await getPatchnotes({ request: new Request('https://manager.example/api/patchnotes?page=4'), env: { DB: db } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, patchnotes: [], page: 4, pageSize: 5, totalPages: 0, total: 0 });
+});
+
 test('only user ID 1 can create patchnotes and Jakarta input is stored as UTC', async () => {
   const payload = { versionLabel: 'v2', titleEn: 'New update', titleId: 'Pembaruan baru', bodyEn: 'Changes', bodyId: 'Perubahan', lifecycleStatus: 'published', publishedAt: '2026-08-23T20:30' };
   const request = (userId) => new Request('https://manager.example/api/admin/patchnotes', { method: 'POST', headers: { Cookie: 'session_token=valid', 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -119,6 +177,18 @@ test('app exposes hidden patchnote admin route and mounts update notice only on 
   const unauthenticatedBranch = source.match(/if \(!user && !guestMode\)[^\r\n]+/)?.[0] ?? '';
   assert.doesNotMatch(unauthenticatedBranch, /PatchnoteNotice|accountLayer/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS manager_patchnotes/);
+});
+
+test('public patchnotes archive is wired to sidebar and New Timeline preview', async () => {
+  const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const pageSource = await readFile(new URL('../src/components/PatchnotesPage.jsx', import.meta.url), 'utf8');
+  const utilitySource = await readFile(new URL('../src/utils/patchnotes.js', import.meta.url), 'utf8');
+  assert.match(appSource, /\['patchnotes', 'Patchnotes', Megaphone\]/);
+  assert.match(appSource, /<LatestPatchnoteCard language=\{language\} \/>/);
+  assert.match(appSource, /activeView === 'patchnotes'/);
+  assert.match(pageSource, /fetchPatchnotesPage\(page\)/);
+  assert.match(pageSource, /Array\.from\(\{ length: totalPages \}/);
+  assert.match(utilitySource, /fetch\(`\/api\/patchnotes\?page=\$\{safePage\}`/);
 });
 
 test('patchnote notice checks immediately and every three hours while mounted', async () => {

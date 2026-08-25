@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Activity, Archive, ArrowDown, ArrowLeft, ArrowUp, BookOpen, Building2, CalendarDays, ChartNoAxesCombined, Check, ChevronRight, CircleDollarSign, Clapperboard, Cloud,
-  Clock3, Disc3, Download, Dumbbell, History, Languages, LayoutDashboard, LogOut, Menu, Moon, Pencil, PhoneCall, Plus, Save, Search, ShieldAlert, Square,
+  Clock3, Disc3, Download, Dumbbell, History, Languages, LayoutDashboard, LogOut, Menu, Megaphone, Moon, Pencil, PhoneCall, Plus, Save, Search, ShieldAlert, Square,
   Sparkles, Sun, Target, Ticket, Trash2, TrendingUp, Trophy, UserRoundSearch, Users, Wrench, X,
 } from 'lucide-react';
 import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, SINGLE_BUDGETS, TRAINING_ACTIVITY_GROUPS, TRAINING_SKILLS, CONCERT_COST_RULES, concertQuarterForWeek } from './data/balance.js';
@@ -22,6 +22,7 @@ import CoreTraineeFilter from './components/CoreTraineeFilter.jsx';
 import { filterCoreTraineeMembers } from './engine/memberFilter.js';
 import VoucherAdminDashboard from './components/VoucherAdminDashboard.jsx';
 import PatchnoteNotice from './components/PatchnoteNotice.jsx';
+import PatchnotesPage, { LatestPatchnoteCard } from './components/PatchnotesPage.jsx';
 import PatchnotesAdminDashboard from './components/PatchnotesAdminDashboard.jsx';
 import MigrationScreen from './components/MigrationScreen.jsx';
 import { getTutorialChapter, markTutorialStep, normalizeTutorialState, skipTutorial, TUTORIAL_CHAPTERS } from './engine/tutorial.js';
@@ -43,7 +44,7 @@ const AUTOMATIC_ACTIVITY_LOCKS = ['mvProduction', 'concert', 'concertRehearsal',
 const NAV = [
   ['dashboard', 'Command', LayoutDashboard], ['schedule', 'Schedule', CalendarDays], ['training', 'Training', Dumbbell],
   ['roster', 'Roster', Users], ['campaigns', 'Campaigns', Clapperboard], ['templates', 'Templates', Archive], ['statistics', 'Statistics', ChartNoAxesCombined],
-  ['history', 'History', History], ['wiki', 'Wiki', BookOpen], ['saves', 'Saves', Archive],
+  ['history', 'History', History], ['wiki', 'Wiki', BookOpen], ['patchnotes', 'Patchnotes', Megaphone], ['saves', 'Saves', Archive],
 ];
 const ADMIN_VOUCHER_PATH = '/admin/vouchers';
 const ADMIN_PATCHNOTES_PATH = '/admin/patchnotes';
@@ -1362,6 +1363,9 @@ function CampaignLaunchEditor({ game, setGame, language = 'en' }) {
   const [concertVenueId, setConcertVenueId] = useState('hall');
   const [mvBudgetId, setMvBudgetId] = useState('medium');
   const [concertDay, setConcertDay] = useState(DAYS[5]);
+  const durationLabel = ['sousenkyo', 'request-hour'].includes(nextType)
+    ? text('Campaign duration (weeks)', 'Durasi kampanye (minggu)')
+    : text('Duration', 'Durasi');
   useEffect(() => {
     setDurationWeeks(12);
     setConcertBudgetId('standard');
@@ -1394,7 +1398,7 @@ function CampaignLaunchEditor({ game, setGame, language = 'en' }) {
           : blockReason === 'missing-members'
             ? text('Need 12 available members', 'Butuh 12 anggota tersedia')
           : text(`Start ${nextType.replace('-', ' ')}`, `Mulai ${nextType.replace('-', ' ')}`);
-  return <section className="major-campaign-config campaign-launch-editor"><div><strong>{text('Start the next campaign', 'Mulai kampanye berikutnya')}</strong><span>{text(`Next in rotation: ${nextType.replace('-', ' ')}`, `Berikutnya dalam rotasi: ${nextType.replace('-', ' ')}`)}</span><small aria-live="polite">{blockerCopy}</small></div><div className="campaign-launch-fields"><label><span>{text('Duration', 'Durasi')}</span><input type="number" min="8" max="16" value={durationWeeks} onChange={(event) => setDurationWeeks(Math.max(8, Math.min(16, Number(event.target.value) || 12)))} /></label><label><span>{text('Concert budget', 'Anggaran konser')}</span><select value={concertBudgetId} onChange={(event) => setConcertBudgetId(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label><span>{text('Concert venue', 'Venue konser')}</span><select value={concertVenueId} onChange={(event) => setConcertVenueId(event.target.value)}>{CONCERT_VENUES.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {money(venue.cost)}</option>)}</select></label><label><span>{text('MV budget', 'Anggaran MV')}</span><select value={mvBudgetId} onChange={(event) => setMvBudgetId(event.target.value)}>{SINGLE_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label><span>{text('Concert day', 'Hari konser')}</span><select value={concertDay} onChange={(event) => setConcertDay(event.target.value)}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label></div>{blockReason ? <p className="campaign-block-reason" role="status">{blockerCopy}</p> : null}<button type="button" className="setup-primary" onClick={start} disabled={Boolean(blockReason)}>{buttonCopy}</button></section>;
+  return <section className="major-campaign-config campaign-launch-editor"><div><strong>{text('Start the next campaign', 'Mulai kampanye berikutnya')}</strong><span>{text(`Next in rotation: ${nextType.replace('-', ' ')}`, `Berikutnya dalam rotasi: ${nextType.replace('-', ' ')}`)}</span><small aria-live="polite">{blockerCopy}</small></div><div className="campaign-launch-fields"><label><span>{durationLabel}</span><input type="number" min="8" max="16" value={durationWeeks} onChange={(event) => setDurationWeeks(Math.max(8, Math.min(16, Number(event.target.value) || 12)))} /></label><label><span>{text('Concert budget', 'Anggaran konser')}</span><select value={concertBudgetId} onChange={(event) => setConcertBudgetId(event.target.value)}>{CONCERT_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label><span>{text('Concert venue', 'Venue konser')}</span><select value={concertVenueId} onChange={(event) => setConcertVenueId(event.target.value)}>{CONCERT_VENUES.map((venue) => <option key={venue.id} value={venue.id}>{venue.name} · {money(venue.cost)}</option>)}</select></label><label><span>{text('MV budget', 'Anggaran MV')}</span><select value={mvBudgetId} onChange={(event) => setMvBudgetId(event.target.value)}>{SINGLE_BUDGETS.map((budget) => <option key={budget.id} value={budget.id}>{budget.name} · {money(budget.cost)}</option>)}</select></label><label><span>{text('Concert day', 'Hari konser')}</span><select value={concertDay} onChange={(event) => setConcertDay(event.target.value)}>{DAYS.map((day) => <option key={day} value={day}>{day}</option>)}</select></label></div>{blockReason ? <p className="campaign-block-reason" role="status">{blockerCopy}</p> : null}<button type="button" className="setup-primary" onClick={start} disabled={Boolean(blockReason)}>{buttonCopy}</button></section>;
 }
 
 function JankenLuckNotice({ game, language = 'en' }) {
@@ -1863,7 +1867,7 @@ function Saves({ game, activeSave, onLoad, onDelete, user, syncState, onCloudSav
   </div>;
 }
 
-function StartScreen({ saves, onStart, onLoad, metaProfile }) {
+function StartScreen({ saves, onStart, onLoad, metaProfile, language = 'en' }) {
   const [seed, setSeed] = useState(randomSeed);
   const activeSave = saves.find((save) => save.state?.runStatus !== 'ended');
   const runHistory = metaProfile.runHistory ?? [];
@@ -1873,6 +1877,7 @@ function StartScreen({ saves, onStart, onLoad, metaProfile }) {
       {activeSave ? <div className="continue-run"><span>Active run</span><h2>{calendarLabel(activeSave.state.year, activeSave.state.week)}</h2><p>{activeSave.state.seed} · {number.format(activeSave.state.group.fanbase)} fans</p><button className="continue-button" type="button" onClick={onLoad}>Continue run <ChevronRight size={20} /></button></div> : <><span className="eyebrow">New management run</span><h2>Enter the theater office</h2></>}
       <div className={activeSave ? 'new-run-panel' : ''}>{activeSave ? <strong>Start replacement timeline</strong> : null}<label htmlFor="seed">Run seed</label><div className="seed-input"><input id="seed" value={seed} onChange={(e) => setSeed(e.target.value)} /><IconButton label="Randomize seed" onClick={() => setSeed(randomSeed())}><Sparkles size={19} /></IconButton></div><button className="start-button" type="button" onClick={() => onStart(seed)}>Start new timeline <ChevronRight size={20} /></button>{activeSave ? <small>Current run remains saved until new lineup is confirmed.</small> : null}</div>
       <p className="fiction-note">Member skills, traits, and story outcomes are fictional gameplay data generated independently for each save.</p>
+      <LatestPatchnoteCard language={language} />
       <section className="past-run-history"><header><div><span className="eyebrow">Past timelines</span><h3>Management history</h3></div><strong>{runHistory.length} completed</strong></header>{runHistory.length ? <div className="past-run-list">{runHistory.map((run) => <article key={run.id}><div className="past-run-title"><span>{run.managementName || 'Unnamed Management'}</span><h4>{run.rank} · {run.score} points</h4><small>{new Date(run.completedAt).toLocaleDateString()} · {run.yearsSurvived} year(s), {run.weeksSurvived} weeks</small></div><dl><div><dt>Final money</dt><dd>{money(run.finalMoney)}</dd></div><div><dt>Fans</dt><dd>{number.format(run.finalFanbase)}</dd></div><div><dt>Popularity</dt><dd>{run.finalPopularity}</dd></div><div><dt>Fan Trust</dt><dd>{run.finalFanTrust}</dd></div><div><dt>Reputation</dt><dd>{run.finalReputation}</dd></div><div><dt>Total members</dt><dd>{run.totalMembers}</dd></div><div><dt>Graduated</dt><dd>{run.finalGraduatedMembers}</dd></div><div><dt>Drama</dt><dd>{run.dramaSuspensions}</dd></div></dl><p>{run.cause}</p></article>)}</div> : <div className="past-run-empty"><History size={22} /><span>Completed runs will be summarized here.</span></div>}</section>
     </section>
   </main>;
@@ -2447,7 +2452,7 @@ export default function App() {
     return <>{adminRoute === 'patchnotes' ? <PatchnotesAdminDashboard language={language} onBack={leaveAdminRoute} /> : <VoucherAdminDashboard onBack={leaveAdminRoute} />}{accountLayer}</>;
   }
   if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}</>;
-  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} />{accountLayer}</>;
+  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} language={language} />{accountLayer}</>;
   if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}</>;
 
   return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => { setTutorialReplayChapter(null); setGame(null); }} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language} onTutorialAction={commitTutorialAction} tutorialCoach={<TutorialCoach game={game} language={language} activeView={activeView} onNavigate={navigateView} onAction={commitTutorialAction} onSkip={skipCurrentTutorial} replayChapter={tutorialReplayChapter} onReplayChapter={setTutorialReplayChapter} onCloseReplay={() => setTutorialReplayChapter(null)} />}>
@@ -2460,6 +2465,7 @@ export default function App() {
     {activeView === 'statistics' ? <StatisticsDashboard game={game} language={language} /> : null}
     {activeView === 'history' ? <HistoryView game={game} language={language} /> : null}
     {activeView === 'wiki' ? <Wiki game={game} language={language} onReplayTutorial={() => setTutorialReplayChapter(1)} /> : null}
+    {activeView === 'patchnotes' ? <PatchnotesPage language={language} /> : null}
     {activeView === 'saves' ? <Saves game={game} activeSave={saves[0]} onLoad={load} onDelete={() => setConfirmDeleteRun(true)} user={user} syncState={syncState} onCloudSave={manualSave} onCloudLoad={() => setConfirmCloudLoad(true)} onOpenAccount={openAccount} /> : null}
     {statisticsReport ? <StatisticsModal report={statisticsReport.weekly} monthlyReport={statisticsReport.monthly} financialEvents={game.financialEvents ?? []} onClose={() => setStatisticsReport(null)} /> : null}
      {!statisticsReport && game.pendingYearEndSettlement ? <YearEndSettlementModal game={game} language={language} busy={settlementBusy} onSettleTax={() => applySettlementAction(settleAnnualTax)} onComplete={(decision, offerId) => applySettlementAction((state) => completeYearEndSettlement(state, decision, offerId))} /> : null}

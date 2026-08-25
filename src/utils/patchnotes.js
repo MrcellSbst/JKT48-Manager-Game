@@ -1,6 +1,47 @@
 export const PATCHNOTE_SEEN_KEY = 'jkt48-manager-patchnote-seen-v1';
 export const JAKARTA_TIME_ZONE = 'Asia/Jakarta';
 
+let latestPatchnoteRequest = null;
+const patchnotePageRequests = new Map();
+
+async function readPatchnoteResponse(response, fallbackMessage) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || fallbackMessage);
+  return data;
+}
+
+export function fetchLatestPatchnote() {
+  if (!latestPatchnoteRequest) {
+    latestPatchnoteRequest = fetch('/api/patchnotes/latest', { credentials: 'include', cache: 'no-store' })
+      .then((response) => readPatchnoteResponse(response, 'Patchnote request failed.'))
+      .then((data) => data.patchnote ?? null)
+      .finally(() => {
+        latestPatchnoteRequest = null;
+      });
+  }
+  return latestPatchnoteRequest;
+}
+
+export function fetchPatchnotesPage(page = 1) {
+  const safePage = Math.max(1, Math.floor(Number(page) || 1));
+  if (!patchnotePageRequests.has(safePage)) {
+    const request = fetch(`/api/patchnotes?page=${safePage}`, { credentials: 'include', cache: 'no-store' })
+      .then((response) => readPatchnoteResponse(response, 'Patchnotes request failed.'))
+      .then((data) => ({
+        patchnotes: Array.isArray(data.patchnotes) ? data.patchnotes : [],
+        page: Number(data.page) || safePage,
+        pageSize: Number(data.pageSize) || 5,
+        totalPages: Math.max(0, Number(data.totalPages) || 0),
+        total: Math.max(0, Number(data.total) || 0),
+      }))
+      .finally(() => {
+        patchnotePageRequests.delete(safePage);
+      });
+    patchnotePageRequests.set(safePage, request);
+  }
+  return patchnotePageRequests.get(safePage);
+}
+
 export function readSeenPatchnote(storage = null) {
   try {
     const target = storage ?? globalThis.localStorage;

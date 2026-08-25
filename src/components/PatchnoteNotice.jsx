@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Megaphone, RefreshCw, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { hardRefreshPage, JAKARTA_TIME_ZONE, readSeenPatchnote, rememberPatchnote, shouldShowPatchnote } from '../utils/patchnotes.js';
+import { fetchLatestPatchnote, hardRefreshPage, JAKARTA_TIME_ZONE, readSeenPatchnote, rememberPatchnote, shouldShowPatchnote } from '../utils/patchnotes.js';
 
 const COPY = {
   en: {
@@ -31,12 +31,7 @@ let latestPatchnoteRequest = null;
 
 function loadLatestPatchnote() {
   if (!latestPatchnoteRequest) {
-    latestPatchnoteRequest = fetch('/api/patchnotes/latest', { credentials: 'include', cache: 'no-store' })
-      .then(async (response) => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(data.error || 'Patchnote request failed.');
-        return data.patchnote ?? null;
-      })
+    latestPatchnoteRequest = fetchLatestPatchnote()
       .finally(() => {
         latestPatchnoteRequest = null;
       });

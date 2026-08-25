@@ -368,6 +368,182 @@
   color: var(--muted);
 }
 
+.patchnote-latest-card {
+  min-width: 0;
+  margin-top: 22px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  overflow: hidden;
+}
+
+.patchnote-latest-card > header {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.patchnote-latest-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: var(--red);
+  color: #fff;
+}
+
+.patchnote-latest-card > header > div > span {
+  display: block;
+  color: var(--red);
+  font: 800 0.6875em 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+}
+
+.patchnote-latest-card h2 {
+  margin: 3px 0 0;
+  font-size: 1.375em;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.patchnotes-public-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 10px;
+  padding: 11px 14px 0;
+  color: var(--muted);
+  font-size: 0.6875em;
+  font-variant-numeric: tabular-nums;
+}
+
+.patchnotes-public-meta strong {
+  padding: 3px 6px;
+  background: var(--soft);
+  color: var(--ink);
+}
+
+.patchnote-latest-body {
+  max-height: 13em;
+  overflow: auto;
+  padding: 12px 14px 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.patchnotes-public-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.patchnotes-public-list {
+  display: grid;
+}
+
+.patchnote-public-card {
+  display: grid;
+  grid-template-columns: minmax(150px, .55fr) minmax(0, 2fr);
+  gap: 20px;
+  align-items: start;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.patchnote-public-card:first-child {
+  padding-top: 0;
+}
+
+.patchnote-public-card:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.patchnotes-public-date {
+  min-width: 0;
+}
+
+.patchnotes-public-copy {
+  min-width: 0;
+}
+
+.patchnotes-public-copy h2 {
+  margin: 0;
+  font-size: 1.375em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.patchnotes-public-copy p {
+  max-height: 18em;
+  overflow: auto;
+  margin: 9px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.patchnotes-public-status {
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.patchnotes-public-status.error {
+  flex-wrap: wrap;
+  border: 1px solid color-mix(in srgb, var(--critical) 32%, var(--line));
+  background: color-mix(in srgb, var(--critical) 8%, var(--paper));
+  color: var(--critical);
+}
+
+.patchnotes-public-status button {
+  min-height: 36px;
+}
+
+.patchnotes-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.patchnotes-pagination > div {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.patchnotes-pagination button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+}
+
+.patchnotes-pagination > div button {
+  min-width: 38px;
+}
+
+.patchnotes-pagination > div button.active {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
 .spinning {
   animation: patchnote-spin 800ms linear infinite;
 }
@@ -387,6 +563,7 @@
   .patchnotes-language-field:nth-last-child(2) { grid-column: 1 / -1; }
   .patchnotes-list article { grid-template-columns: 1fr; gap: 12px; }
   .patchnotes-list-actions { justify-content: flex-start; }
+  .patchnote-public-card { grid-template-columns: 1fr; gap: 10px; }
 }
 
 @media (max-width: 560px) {
@@ -405,6 +582,9 @@
   .patchnotes-language-field,
   .patchnotes-language-field:nth-last-child(2) { grid-column: 1; }
   .patchnotes-form-actions { display: grid; grid-template-columns: 1fr; }
+  .patchnotes-pagination { align-items: stretch; flex-direction: column; }
+  .patchnotes-pagination > div { order: -1; }
+  .patchnotes-pagination > button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
