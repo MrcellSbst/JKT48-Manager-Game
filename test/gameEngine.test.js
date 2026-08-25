@@ -8,6 +8,7 @@ import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPOR
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
+import { configureTheaterSpecialFlags, getAvailableStsLastShowMembers, getStsLastShowAssignmentConflicts } from '../src/engine/gameEngine.js';
 
 const finalizeGameSetup = (draft, theaterId, memberIds, ...args) => {
   const foundingIds = memberIds.length === 12 ? [...memberIds, ...draft.members.slice(12, BALANCE.foundingRosterSize).map((member) => member.id)] : memberIds;
@@ -867,6 +868,34 @@ test('theater show configuration rejects unknown setlists and non-lineup centers
   game = assignActivity(game, game.members[0].id, 'Sat', 'theater');
   assert.equal(configureTheaterShow(game, 'Sat', 'missing', game.members[0].id), game);
   assert.equal(configureTheaterShow(game, 'Sat', SETLISTS[0].id, game.members[1].id), game);
+});
+
+test('STS and Last Show assignments stay unique across theater shows', () => {
+  const game = createGame('sts-last-show-uniqueness-test');
+  const [first, second, third] = game.members;
+  const configured = {
+    ...game,
+    theaterShows: {
+      Mon: { isSeitansai: true, seitansaiMemberId: first.id },
+      Tue: { isLastShow: true, lastShowMemberId: second.id },
+    },
+  };
+  assert.deepEqual(getStsLastShowAssignmentConflicts(configured), []);
+  assert.deepEqual(getAvailableStsLastShowMembers(configured, { day: 'Wed', assignmentKey: 'seitansaiMemberId', eligibleMembers: [first, second, third] }).map((member) => member.id), [third.id]);
+  assert.deepEqual(getAvailableStsLastShowMembers(configured, { day: 'Mon', assignmentKey: 'seitansaiMemberId', eligibleMembers: [first, second, third] }).map((member) => member.id), [first.id, third.id]);
+  const moved = configureTheaterSpecialFlags(configured, 'Mon', { seitansaiMemberId: third.id });
+  assert.deepEqual(getAvailableStsLastShowMembers(moved, { day: 'Tue', assignmentKey: 'lastShowMemberId', eligibleMembers: [first, second, third] }).map((member) => member.id), [first.id, second.id]);
+  const rejected = configureTheaterSpecialFlags(configured, 'Tue', { lastShowMemberId: first.id });
+  assert.equal(rejected, configured, 'assignment already used by another show is rejected');
+});
+
+test('resolveWeek blocks corrupted duplicate STS / Last Show assignments', () => {
+  const game = createGame('sts-last-show-duplicate-guard-test');
+  const memberId = game.members[0].id;
+  const corrupted = { ...game, theaterShows: { Mon: { isSeitansai: true, seitansaiMemberId: memberId }, Tue: { isLastShow: true, lastShowMemberId: memberId } } };
+  const blocked = resolveWeek(corrupted);
+  assert.equal(blocked.week, game.week);
+  assert.match(blocked.notifications[0].text, /must be unique/);
 });
 
 test('theater lineup cannot exceed 12 members on one day', () => {

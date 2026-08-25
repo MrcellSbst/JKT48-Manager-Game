@@ -32,6 +32,18 @@ test('Schedule status sorting groups regular members and trainees in both direct
   assert.deepEqual(sortMembers(members, { sortKey: 'status', direction: 'desc' }).map((member) => member.name), ['Alpha', 'Beta', 'Zeta']);
 });
 
+test('Schedule popularity sorting uses current values, null-safe fallbacks, and direction', () => {
+  assert.ok(SQUAD_SORT_OPTIONS.includes('popularity'));
+  const popularityMembers = [
+    { id: 'low', name: 'Low', popularity: 12 },
+    { id: 'missing', name: 'Missing', popularity: null },
+    { id: 'high', name: 'High', popularity: 91 },
+  ];
+  assert.deepEqual(sortMembers(popularityMembers, { sortKey: 'popularity', direction: 'desc' }).map((member) => member.id), ['high', 'low', 'missing']);
+  assert.deepEqual(sortMembers(popularityMembers, { sortKey: 'popularity', direction: 'asc' }).map((member) => member.id), ['missing', 'low', 'high']);
+  assert.equal(popularityMembers[0].popularity, 12);
+});
+
 test('MV and template center ranking blends Overall and Popularity with deterministic ties', () => {
   const candidates = [
     { id: 'b', name: 'Beta', popularity: 70, vocal: 70, dance: 70, performance: 70, mc: 70, variety: 70 },

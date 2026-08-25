@@ -1590,6 +1590,47 @@ export function getGraduationLastShowCandidates(state, day = null) {
     .filter((member) => member && ['active', 'trainee'].includes(member.status) && (!lineupIds || lineupIds.has(member.id)));
 }
 
+const SPECIAL_SHOW_ASSIGNMENT_KEYS = Object.freeze(['seitansaiMemberId', 'lastShowMemberId']);
+
+const specialShowAssignmentEntries = (state, { excludeDay = null, excludeKey = null } = {}) => Object.entries(state.theaterShows ?? {})
+  .flatMap(([day, show]) => SPECIAL_SHOW_ASSIGNMENT_KEYS.flatMap((assignmentKey) => {
+    if (day === excludeDay && assignmentKey === excludeKey) return [];
+    const enabled = assignmentKey === 'seitansaiMemberId' ? show?.isSeitansai : show?.isLastShow;
+    const memberId = show?.[assignmentKey];
+    return enabled && memberId ? [{ day, assignmentKey, memberId }] : [];
+  }));
+
+export function getStsLastShowAssignmentConflicts(state) {
+  const assignmentsByMember = new Map();
+  specialShowAssignmentEntries(state).forEach((assignment) => {
+    const current = assignmentsByMember.get(assignment.memberId) ?? [];
+    current.push(assignment);
+    assignmentsByMember.set(assignment.memberId, current);
+  });
+  return [...assignmentsByMember.entries()]
+    .filter(([, assignments]) => assignments.length > 1)
+    .map(([memberId, assignments]) => ({ memberId, assignments }));
+}
+
+export function getAvailableStsLastShowMembers(state, { day, assignmentKey, eligibleMembers = [] } = {}) {
+  const selectedElsewhere = new Set(specialShowAssignmentEntries(state, { excludeDay: day, excludeKey: assignmentKey }).map((assignment) => assignment.memberId));
+  return eligibleMembers.filter((member) => !selectedElsewhere.has(member.id));
+}
+
+export function configureTheaterSpecialFlags(state, day, flags = {}) {
+  if (state.runStatus === 'ended' || !DAYS.includes(day)) return state;
+  const current = state.theaterShows?.[day] ?? { setlistId: SETLISTS[0].id, centerId: null };
+  const nextState = {
+    ...state,
+    theaterShows: {
+      ...(state.theaterShows ?? {}),
+      [day]: { ...current, ...flags },
+    },
+  };
+  if (getStsLastShowAssignmentConflicts(nextState).length) return state;
+  return nextState;
+}
+
 export function payDebt(state, category, amount = Infinity) {
   if ((!state.hardMode && category !== 'tax') || !['salary', 'upkeep', 'operations', 'tax'].includes(category) || state.runStatus === 'ended') return state;
   const debt = state.ledger?.debt?.[category] ?? 0;
@@ -2819,6 +2860,13 @@ export function resolveWeek(state) {
   if (state.runStatus === 'ended') return state;
   state = migrateEconomyState(migrateInjuryHistoryState(migrateGraduatedRosterState(state)));
   if (state.pendingYearEndSettlement) return state;
+  const specialAssignmentConflicts = getStsLastShowAssignmentConflicts(state);
+  if (specialAssignmentConflicts.length) {
+    return {
+      ...state,
+      notifications: [{ type: 'critical', text: 'STS / Last Show assignments must be unique. Resolve duplicate member selections before confirming the week.' }, ...(state.notifications ?? [])].slice(0, 20),
+    };
+  }
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   const activatedPlans = (state.fanEventPlans ?? []).filter((plan) => plan.year === state.year && plan.targetWeek === state.week);

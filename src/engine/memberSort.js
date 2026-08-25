@@ -1,5 +1,5 @@
 export const ROSTER_SORT_OPTIONS = Object.freeze(['name', 'birthday', 'generation', 'team']);
-export const SQUAD_SORT_OPTIONS = Object.freeze(['visible-stat', 'status', 'name', 'generation', 'birthday']);
+export const SQUAD_SORT_OPTIONS = Object.freeze(['visible-stat', 'popularity', 'status', 'name', 'generation', 'birthday']);
 export const SORT_DIRECTIONS = Object.freeze(['asc', 'desc']);
 
 // Keep this registry shared with the Schedule member-stat panel. Overall is derived
