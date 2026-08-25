@@ -925,15 +925,15 @@ test('training intensity and starting energy affect development', () => {
   assert.equal(BALANCE.activities.variety.skill, 'variety');
 });
 
-test('regular training multiplies the former uncapped gain by exactly 3.5', () => {
+test('regular training multiplies the former uncapped gain by exactly 2.5', () => {
   const draft = createGame('training-multiplier-test');
   let game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const memberId = game.members[0].id;
   game = { ...game, members: game.members.map((member) => member.id === memberId ? { ...member, vocal: 40, dance: 40, performance: 40, mc: 40, variety: 40, potential: 85, development: 100, developmentCurve: 'balanced', adaptability: 50, traits: [], energy: 100, voucherBaseStats: undefined } : member) };
   const next = resolveWeek(queueTrainingSession(game, memberId, 'vocal'));
   const trained = next.members.find((member) => member.id === memberId);
-  assert.equal(BALANCE.training.statGainMultiplier, 3.5);
-  assert.ok(Math.abs(trained.vocal - 43.5) < 0.000001, `expected 43.5, received ${trained.vocal}`);
+  assert.equal(BALANCE.training.statGainMultiplier, 2.5);
+  assert.ok(Math.abs(trained.vocal - 42.5) < 0.000001, `expected 42.5, received ${trained.vocal}`);
 });
 
 test('completed activities add only their mapped Light-baseline skill gains', () => {

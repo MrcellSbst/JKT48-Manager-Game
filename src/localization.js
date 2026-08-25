@@ -249,6 +249,7 @@ Object.assign(ID, {
   'Schedule Video Call and Meet & Greet sessions for this week or a future week.': 'Jadwalkan sesi Video Call dan Meet & Greet untuk minggu ini atau minggu mendatang.',
   'Save operations': 'Operasi penyimpanan',
   'Save and load': 'Simpan dan muat',
+  'All times shown in WIB (UTC+7).': 'Semua waktu ditampilkan dalam WIB (UTC+7).',
   'Weekly autosaves stay in IndexedDB. Cloud checkpoints run monthly, on manual save, and before logout.': 'Penyimpanan otomatis mingguan berada di IndexedDB. Checkpoint cloud berjalan setiap bulan, saat penyimpanan manual, dan sebelum logout.',
   'Local browser save': 'Penyimpanan browser lokal',
   'Reload local save': 'Muat ulang penyimpanan lokal',
@@ -701,6 +702,15 @@ export function formatDateTime(value, language = activeLanguage, options = {}) {
   if (Number.isNaN(date.getTime())) return '';
   const locale = language === 'id' ? 'id-ID' : 'en-US';
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Jakarta', ...options }).format(date);
+}
+
+// D1 CURRENT_TIMESTAMP values are UTC but have no timezone suffix. Normalize
+// that legacy representation before rendering cloud-save timestamps.
+export function formatCloudDateTime(value, language = activeLanguage, options = {}) {
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value.trim())
+    ? `${value.trim().replace(' ', 'T')}Z`
+    : value;
+  return formatDateTime(normalized, language, options);
 }
 
 // The English tree is intentionally identity-based: English source strings

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDate, formatMoney, getLocalizationParity, LOCALIZATION_ALLOWLIST, LOCALIZATION_ID, setActiveLanguage, translateIndonesian } from '../src/localization.js';
+import { formatCloudDateTime, formatDate, formatMoney, getLocalizationParity, LOCALIZATION_ALLOWLIST, LOCALIZATION_ID, setActiveLanguage, translateIndonesian } from '../src/localization.js';
 
 test('English and Indonesian localization dictionaries stay in parity', () => {
   const parity = getLocalizationParity();
@@ -23,6 +23,12 @@ test('date formatting follows the selected locale and Jakarta timezone', () => {
   const instant = '2026-01-15T17:30:00.000Z';
   assert.match(formatDate(instant, 'en'), /Jan 16, 2026/);
   assert.match(formatDate(instant, 'id'), /16 Jan 2026/);
+});
+
+test('cloud save timestamps treat D1 timezone-less values as UTC before showing WIB', () => {
+  const shown = formatCloudDateTime('2026-01-15 17:30:00', 'en');
+  assert.match(shown, /Jan 16, 2026/);
+  assert.match(shown, /12:30 AM/);
 });
 
 test('reported gameplay surfaces translate dynamic Indonesian copy', () => {

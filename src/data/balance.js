@@ -90,7 +90,7 @@ export const BALANCE = {
     minimumTheaterAppearances: 4,
     trainingProgressPerIntensity: 5,
   },
-  training: { maxSessionsPerMember: 7, statGainMultiplier: 3.5, activityGainIntensity: 0.6 },
+  training: { maxSessionsPerMember: 7, statGainMultiplier: 2.5, activityGainIntensity: 0.6 },
   mentorship: {
     durationWeeks: 8,
     developmentBonus: 0.2,
