@@ -25,6 +25,7 @@ import PatchnoteNotice from './components/PatchnoteNotice.jsx';
 import PatchnotesPage, { LatestPatchnoteCard } from './components/PatchnotesPage.jsx';
 import PatchnotesAdminDashboard from './components/PatchnotesAdminDashboard.jsx';
 import MigrationScreen from './components/MigrationScreen.jsx';
+import HardRefreshButton from './components/HardRefreshButton.jsx';
 import { getTutorialChapter, markTutorialStep, normalizeTutorialState, skipTutorial, TUTORIAL_CHAPTERS } from './engine/tutorial.js';
 import { normalizeGameState } from './state/gameStateMigration.js';
 import { canonicalJson } from './state/saveFormat.js';
@@ -504,6 +505,7 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
     {isMobileViewport && mobileOpen ? <button className="scrim" aria-label={translate(language, 'Close menu')} type="button" onClick={() => setMobileOpen(false)} /> : null}
     {confirmAdvance ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmAdvance(false); }}><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-week-title"><div className="confirm-week-icon"><Clock3 aria-hidden="true" size={25} /></div><span className="eyebrow">{translate(language, 'Schedule confirmation')}</span><h2 id="confirm-week-title">{translate(language, 'End this week?')}</h2><p>{translate(language, 'All scheduled activities and planned training will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.')}</p><div className="resolve-week-counts"><span><CalendarDays aria-hidden="true" size={18} /><small>{translate(language, 'Schedule activities')}</small><strong>{scheduledActivityCount}</strong></span><span><Dumbbell aria-hidden="true" size={18} /><small>{translate(language, 'Training sessions')}</small><strong>{plannedTrainingCount}</strong></span></div>{game.week === BALANCE.weeksPerYear ? <p className="fan-target-warning"><ShieldAlert aria-hidden="true" size={18} />{translate(language, 'The annual fan result resolves after this week. It affects Fan Trust, Reputation, annual grade, and Management Token reward, but does not end the run.')}</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmAdvance(false)}>{translate(language, 'Cancel')}</button><button type="button" className="setup-primary" onClick={() => { setConfirmAdvance(false); onAdvance(); }}>{translate(language, 'End week')} <ChevronRight aria-hidden="true" size={18} /></button></div></section></div></ModalPortal> : null}
     {tutorialCoach}
+    <HardRefreshButton />
   </div>;
 }
 
@@ -2511,7 +2513,7 @@ export default function App() {
   const accountLayer = <><PatchnoteNotice language={language} canShow={patchnoteCanShow} /><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
   if (['running', 'failed'].includes(migrationState.status)) return <MigrationScreen language={language} migrationState={migrationState} onRetry={retryMigration} onDownloadRecovery={migrationState.canDownloadRecovery ? downloadMigrationRecovery : undefined} />;
   if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>{translate(language, 'Checking account…')}</strong><span>{translate(language, 'Loading browser save status.')}</span></main><SyncOverlay /></>;
-  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /></>;
+  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /><HardRefreshButton /></>;
   if (adminRoute && String(user?.user_id) === '1') {
     const leaveAdminRoute = () => {
       window.history.replaceState({}, '', '/');
@@ -2520,9 +2522,9 @@ export default function App() {
     };
     return <>{adminRoute === 'patchnotes' ? <PatchnotesAdminDashboard language={language} onBack={leaveAdminRoute} /> : <VoucherAdminDashboard onBack={leaveAdminRoute} />}{accountLayer}</>;
   }
-  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}</>;
-  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} language={language} />{accountLayer}</>;
-  if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}</>;
+  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}<HardRefreshButton /></>;
+  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} language={language} />{accountLayer}<HardRefreshButton /></>;
+  if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}<HardRefreshButton /></>;
 
   return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => { setTutorialReplayChapter(null); setGame(null); }} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language} onTutorialAction={commitTutorialAction} tutorialCoach={<TutorialCoach game={game} language={language} activeView={activeView} onNavigate={navigateView} onAction={commitTutorialAction} onSkip={skipCurrentTutorial} replayChapter={tutorialReplayChapter} onReplayChapter={setTutorialReplayChapter} onCloseReplay={() => setTutorialReplayChapter(null)} />}>
     {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={navigateView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} onReplayTutorial={() => setTutorialReplayChapter(1)} /> : null}
