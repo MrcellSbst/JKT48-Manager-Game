@@ -2051,10 +2051,12 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
 }
 
 export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}, requestedTitle = '') {
-  // UI date controls and older save payloads can provide numeric strings. The
-  // booking contract is numeric; normalize before validation so a valid date
-  // cannot silently no-op after a date change or reload.
-  const normalizedTargetWeek = Number(targetWeek);
+  // Older save payloads can provide numeric strings for current/sales weeks.
+  // Normalize those persisted values while keeping the requested date strict.
+  // Target week comes from the controlled date select and remains strict;
+  // accepting arbitrary strings here would turn malformed booking requests
+  // into real bookings. Legacy current/sales weeks are normalized separately.
+  const normalizedTargetWeek = targetWeek;
   const normalizedSalesStartWeek = Number(salesStartWeek);
   const normalizedCurrentWeek = Number(state.week);
   if (state.runStatus === 'ended' || !Number.isInteger(normalizedTargetWeek) || !Number.isInteger(normalizedSalesStartWeek) || !Number.isInteger(normalizedCurrentWeek) || normalizedCurrentWeek < 25 || normalizedTargetWeek < 37 || normalizedTargetWeek > 44 || normalizedTargetWeek <= normalizedCurrentWeek || normalizedSalesStartWeek < normalizedCurrentWeek || normalizedSalesStartWeek >= normalizedTargetWeek || !DAYS.includes(day)) return state;
@@ -2065,7 +2067,7 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
   if (state.money < cost) return state;
   const eventTitle = normalizeEventTitle(requestedTitle, 'yearEndMeetGreet');
   if (!eventTitle) return state;
-  const eligible = campaignEligibleMembers(state, 'yearEndMeetGreet', state.year, targetWeek);
+  const eligible = campaignEligibleMembers(state, 'yearEndMeetGreet', state.year, normalizedTargetWeek);
   if (eligible.length < BALANCE.theaterMinimumMembers) return state;
   const normalMeetGreet = BALANCE.activities.mg1;
   const memberSessions = eligible.map((member) => ({ memberId: member.id, sessions: 1, capacity: normalMeetGreet.capacity, sold: 0 }));
