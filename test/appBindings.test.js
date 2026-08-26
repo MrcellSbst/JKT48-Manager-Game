@@ -123,6 +123,13 @@ test('Schedule templates store theater setlists and centers without one-off show
   assert.doesNotMatch(createTemplateSource, /isSeitansai|isLastShow|seitansaiMemberId|lastShowMemberId/);
 });
 
+test('Seitansai defaults to an unassigned birthday member for each theater day', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /getAvailableStsLastShowMembers\(game/);
+  assert.match(source, /availableBirthdayMembers\[0\]\?\.id/);
+  assert.match(source, /disabled=\{!isSeitansai && !seitansaiMemberId\}/);
+});
+
 test('Wiki documents every run-ending threshold and counter reset', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /text\('Run-ending conditions', 'Kondisi akhir permainan'\)/);

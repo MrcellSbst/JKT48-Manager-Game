@@ -891,6 +891,16 @@ test('STS and Last Show assignments stay unique across theater shows', () => {
   assert.deepEqual(getStsLastShowAssignmentConflicts(swapped), []);
 });
 
+test('different members can have Seitansai shows in the same week', () => {
+  const game = createGame('multiple-sts-week-test');
+  const [first, second] = game.members;
+  const firstShow = configureTheaterSpecialFlags(game, 'Mon', { isSeitansai: true, seitansaiMemberId: first.id });
+  const secondShow = configureTheaterSpecialFlags(firstShow, 'Tue', { isSeitansai: true, seitansaiMemberId: second.id });
+  assert.equal(secondShow.theaterShows.Mon.seitansaiMemberId, first.id);
+  assert.equal(secondShow.theaterShows.Tue.seitansaiMemberId, second.id);
+  assert.deepEqual(getStsLastShowAssignmentConflicts(secondShow), []);
+});
+
 test('resolveWeek blocks corrupted duplicate STS / Last Show assignments', () => {
   const game = createGame('sts-last-show-duplicate-guard-test');
   const memberId = game.members[0].id;
