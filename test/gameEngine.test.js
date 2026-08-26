@@ -155,7 +155,8 @@ test('a recycled pool member keeps the same birthday as the graduate', () => {
 
 test('Indonesian localization handles fixed and dynamic game text', () => {
   assert.equal(translateIndonesian('Choose your run bonuses'), 'Pilih bonus permainan');
-  assert.equal(translateIndonesian('Year 3, Week 14'), 'Tahun 3, Minggu 14');
+  assert.equal(translateIndonesian('Year 3, Week 14'), 'Tahun 3 · Apr · Minggu 2');
+  assert.equal(translateIndonesian('Nadia announces graduation for Year 2 · Mar · Week 3.'), 'Nadia mengumumkan kelulusan untuk Tahun 2 · Mar · Minggu 3.');
   assert.equal(translateIndonesian('Fiony has graduated.'), 'Fiony telah lulus.');
   assert.equal(translateIndonesian('Management Perks'), 'Management Perks');
   assert.equal(translateIndonesian('Management Token'), 'Management Token');

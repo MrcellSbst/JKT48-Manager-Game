@@ -490,6 +490,13 @@ export const LOCALIZATION_ALLOWLIST = Object.freeze([
 ]);
 
 const INDONESIAN_MONTH_NAMES = Object.freeze({ Jan:'Jan', Feb:'Feb', Mar:'Mar', Apr:'Apr', May:'Mei', Jun:'Jun', Jul:'Jul', Aug:'Agu', Sep:'Sep', Oct:'Okt', Nov:'Nov', Dec:'Des' });
+const indonesianCalendarFromWeek = (year, week) => {
+  const numericWeek = Math.max(1, Number(week) || 1);
+  const monthIndex = Math.min(11, Math.floor((numericWeek - 1) / 4));
+  const weekOfMonth = ((numericWeek - 1) % 4) + 1;
+  const month = Object.keys(INDONESIAN_MONTH_NAMES)[monthIndex];
+  return indonesianCalendarDate(year, month, weekOfMonth);
+};
 const indonesianCalendarDate = (year, month, week) => `Tahun ${year} · ${INDONESIAN_MONTH_NAMES[month] ?? month} · Minggu ${week}`;
 
 const patterns = [
@@ -504,10 +511,12 @@ const patterns = [
   [/^Upgrade (.+) to Level (\d+)\?$/, 'Tingkatkan $1 ke Level $2?'], [/^Unlock (.+)\?$/, 'Buka $1?'],
   [/^Spend (\d+) Management Token\. Effect becomes (.+) and remains permanently available for future run loadouts\.$/, 'Bayar $1 Management Token. Efek menjadi $2 dan tetap tersedia permanen untuk susunan permainan berikutnya.'],
   [/^Upgrade · (\d+)$/, 'Tingkatkan · $1'], [/^Unlock · (\d+)$/, 'Buka · $1'],
-  [/^Year (\d+), Week (\d+)$/, 'Tahun $1, Minggu $2'], [/^Year (\d+) begins$/, 'Tahun $1 dimulai'], [/^Week (\d+)$/, 'Minggu $1'], [/^Season (\d+)$/, 'Musim $1'],
+  [/^Year (\d+), Week (\d+)$/, (_, year, week) => indonesianCalendarFromWeek(year, week)], [/^Year (\d+) begins$/, 'Tahun $1 dimulai'], [/^Week (\d+)$/, 'Minggu $1'], [/^Season (\d+)$/, 'Musim $1'],
   [/^Choose (\d+) more members?$/, 'Pilih $1 anggota lagi'], [/^(\d+) of (\d+) selected$/, '$1 dari $2 dipilih'], [/^(\d+) activities booked$/, '$1 aktivitas dijadwalkan'], [/^(\d+) weeks? remaining$/, '$1 minggu tersisa'],
   [/^Unlock (\d+)$/, 'Buka $1'], [/^Run saved just now\.$/, 'Permainan baru saja disimpan.'], [/^Save failed\. Try again\.$/, 'Gagal menyimpan. Coba lagi.'],
-  [/^(.+) unavailable for four weeks\.$/, '$1 tidak tersedia selama empat minggu.'], [/^(.+) has graduated\.$/, '$1 telah lulus.'], [/^(.+) announces graduation for Year (\d+), Week (\d+)\.$/, '$1 mengumumkan kelulusan untuk Tahun $2, Minggu $3.'],
+  [/^(.+) unavailable for four weeks\.$/, '$1 tidak tersedia selama empat minggu.'], [/^(.+) has graduated\.$/, '$1 telah lulus.'], [/^(.+) announces graduation for Year (\d+), Week (\d+)\.$/, (_, name, year, week) => `${name} mengumumkan kelulusan untuk ${indonesianCalendarFromWeek(year, week)}.`],
+  [/^(.+) announces graduation for Year (\d+)\s*\xB7\s*([A-Z][a-z]{2})\s*\xB7\s*Week ([1-4])\.$/, (_, name, year, month, week) => `${name} mengumumkan kelulusan untuk ${indonesianCalendarDate(year, month, week)}.`],
+  [/^(.+) scheduled for Year (\d+)\s*\xB7\s*([A-Z][a-z]{2})\s*\xB7\s*Week ([1-4])\.$/, (_, title, year, month, week) => `${title} dijadwalkan untuk ${indonesianCalendarDate(year, month, week)}.`],
   [/^(.+) renovation complete\. Ticket price and upkeep increased\.$/, 'Renovasi $1 selesai. Harga tiket dan biaya operasional meningkat.'], [/^(.+) gains momentum from a viral clip\.$/, '$1 mendapat momentum dari klip viral.'],
   [/^(\d+)-seat home purchased\. Twelve founding members join the active roster\.$/, 'Teater berkapasitas $1 kursi dibeli. Dua belas anggota pendiri bergabung dengan daftar aktif.'], [/^(\d+) active members enter Year 1\.$/, '$1 anggota aktif memasuki Tahun 1.'],
   [/^(\d+) members enter the founding pool for Year 1\.$/, '$1 anggota masuk ke kumpulan pendiri untuk Tahun 1.'],
@@ -781,7 +790,14 @@ export function translateIndonesian(value) {
     const localized = canonicalText.replace(pattern, replacement);
     return source.replace(text, normalizeGlossary(localized));
   }
-  return source.replace(text, normalizeGlossary(text));
+  const embeddedCalendar = source
+    .replace(/Year (\d+)\s*\xB7\s*([A-Z][a-z]{2})\s*\xB7\s*Week ([1-4])/g, (_, year, month, week) => indonesianCalendarDate(year, month, week))
+    .replace(/Year (\d+),?\s*Month (\d+),?\s*Week (\d+)/g, (_, year, month, week) => {
+      const monthKey = Object.keys(INDONESIAN_MONTH_NAMES)[Math.max(0, Math.min(11, Number(month) - 1))];
+      return indonesianCalendarDate(year, monthKey, week);
+    })
+    .replace(/Year (\d+),?\s*Week (\d+)/g, (_, year, week) => indonesianCalendarFromWeek(year, week));
+  return normalizeGlossary(embeddedCalendar);
 }
 
 const sources = new WeakMap();

@@ -3225,8 +3225,9 @@ export function resolveWeek(state) {
   graduations = spacedGraduations;
   graduations = graduations.map((graduation) => {
     if (!graduation.announced && graduation.announcementYear === year && graduation.announcementWeek === state.week) {
-      notifications.push({ type: 'critical', text: `${graduation.memberName} announces graduation for Year ${graduation.departureYear}, Week ${graduation.departureWeek}.` });
-      history.unshift({ id: `${graduation.id}-announcement`, type: 'member', title: `${graduation.memberName} announces graduation`, detail: `Final departure scheduled for Year ${graduation.departureYear}, Week ${graduation.departureWeek}.`, year, week: state.week });
+      const departureDate = calendarPositionText(graduation.departureYear, graduation.departureWeek);
+      notifications.push({ type: 'critical', text: `${graduation.memberName} announces graduation for ${departureDate}.` });
+      history.unshift({ id: `${graduation.id}-announcement`, type: 'member', title: `${graduation.memberName} announces graduation`, detail: `Final departure scheduled for ${departureDate}.`, year, week: state.week });
       members = members.map((member) => member.id === graduation.memberId ? { ...member, graduationPending: true } : member);
       return { ...graduation, announced: true };
     }
@@ -3485,7 +3486,7 @@ export function resolveWeek(state) {
     finances.activityCosts += rewardConcertResult.upfrontCost;
     campaignResult = { ...campaignResult, campaign: rewardConcertResult.campaign };
     history.unshift({ id: rewardConcertResult.concert.id, type: 'concert', campaignId: rewardConcertResult.concert.campaignId, title: `${rewardConcertResult.concert.title} announced`, detail: `${rewardConcertResult.concert.memberIds.length} campaign performers · ${rewardConcertResult.concert.budgetName} · ${rewardConcertResult.concert.venueName}.`, year, week });
-    notifications.push({ type: 'success', text: `${rewardConcertResult.concert.title} scheduled for Week ${rewardConcertResult.concert.targetWeek}.` });
+    notifications.push({ type: 'success', text: `${rewardConcertResult.concert.title} scheduled for ${calendarPositionText(rewardConcertResult.concert.targetYear, rewardConcertResult.concert.targetWeek)}.` });
   } else if (rewardConcertResult.campaign?.status === 'concert-pending' && rewardConcertResult.campaign.rewardConcertStatus === 'budget-pending') {
     campaignResult = { ...campaignResult, campaign: rewardConcertResult.campaign };
     notifications.push({ type: 'critical', text: 'Campaign result concert is waiting for the configured concert budget.' });
