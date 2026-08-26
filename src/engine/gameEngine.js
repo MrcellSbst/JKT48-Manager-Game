@@ -1043,7 +1043,12 @@ export function migrateTrainingState(state) {
   (state.scheduleTemplates ?? []).forEach((template, templateIndex) => {
     const trainingEntries = (template.entries ?? []).filter((entry) => TRAINING_ACTIVITY_SET.has(entry.activityId));
     const scheduleEntriesForTemplate = (template.entries ?? []).filter((entry) => entry.activityId !== 'rest' && !TRAINING_ACTIVITY_SET.has(entry.activityId));
-    if (scheduleEntriesForTemplate.length) scheduleTemplates.push({ ...template, entries: scheduleEntriesForTemplate });
+    // Keep theater-only templates as well. They were not produced by the old
+    // UI, but can exist in migrated/cloud data and still carry a valid
+    // setlist/center plan.
+    if (scheduleEntriesForTemplate.length || Object.keys(template.theaterPlans ?? {}).length) {
+      scheduleTemplates.push({ ...template, entries: scheduleEntriesForTemplate });
+    }
     if (!trainingEntries.length) return;
     const id = `training-${template.id ?? `legacy-${templateIndex}`}`;
     if (trainingTemplateIds.has(id)) return;
@@ -2097,6 +2102,26 @@ export function applyScheduleTemplate(state, template) {
   let assignmentSkipped = 0;
   let theaterPlanSkipped = 0;
   let centerSubstitutions = 0;
+
+  // A full unlocked theater lineup must be replaceable by the saved lineup;
+  // otherwise assignActivity's 12-member guard would reject every incoming
+  // theater entry before the saved setlist/center could be restored. Campaign
+  // assignments remain untouched and keep their priority.
+  const replaceableTheaterDays = new Set(Object.entries(template.theaterPlans ?? {})
+    .filter(([day, plan]) => DAYS.includes(day)
+      && SETLIST_BY_ID[plan?.setlistId]
+      && entries.some((entry) => entry.day === day && entry.activityId === 'theater'))
+    .map(([day]) => day));
+  if (replaceableTheaterDays.size) {
+    const schedule = { ...next.schedule };
+    Object.entries(schedule).forEach(([key, activityId]) => {
+      const separator = key.lastIndexOf(':');
+      const day = key.slice(separator + 1);
+      if (replaceableTheaterDays.has(day) && activityId === 'theater') delete schedule[key];
+    });
+    next = { ...next, schedule };
+  }
+
   for (const entry of entries) {
     const member = next.members.find((item) => item.id === entry.memberId);
     const key = `${entry.memberId}:${entry.day}`;

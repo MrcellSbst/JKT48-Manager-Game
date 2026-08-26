@@ -1046,6 +1046,30 @@ test('schedule templates apply theater setlists and substitute unavailable saved
   assert.match(next.notifications[0].text, /1 unavailable center\(s\) replaced/);
 });
 
+test('schedule templates replace an unlocked theater lineup before restoring its setlist and center', () => {
+  const game = createGame('schedule-template-theater-replace-test');
+  const existingLineup = game.members.slice(0, 12);
+  const savedLineup = game.members.slice(12, 24);
+  const staged = existingLineup.reduce((current, member) => assignActivity(current, member.id, 'Sat', 'theater'), game);
+  const template = {
+    name: 'Saved theater lineup',
+    entries: savedLineup.map((member) => ({ memberId: member.id, day: 'Sat', activityId: 'theater' })),
+    theaterPlans: { Sat: { setlistId: SETLISTS[1].id, centerId: savedLineup[0].id } },
+  };
+  const next = applyScheduleTemplate(staged, template);
+  const appliedLineup = next.members.filter((member) => next.schedule[`${member.id}:Sat`] === 'theater').map((member) => member.id);
+  assert.deepEqual(new Set(appliedLineup), new Set(savedLineup.map((member) => member.id)));
+  assert.equal(next.theaterShows.Sat.setlistId, SETLISTS[1].id);
+  assert.equal(next.theaterShows.Sat.centerId, savedLineup[0].id);
+});
+
+test('training migration preserves theater-only schedule templates', () => {
+  const template = { id: 'theater-only', name: 'Theater only', entries: [], theaterPlans: { Sat: { setlistId: SETLISTS[1].id, centerId: 'member-1' } } };
+  const migrated = migrateTrainingState({ schedule: {}, scheduleTemplates: [template], trainingPlans: {}, trainingTemplates: [] });
+  assert.equal(migrated.scheduleTemplates.length, 1);
+  assert.deepEqual(migrated.scheduleTemplates[0].theaterPlans, template.theaterPlans);
+});
+
 test('campaign schedule resolution uses first campaign claim, with templates below campaign work', () => {
   const game = createGame('campaign-resolution-priority-test');
   const memberId = game.members[0].id;

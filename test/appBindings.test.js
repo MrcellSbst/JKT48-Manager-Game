@@ -29,8 +29,9 @@ test('full Theater and Off-air Fill controls clear their matching lineup', async
   assert.match(source, /if \(selectedIds\.size >= 12\)/);
   assert.match(source, /if \(schedule\[key\] === activityId\) delete schedule\[key\]/);
   assert.doesNotMatch(source, /disabled=\{(?:theaterCounts|offAirCounts)\[day\] === 12\}/);
-  assert.match(source, /toggleRequiredLineup\(day, 'theater'\)/);
-  assert.match(source, /toggleRequiredLineup\(day, 'offAir'\)/);
+  assert.match(source, /requestRequiredLineupToggle\(day, 'theater', theaterCounts\[day\]\)/);
+  assert.match(source, /requestRequiredLineupToggle\(day, 'offAir', offAirCounts\[day\]\)/);
+  assert.match(source, /confirmLineup \? <ConfirmationModal/);
 });
 
 test('Theater and Off-air Fill exclude injured and unavailable members', async () => {
