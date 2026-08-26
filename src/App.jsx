@@ -9,7 +9,7 @@ import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUP
 import { BONUS_BY_ID, BONUS_TEMPLATES, MAX_BONUS_LEVEL, formatBonusEffect, getBonusUpgradeCost, getBonusValueAtLevel } from './data/bonusTemplates.js';
 import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
 import dreamSetlistSongs from './data/DreamSetlist_Songs.js';
-import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, clearTrainingPlan, completeYearEndSettlement, configureMajorCampaign, configureTheaterShow, configureTheaterSpecialFlags, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMajorCampaignStartBlockReason, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getReportSkillChanges, getRosterDanger, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, isMajorCampaignActive, memberCanPerformOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, moveTrainingSession, punishMember, payDebt, prepareGraduation, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, replaceTheaterSpecialAssignment, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureMajorCampaign, configureTheaterShow, configureTheaterSpecialFlags, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMajorCampaignStartBlockReason, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getReportSkillChanges, getRosterDanger, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, isMajorCampaignActive, memberCanPerformOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, moveTrainingSession, punishMember, payDebt, prepareGraduation, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, replaceTheaterSpecialAssignment, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { formatCloudDateTime, formatDateTime, formatMoney, formatNumber, localizeDocument, setActiveLanguage, translateIndonesian } from './localization.js';
 import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
@@ -723,22 +723,31 @@ function Schedule({ game, setGame, selectedMember, setSelectedMember, language =
     return [day, [...activitiesForDay.values()]];
   }));
   const toggleRequiredLineup = (day, activityId) => setGame((current) => {
-    const selectedIds = new Set(current.members.filter((item) => current.schedule[`${item.id}:${day}`] === activityId).map((item) => item.id));
+    const schedule = { ...current.schedule };
+    const isEligibleForLineup = (item) => canMemberPerform(item, activityId)
+      && item.canPerformTheater !== false
+      && !item.temporarilyUnavailable
+      && !AUTOMATIC_ACTIVITY_LOCKS.includes(current.schedule[`${item.id}:${day}`]);
+    current.members.forEach((item) => {
+      const key = `${item.id}:${day}`;
+      if (schedule[key] === activityId && !isEligibleForLineup(item)) delete schedule[key];
+    });
+    const selectedIds = new Set(current.members
+      .filter((item) => schedule[`${item.id}:${day}`] === activityId)
+      .map((item) => item.id));
     if (selectedIds.size >= 12) {
-      const schedule = { ...current.schedule };
-      selectedIds.forEach((memberId) => {
-        const key = `${memberId}:${day}`;
+      current.members.forEach((item) => {
+        const key = `${item.id}:${day}`;
         if (schedule[key] === activityId) delete schedule[key];
       });
       return { ...current, schedule };
     }
     const slotsToFill = 12 - selectedIds.size;
     const available = current.members
-      .filter((item) => ['active','trainee'].includes(item.status) && !selectedIds.has(item.id) && !AUTOMATIC_ACTIVITY_LOCKS.includes(current.schedule[`${item.id}:${day}`]))
+      .filter((item) => isEligibleForLineup(item) && !selectedIds.has(item.id))
       .sort((a, b) => b.energy - a.energy)
       .slice(0, slotsToFill);
-    if (available.length !== slotsToFill) return current;
-    const schedule = { ...current.schedule };
+    if (available.length !== slotsToFill) return { ...current, schedule };
     available.forEach((item) => { schedule[`${item.id}:${day}`] = activityId; });
     return { ...current, schedule };
   });

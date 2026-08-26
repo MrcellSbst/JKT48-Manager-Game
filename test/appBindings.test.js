@@ -33,6 +33,14 @@ test('full Theater and Off-air Fill controls clear their matching lineup', async
   assert.match(source, /toggleRequiredLineup\(day, 'offAir'\)/);
 });
 
+test('Theater and Off-air Fill exclude injured and unavailable members', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const isEligibleForLineup = \(item\) => canMemberPerform\(item, activityId\)/);
+  assert.match(source, /item\.canPerformTheater !== false/);
+  assert.match(source, /!item\.temporarilyUnavailable/);
+  assert.match(source, /if \(schedule\[key\] === activityId && !isEligibleForLineup\(item\)\) delete schedule\[key\]/);
+});
+
 test('Roster never renders legacy graduated members', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /const rosterMembers = useMemo\(\(\) => game\.members\.filter\(\(member\) => member\.status !== 'graduated'\)/);
