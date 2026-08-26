@@ -2051,9 +2051,15 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
 }
 
 export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}, requestedTitle = '') {
-  if (state.runStatus === 'ended' || !Number.isInteger(targetWeek) || !Number.isInteger(salesStartWeek) || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
+  // UI date controls and older save payloads can provide numeric strings. The
+  // booking contract is numeric; normalize before validation so a valid date
+  // cannot silently no-op after a date change or reload.
+  const normalizedTargetWeek = Number(targetWeek);
+  const normalizedSalesStartWeek = Number(salesStartWeek);
+  const normalizedCurrentWeek = Number(state.week);
+  if (state.runStatus === 'ended' || !Number.isInteger(normalizedTargetWeek) || !Number.isInteger(normalizedSalesStartWeek) || !Number.isInteger(normalizedCurrentWeek) || normalizedCurrentWeek < 25 || normalizedTargetWeek < 37 || normalizedTargetWeek > 44 || normalizedTargetWeek <= normalizedCurrentWeek || normalizedSalesStartWeek < normalizedCurrentWeek || normalizedSalesStartWeek >= normalizedTargetWeek || !DAYS.includes(day)) return state;
   if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year)) return state;
-  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day, monthScope: true });
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: normalizedTargetWeek, type: 'yearEndMeetGreet', day, monthScope: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'yearEndMeetGreet');
   const cost = 40_000_000;
   if (state.money < cost) return state;
@@ -2063,8 +2069,8 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
   if (eligible.length < BALANCE.theaterMinimumMembers) return state;
   const normalMeetGreet = BALANCE.activities.mg1;
   const memberSessions = eligible.map((member) => ({ memberId: member.id, sessions: 1, capacity: normalMeetGreet.capacity, sold: 0 }));
-  const event = { id: `year-end-mg-${state.year}`, ...eventTitle, eventType: 'yearEndMeetGreet', year: state.year, targetWeek, day, announcementWeek: state.week, salesStartWeek, status: salesStartWeek === state.week ? 'selling' : 'announced', ticketPrice: normalMeetGreet.ticket, memberSessions, revenue: 0, cost };
-  return { ...state, money: state.money - cost, financialEvents: addImmediateExpense(state, `${event.id}-cost`, `${event.title} booking`, cost), yearEndMeetGreets: [...(state.yearEndMeetGreets ?? []), event], history: [{ id: event.id, type: 'meetGreet', title: `${event.title} announced`, customTitle: event.customTitle, detail: `Sales begin Week ${salesStartWeek}; event is Week ${targetWeek} on ${day}.`, year: state.year, week: state.week }, ...state.history] };
+  const event = { id: `year-end-mg-${state.year}`, ...eventTitle, eventType: 'yearEndMeetGreet', year: state.year, targetWeek: normalizedTargetWeek, day, announcementWeek: normalizedCurrentWeek, salesStartWeek: normalizedSalesStartWeek, status: normalizedSalesStartWeek === normalizedCurrentWeek ? 'selling' : 'announced', ticketPrice: normalMeetGreet.ticket, memberSessions, revenue: 0, cost };
+  return { ...state, money: state.money - cost, financialEvents: addImmediateExpense(state, `${event.id}-cost`, `${event.title} booking`, cost), yearEndMeetGreets: [...(state.yearEndMeetGreets ?? []), event], history: [{ id: event.id, type: 'meetGreet', title: `${event.title} announced`, customTitle: event.customTitle, detail: `Sales begin Week ${normalizedSalesStartWeek}; event is Week ${normalizedTargetWeek} on ${day}.`, year: state.year, week: normalizedCurrentWeek }, ...state.history] };
 }
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {

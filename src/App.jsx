@@ -602,21 +602,17 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
   const totalSingleViews = releasedSingles.reduce((total, single) => total + (single.views ?? 0), 0);
   const scheduled = Object.keys(game.schedule).length;
   const plannedTraining = Object.values(game.trainingPlans ?? {}).reduce((sum, sessions) => sum + sessions.length, 0);
-  const hasCurrentYearMeetGreet = (game.yearEndMeetGreets ?? []).some((event) => event.year === game.year);
   const hasCurrentYearAnniversary = (game.concerts ?? []).some((concert) => concert.eventType === 'anniversary' && concert.targetYear === game.year);
   let campaignBlockSeen = false;
   const visibleNotifications = (game.notifications ?? []).filter((item) => {
     if (item.text === YEAR_END_MEET_GREET_FAILURE) {
-      return !hasCurrentYearMeetGreet
-        && item.code === YEAR_END_MEET_GREET_FAILURE_CODE
-        && item.year === game.year
-        && item.week === game.week;
+      // This generic notification is persisted by older builds, but has no
+      // target date and cannot be recomputed reliably after a reload. The
+      // annual-event cards now show the live blocker reason instead.
+      return false;
     }
     if (item.text === ANNIVERSARY_CONCERT_FAILURE) {
-      return !hasCurrentYearAnniversary
-        && item.code === ANNIVERSARY_CONCERT_FAILURE_CODE
-        && item.year === game.year
-        && item.week === game.week;
+      return false;
     }
     const isCampaignBlock = item.code === 'campaign-blocked' || (typeof item.text === 'string' && item.text.startsWith('Campaign blocked:'));
     // An annual concert booking supersedes any stale concert-block notice
@@ -1078,6 +1074,7 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   const [anniversaryTitle, setAnniversaryTitle] = useState('');
   const [mgTitle, setMgTitle] = useState('');
   const [confirm, setConfirm] = useState(null);
+  const annualSubmitRef = useRef(false);
   // A controlled select whose saved value is no longer in its options renders
   // the first option while React keeps the stale value. Use the visible week
   // for conflict checks, confirmation copy, and the eventual engine action.
@@ -1132,6 +1129,10 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   }, [game.year, game.week]);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
   const commitAnnualEvent = (action, failureText, failureCode, succeeded) => {
+    // Prevent double taps (especially common on mobile) from queuing a second
+    // state update that observes the just-booked event as a booking failure.
+    if (annualSubmitRef.current) return;
+    annualSubmitRef.current = true;
     setGame((current) => {
       const next = action(current);
       if (succeeded(next, current))
@@ -1160,6 +1161,8 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
       };
     });
     setConfirm(null);
+    // Promise callbacks are supported by the older mobile browsers we target.
+    Promise.resolve().then(() => { annualSubmitRef.current = false; });
   };
   const scheduleMg = () => {
     if (!selectedMgWeek || mgConflicts.length) return;
