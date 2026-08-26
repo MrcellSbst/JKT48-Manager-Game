@@ -166,6 +166,17 @@ test('Campaign UI explains annual campaign and mutual MV locks', async () => {
   assert.match(source, /className="campaign-block-reason" role="status"/);
 });
 
+test('main campaign result exposes reward concert and MV metadata', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /function CampaignRewardDetails\(\{ game, campaign, language = 'en' \}\)/);
+  assert.match(source, /Concert name/);
+  assert.match(source, /Concert date/);
+  assert.match(source, /MV name/);
+  assert.match(source, /MV release date/);
+  assert.match(source, /rewardConcert\?\.targetYear \?\? campaign\.rewardConcertYear/);
+  assert.match(source, /single\.releasedYear/);
+});
+
 test('year-end event Review checks the full target month', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(requestedMgWeek\) \? requestedMgWeek : \(?mgWeeks\[0\] \?\? null\)?/);
