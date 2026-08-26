@@ -113,8 +113,14 @@ const bonusLevel = (state, id) => hasBonus(state, id) ? normalizeBonusLevel(stat
 const bonusValue = (state, id) => getBonusValueAtLevel(BONUS_BY_ID[id], bonusLevel(state, id));
 const protectNormalTrustLoss = (state, delta) => delta < 0 ? Math.ceil(delta * (1 + bonusValue(state, 'B023'))) : delta;
 const applyRate = (value, rate) => Math.round(value * (1 + rate));
-const concertVenueFor = (state, venueId) => [...(state?.concertVenueOffers ?? []), ...CONCERT_VENUES].find((option) => option.id === venueId) ?? null;
-const concertBudgetFor = (budgetId) => CONCERT_BUDGETS.find((option) => option.id === budgetId) ?? null;
+const concertVenueFor = (state, venueId) => {
+  const id = typeof venueId === 'object' ? venueId?.id : venueId;
+  return [...(state?.concertVenueOffers ?? []), ...CONCERT_VENUES].find((option) => option.id === id) ?? null;
+};
+const concertBudgetFor = (budgetId) => {
+  const id = typeof budgetId === 'object' ? budgetId?.id : budgetId;
+  return CONCERT_BUDGETS.find((option) => option.id === id) ?? null;
+};
 
 export function getConcertCostBreakdown(state, budgetId = 'standard', venueId = 'hall', costYear = state?.year ?? 1) {
   const budget = typeof budgetId === 'object' ? budgetId : concertBudgetFor(budgetId);
@@ -2043,9 +2049,9 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
   const capacity = venue.capacity;
   const projectedSold = Math.min(capacity, Math.round(demand * 0.9));
   const saleCloseAbsolute = targetAbsolute - 2;
-  const customTitle = requestedTitle.trim();
+  const customTitle = typeof requestedTitle === 'string' ? requestedTitle.trim() : '';
   if (customTitle.length > 60) return state;
-  const concert = { id: `concert-${targetYear}-${targetMonth}-${state.concerts.length + 1}`, title: customTitle || `Concert ${state.concerts.length + 1}`, budgetId, budgetName: budget.name, productionCost, venueId, venueName: venue.name, venueCost, upfrontCost, grossVenueCost: costs.grossVenueCost, grossProductionCost: costs.grossProductionCost, productionCostRatio: costs.productionRatio, costYear: costs.costYear, annualCostRate: costs.yearRate, targetYear, targetMonth, targetWeek, day: concertDay, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute, salesWeeks: saleCloseAbsolute - currentAbsolute + 1, memberIds };
+  const concert = { id: `concert-${targetYear}-${targetMonth}-${state.concerts.length + 1}`, title: customTitle || `Concert ${state.concerts.length + 1}`, budgetId: budget.id, budgetName: budget.name, productionCost, venueId: venue.id, venueName: venue.name, venueCost, upfrontCost, grossVenueCost: costs.grossVenueCost, grossProductionCost: costs.grossProductionCost, productionCostRatio: costs.productionRatio, costYear: costs.costYear, annualCostRate: costs.yearRate, targetYear, targetMonth, targetWeek, day: concertDay, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute, salesWeeks: saleCloseAbsolute - currentAbsolute + 1, memberIds };
   const targetWeekOfMonth = ((targetWeek - 1) % BALANCE.weeksPerMonth) + 1;
   return { ...state, money: state.money - upfrontCost, financialEvents: addImmediateExpense(state, `${concert.id}-upfront-cost`, `${concert.title} production`, upfrontCost), concerts: [...state.concerts, concert], history: [{ id: concert.id, type: 'concert', title: `${concert.title} announced`, detail: `${venue.name} · ${capacity.toLocaleString()} seats · ${budget.name} · Year ${targetYear}, Month ${targetMonth}, Week ${targetWeekOfMonth} on ${concertDay}.`, year: state.year, week: state.week }, ...state.history] };
 }
@@ -2083,10 +2089,9 @@ export function announceAnniversaryConcert(state, targetWeek, concertDay, reques
   // Saved UI selections can outlive a refreshed venue-offer list. Keep the
   // annual event bookable by falling back to the first currently valid offer
   // instead of passing a stale ID into announceConcert.
-  const chosenVenueId = concertVenueFor(state, venueId)
-    ? venueId
-    : state.concertVenueOffers?.[0]?.id ?? CONCERT_VENUES[0].id;
-  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, budgetId, chosenVenueId, targetWeek, { allowQ4: true, eventType: 'anniversary' });
+  const chosenVenue = concertVenueFor(state, venueId) ?? state.concertVenueOffers?.[0] ?? CONCERT_VENUES[0];
+  const chosenBudget = concertBudgetFor(budgetId) ?? CONCERT_BUDGETS.find((budget) => budget.id === 'standard') ?? CONCERT_BUDGETS[0];
+  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, chosenBudget.id, chosenVenue.id, targetWeek, { allowQ4: true, eventType: 'anniversary' });
   if (announced === state) return state;
   const createdId = announced.concerts.at(-1).id;
   const targetAbsolute = toAbsoluteWeek(state.year, targetWeek);

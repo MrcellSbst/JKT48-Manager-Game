@@ -4,7 +4,7 @@ import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applySche
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
-import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITY_SKILL_GAINS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
+import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITY_SKILL_GAINS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
@@ -1779,6 +1779,17 @@ test('concert announcement persists selected budget and venue size', () => {
   const expectedCost = getConcertCostBreakdown(game, 'standard', 'arena').upfrontCost;
   assert.equal(announced.concerts[0].upfrontCost, expectedCost);
   assert.equal(announced.money, game.money - expectedCost);
+});
+
+test('concert booking normalizes selected budget and venue objects and missing titles', () => {
+  const draft = createGame('concert-object-selection-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const budget = CONCERT_BUDGETS.find((option) => option.id === 'standard');
+  const venue = game.concertVenueOffers[0];
+  const announced = announceConcert(game, 'Sat', 1, 2, undefined, budget, venue);
+  assert.equal(announced.concerts[0].budgetId, budget.id);
+  assert.equal(announced.concerts[0].venueId, venue.id);
+  assert.equal(announced.concerts[0].title, 'Concert 1');
 });
 
 test('Q4 audition obeys first intake cap and cannot repeat in year', () => {
