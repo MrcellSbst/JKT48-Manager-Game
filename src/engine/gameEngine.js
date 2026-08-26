@@ -2051,7 +2051,7 @@ export function announceConcert(state, concertDay, targetYear, targetMonth, requ
 }
 
 export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek, sessionCounts = {}, requestedTitle = '') {
-  if (state.runStatus === 'ended' || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
+  if (state.runStatus === 'ended' || !Number.isInteger(targetWeek) || !Number.isInteger(salesStartWeek) || state.week < 25 || targetWeek < 37 || targetWeek > 44 || targetWeek <= state.week || salesStartWeek < state.week || salesStartWeek >= targetWeek || !DAYS.includes(day)) return state;
   if ((state.yearEndMeetGreets ?? []).some((event) => event.year === state.year)) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'yearEndMeetGreet', day, monthScope: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'yearEndMeetGreet');
@@ -2068,7 +2068,7 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 }
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
-  if (state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
+  if (state.runStatus === 'ended' || !Number.isInteger(targetWeek) || !DAYS.includes(concertDay) || !Array.isArray(rehearsalDays) || state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
   const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true, allowQ4: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'concert');
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;

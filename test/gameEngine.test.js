@@ -1689,6 +1689,23 @@ test('anniversary concert locks rehearsal and concert dates', () => {
   assert.equal(assignActivity(game, game.members[0].id, 'Tue', 'rest'), game);
 });
 
+test('year-end Meet & Greet and anniversary concert can both be booked in their separate Q4 windows', () => {
+  const draft = createGame('annual-events-booking-test');
+  let game = finalizeGameSetup({ ...draft, week: 37 }, 'community', draft.members.slice(0, 16).map((member) => member.id));
+  game = scheduleYearEndMeetGreet(game, 39, 'Sat', 37, {}, 'Autumn Fan Day');
+  assert.equal(game.yearEndMeetGreets.length, 1);
+  game = announceAnniversaryConcert(game, 45, 'Sat', 'December Anniversary', 'standard', game.concertVenueOffers[0].id, ['Tue', 'Thu']);
+  assert.equal(game.concerts.filter((concert) => concert.eventType === 'anniversary').length, 1);
+});
+
+test('annual booking rejects malformed target dates without mutating state', () => {
+  const draft = createGame('annual-events-invalid-date-test');
+  const game = finalizeGameSetup({ ...draft, week: 37 }, 'community', draft.members.slice(0, 16).map((member) => member.id));
+  assert.equal(scheduleYearEndMeetGreet(game, '39', 'Sat', 37), game);
+  assert.equal(announceAnniversaryConcert(game, Number.NaN, 'Sat', 'Invalid', 'standard', game.concertVenueOffers[0].id), game);
+  assert.equal(announceAnniversaryConcert(game, 45, 'Sat', 'Invalid', 'standard', game.concertVenueOffers[0].id, null), game);
+});
+
 test('successful anniversary booking clears stale concert block warnings', () => {
   const draft = createGame('anniversary-stale-warning-test');
   const game = finalizeGameSetup({ ...draft, week: 43, notifications: [{ type: 'critical', code: 'campaign-blocked', campaignType: 'concert', text: 'Campaign blocked: stale conflict.' }] }, 'community', draft.members.slice(0, 16).map((member) => member.id));
