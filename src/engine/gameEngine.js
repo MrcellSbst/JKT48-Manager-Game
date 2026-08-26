@@ -1631,6 +1631,25 @@ export function configureTheaterSpecialFlags(state, day, flags = {}) {
   return nextState;
 }
 
+export function replaceTheaterSpecialAssignment(state, day, assignmentKey, memberId) {
+  if (state.runStatus === 'ended' || !DAYS.includes(day) || !SPECIAL_SHOW_ASSIGNMENT_KEYS.includes(assignmentKey) || !memberId) return state;
+  const currentShow = state.theaterShows?.[day] ?? { setlistId: SETLISTS[0].id, centerId: null };
+  const currentMemberId = currentShow[assignmentKey] ?? '';
+  if (currentMemberId === memberId) return state;
+  const replacementTarget = specialShowAssignmentEntries(state, { excludeDay: day, excludeKey: assignmentKey }).find((assignment) => assignment.memberId === memberId);
+  const theaterShows = { ...(state.theaterShows ?? {}) };
+  const updatedCurrentShow = { ...currentShow, [assignmentKey]: memberId };
+  if (replacementTarget?.day === day) {
+    updatedCurrentShow[replacementTarget.assignmentKey] = currentMemberId;
+    theaterShows[day] = updatedCurrentShow;
+  } else {
+    theaterShows[day] = updatedCurrentShow;
+    if (replacementTarget) theaterShows[replacementTarget.day] = { ...(theaterShows[replacementTarget.day] ?? {}), [replacementTarget.assignmentKey]: currentMemberId };
+  }
+  const nextState = { ...state, theaterShows };
+  return getStsLastShowAssignmentConflicts(nextState).length ? state : nextState;
+}
+
 export function payDebt(state, category, amount = Infinity) {
   if ((!state.hardMode && category !== 'tax') || !['salary', 'upkeep', 'operations', 'tax'].includes(category) || state.runStatus === 'ended') return state;
   const debt = state.ledger?.debt?.[category] ?? 0;
@@ -2059,7 +2078,16 @@ export function announceAnniversaryConcert(state, targetWeek, concertDay, reques
   const createdId = announced.concerts.at(-1).id;
   const targetAbsolute = toAbsoluteWeek(state.year, targetWeek);
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
-  return { ...announced, concerts: announced.concerts.map((concert) => concert.id === createdId ? { ...concert, eventType: 'anniversary', targetWeek, targetMonth: 12, rehearsalDays, saleCloseAbsolute: targetAbsolute - 2, salesWeeks: targetAbsolute - currentAbsolute - 1 } : concert) };
+  return {
+    ...announced,
+    concerts: announced.concerts.map((concert) => concert.id === createdId
+      ? { ...concert, eventType: 'anniversary', targetWeek, targetMonth: 12, rehearsalDays, saleCloseAbsolute: targetAbsolute - 2, salesWeeks: targetAbsolute - currentAbsolute - 1 }
+      : concert),
+    // A previous stale confirmation can leave a concert block notice behind.
+    // Once booking succeeds, that notice is no longer true and must not be
+    // surfaced as a red warning on Command.
+    notifications: (announced.notifications ?? []).filter((item) => item.code !== 'campaign-blocked' || item.campaignType !== 'concert'),
+  };
 }
 
 export function applyScheduleTemplate(state, template) {

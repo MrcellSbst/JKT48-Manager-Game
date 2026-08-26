@@ -9,7 +9,7 @@ import { BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, SCHEDULE_ACTIVITY_GROUP
 import { BONUS_BY_ID, BONUS_TEMPLATES, MAX_BONUS_LEVEL, formatBonusEffect, getBonusUpgradeCost, getBonusValueAtLevel } from './data/bonusTemplates.js';
 import { SETLISTS, SETLIST_BY_ID } from './data/setlists.js';
 import dreamSetlistSongs from './data/DreamSetlist_Songs.js';
-import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, clearTrainingPlan, completeYearEndSettlement, configureMajorCampaign, configureTheaterShow, configureTheaterSpecialFlags, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getAvailableStsLastShowMembers, getCampaignConflictReasons, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMajorCampaignStartBlockReason, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getReportSkillChanges, getRosterDanger, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, isMajorCampaignActive, memberCanPerformOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, moveTrainingSession, punishMember, payDebt, prepareGraduation, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyScheduleTemplate, applyTrainingTemplate, assignActivity, clearTrainingPlan, completeYearEndSettlement, configureMajorCampaign, configureTheaterShow, configureTheaterSpecialFlags, createBirthday, createFanTargetForYear, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup, fireMember, getCampaignConflictReasons, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMajorCampaignStartBlockReason, getMemberAge, getMemberSalary, getNextMajorCampaignType, getProjectedEnergyByMember, getReportSkillChanges, getRosterDanger, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, isMajorCampaignActive, memberCanPerformOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, moveTrainingSession, punishMember, payDebt, prepareGraduation, promoteTrainee, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, replaceTheaterSpecialAssignment, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction, takeLoan } from './engine/gameEngine.js';
 import { createRunHistoryEntry, deleteActiveRun, getActiveRun, getMetaProfile, loadActiveRun, mergeRunHistory, saveActiveRun, saveMetaProfile } from './state/saveDb.js';
 import { formatCloudDateTime, formatDateTime, formatMoney, formatNumber, localizeDocument, setActiveLanguage, translateIndonesian } from './localization.js';
 import AuthScreen, { SyncOverlay } from './components/AuthScreen.jsx';
@@ -242,24 +242,18 @@ function TheaterPlanner({ game, setGame, theaterCounts }) {
     const birthdayLineupMembers = birthdayCandidates.filter((candidate) => lineup.some((member) => member.id === candidate.id));
     // A Seitansai can only be assigned to a member who is actually on this day's theater lineup.
     const birthdayMembers = birthdayLineupMembers;
-    const availableBirthdayMembers = getAvailableStsLastShowMembers(game, { day, assignmentKey: 'seitansaiMemberId', eligibleMembers: birthdayMembers });
     const seitansaiMemberId = birthdayLineupMembers.some((candidate) => candidate.id === configured.seitansaiMemberId)
       ? configured.seitansaiMemberId
       : (birthdayLineupMembers[0]?.id ?? '');
     const graduatingMembers = getGraduationLastShowCandidates(game, day);
-    const availableGraduatingMembers = getAvailableStsLastShowMembers(game, { day, assignmentKey: 'lastShowMemberId', eligibleMembers: graduatingMembers });
     const lastShowMemberId = graduatingMembers.some((candidate) => candidate.id === configured.lastShowMemberId)
       ? configured.lastShowMemberId
       : (graduatingMembers[0]?.id ?? '');
     const handleSeitansaiToggle = () => updateFlags(day, { isSeitansai: !isSeitansai, seitansaiMemberId: isSeitansai ? '' : seitansaiMemberId });
     const handleLastShowToggle = () => updateFlags(day, { isLastShow: !isLastShow, lastShowMemberId: isLastShow ? '' : lastShowMemberId });
-    const handleSeitansaiMemberChange = (e) => updateFlags(day, { seitansaiMemberId: e.target.value });
-    const handleLastShowMemberChange = (e) => updateFlags(day, { lastShowMemberId: e.target.value });
-    const availableBirthdayIds = new Set(availableBirthdayMembers.map((member) => member.id));
-    const availableGraduatingIds = new Set(availableGraduatingMembers.map((member) => member.id));
-    const canEnableSeitansai = Boolean(seitansaiMemberId) && (availableBirthdayMembers.length > 0 || isSeitansai);
-    const canEnableLastShow = Boolean(lastShowMemberId) && (availableGraduatingMembers.length > 0 || isLastShow);
-    return <article key={day}><img src={setlistCovers[setlist.coverFile]} alt={`${setlist.title} cover`} /><div className="theater-show-copy"><strong>{day} · {theaterCounts[day]}/12</strong><span>{setlist.songs.length} songs · {averageFamiliarity}% lineup familiarity</span>{boredom.penalty > 0 ? <span className="setlist-boredom">Demand -{Math.round(boredom.penalty * 100)}% · played {boredom.plays}x in {boredom.windowWeeks} weeks</span> : <span className="setlist-boredom rested">Rested setlist · full demand</span>}<div><label>Setlist<select value={setlist.id} onChange={(event) => update(event.target.value, centerId)}>{SETLISTS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label><label>Center<select value={centerId ?? ''} disabled={!lineup.length} onChange={(event) => update(setlist.id, event.target.value)}>{lineup.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select></label></div>{birthdayMembers.length ? <div className="theater-special-flags"><label><input type="checkbox" checked={isSeitansai} disabled={!canEnableSeitansai} onChange={handleSeitansaiToggle} /> Seitansai (birthday show)</label>{isSeitansai ? <><select value={seitansaiMemberId} onChange={handleSeitansaiMemberChange}>{birthdayMembers.map((member) => <option key={member.id} value={member.id} disabled={!availableBirthdayIds.has(member.id)}>{member.isActualBirthday ? displayName(member) : `${displayName(member)} (last month)`}</option>)}</select><span className="two-shot-info">2-Shot Birthday · FRL200k · 100 slots</span></> : null}</div> : null}{graduatingMembers.length ? <div className="theater-special-flags"><label><input type="checkbox" checked={isLastShow} disabled={!canEnableLastShow} onChange={handleLastShowToggle} /> Last Show (graduation)</label>{isLastShow ? <><select value={lastShowMemberId} onChange={handleLastShowMemberChange}>{graduatingMembers.map((member) => <option key={member.id} value={member.id} disabled={!availableGraduatingIds.has(member.id)}>{displayName(member)}</option>)}</select><span className="two-shot-info">2-Shot Last Show · FRL200k · 100 slots</span></> : null}</div> : null}</div></article>;
+    const handleSeitansaiMemberChange = (e) => setGame((current) => replaceTheaterSpecialAssignment(current, day, 'seitansaiMemberId', e.target.value));
+    const handleLastShowMemberChange = (e) => setGame((current) => replaceTheaterSpecialAssignment(current, day, 'lastShowMemberId', e.target.value));
+    return <article key={day}><img src={setlistCovers[setlist.coverFile]} alt={`${setlist.title} cover`} /><div className="theater-show-copy"><strong>{day} · {theaterCounts[day]}/12</strong><span>{setlist.songs.length} songs · {averageFamiliarity}% lineup familiarity</span>{boredom.penalty > 0 ? <span className="setlist-boredom">Demand -{Math.round(boredom.penalty * 100)}% · played {boredom.plays}x in {boredom.windowWeeks} weeks</span> : <span className="setlist-boredom rested">Rested setlist · full demand</span>}<div><label>Setlist<select value={setlist.id} onChange={(event) => update(event.target.value, centerId)}>{SETLISTS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}</select></label><label>Center<select value={centerId ?? ''} disabled={!lineup.length} onChange={(event) => update(setlist.id, event.target.value)}>{lineup.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select></label></div>{birthdayMembers.length ? <div className="theater-special-flags"><label><input type="checkbox" checked={isSeitansai} onChange={handleSeitansaiToggle} /> Seitansai (birthday show)</label>{isSeitansai ? <><select value={seitansaiMemberId} onChange={handleSeitansaiMemberChange}>{birthdayMembers.map((member) => <option key={member.id} value={member.id}>{member.isActualBirthday ? displayName(member) : `${displayName(member)} (last month)`}</option>)}</select><span className="two-shot-info">2-Shot Birthday · FRL200k · 100 slots</span></> : null}</div> : null}{graduatingMembers.length ? <div className="theater-special-flags"><label><input type="checkbox" checked={isLastShow} onChange={handleLastShowToggle} /> Last Show (graduation)</label>{isLastShow ? <><select value={lastShowMemberId} onChange={handleLastShowMemberChange}>{graduatingMembers.map((member) => <option key={member.id} value={member.id}>{displayName(member)}</option>)}</select><span className="two-shot-info">2-Shot Last Show · FRL200k · 100 slots</span></> : null}</div> : null}</div></article>;
   })}</div></section>;
 }
 
@@ -616,6 +610,10 @@ function Dashboard({ game, setGame, setView, selectedMember, setSelectedMember, 
         && item.week === game.week;
     }
     const isCampaignBlock = item.code === 'campaign-blocked' || (typeof item.text === 'string' && item.text.startsWith('Campaign blocked:'));
+    // An annual concert booking supersedes any stale concert-block notice
+    // left by an earlier confirmation attempt. Do not keep showing it on
+    // Command after the event exists.
+    if (isCampaignBlock && item.campaignType === 'concert' && hasCurrentYearAnniversary) return false;
     if (isCampaignBlock) {
       if (campaignBlockSeen) return false;
       campaignBlockSeen = true;
@@ -1118,7 +1116,12 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
       if (succeeded(next, current))
         return {
           ...next,
-          notifications: (next.notifications ?? []).filter((item) => item.text !== failureText),
+          // A stale blocked notification can survive a confirmation that was
+          // opened before the latest state refresh. Clear it once the annual
+          // event is actually persisted, otherwise Command shows a red
+          // warning although the event is booked.
+          notifications: (next.notifications ?? []).filter((item) => item.text !== failureText
+            && !(item.code === 'campaign-blocked' && item.campaignType === (failureCode === ANNIVERSARY_CONCERT_FAILURE_CODE ? 'concert' : 'yearEndMeetGreet'))),
         };
       if (next !== current) return next;
       return {

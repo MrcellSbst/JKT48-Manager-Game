@@ -8,7 +8,7 @@ import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPOR
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
-import { configureTheaterSpecialFlags, getAvailableStsLastShowMembers, getStsLastShowAssignmentConflicts } from '../src/engine/gameEngine.js';
+import { configureTheaterSpecialFlags, getAvailableStsLastShowMembers, getStsLastShowAssignmentConflicts, replaceTheaterSpecialAssignment } from '../src/engine/gameEngine.js';
 
 const finalizeGameSetup = (draft, theaterId, memberIds, ...args) => {
   const foundingIds = memberIds.length === 12 ? [...memberIds, ...draft.members.slice(12, BALANCE.foundingRosterSize).map((member) => member.id)] : memberIds;
@@ -885,8 +885,10 @@ test('STS and Last Show assignments stay unique across theater shows', () => {
   assert.deepEqual(getAvailableStsLastShowMembers(configured, { day: 'Mon', assignmentKey: 'seitansaiMemberId', eligibleMembers: [first, second, third] }).map((member) => member.id), [first.id, third.id]);
   const moved = configureTheaterSpecialFlags(configured, 'Mon', { seitansaiMemberId: third.id });
   assert.deepEqual(getAvailableStsLastShowMembers(moved, { day: 'Tue', assignmentKey: 'lastShowMemberId', eligibleMembers: [first, second, third] }).map((member) => member.id), [first.id, second.id]);
-  const rejected = configureTheaterSpecialFlags(configured, 'Tue', { lastShowMemberId: first.id });
-  assert.equal(rejected, configured, 'assignment already used by another show is rejected');
+  const swapped = replaceTheaterSpecialAssignment(configured, 'Tue', 'lastShowMemberId', first.id);
+  assert.equal(swapped.theaterShows.Tue.lastShowMemberId, first.id);
+  assert.equal(swapped.theaterShows.Mon.seitansaiMemberId, second.id);
+  assert.deepEqual(getStsLastShowAssignmentConflicts(swapped), []);
 });
 
 test('resolveWeek blocks corrupted duplicate STS / Last Show assignments', () => {
@@ -1651,6 +1653,14 @@ test('anniversary concert locks rehearsal and concert dates', () => {
   assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concert').length, 12);
   assert.equal(Object.values(game.schedule).filter((activity) => activity === 'concertRehearsal').length, 24);
   assert.equal(assignActivity(game, game.members[0].id, 'Tue', 'rest'), game);
+});
+
+test('successful anniversary booking clears stale concert block warnings', () => {
+  const draft = createGame('anniversary-stale-warning-test');
+  const game = finalizeGameSetup({ ...draft, week: 43, notifications: [{ type: 'critical', code: 'campaign-blocked', campaignType: 'concert', text: 'Campaign blocked: stale conflict.' }] }, 'community', draft.members.slice(0, 16).map((member) => member.id));
+  const announced = announceAnniversaryConcert(game, 45, 'Sat', 'Anniversary Night', 'standard', game.concertVenueOffers[0].id, ['Tue', 'Thu']);
+  assert.equal(announced.concerts[0].eventType, 'anniversary');
+  assert.equal(announced.notifications.some((item) => item.code === 'campaign-blocked' && item.campaignType === 'concert'), false);
 });
 
 test('anniversary concert falls back from a stale saved venue selection', () => {

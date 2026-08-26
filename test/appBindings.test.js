@@ -83,6 +83,7 @@ test('dark theme keeps shared surfaces tied to active theme tokens', async () =>
   assert.match(css, /--accent:var\(--red\)/);
   assert.match(css, /--danger:var\(--critical\)/);
   assert.match(css, /\.major-campaign-config select\{[^}]*background:var\(--paper\);color:var\(--ink\)/);
+  assert.match(css, /\.campaign-bracket-preview\{background:var\(--ink\);color:var\(--paper\)\}:root\[data-theme='dark'\] \.campaign-bracket-preview\{background:#090908;color:#f2f2ee\}/);
 });
 
 test('schedule history year control is grouped as a responsive themed field', async () => {
