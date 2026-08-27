@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatCloudDateTime, formatDate, formatMoney, getLocalizationParity, LOCALIZATION_ALLOWLIST, LOCALIZATION_ID, setActiveLanguage, translateIndonesian } from '../src/localization.js';
+import { formatCloudDateTime, formatDate, formatMoney, getLocalizationParity, LOCALIZATION_ALLOWLIST, LOCALIZATION_ID, localizeDocument, setActiveLanguage, translateIndonesian } from '../src/localization.js';
 
 test('English and Indonesian localization dictionaries stay in parity', () => {
   const parity = getLocalizationParity();
@@ -92,6 +92,52 @@ test('translator safely handles missing and non-string history fields', () => {
   assert.equal(translateIndonesian(undefined), '');
   assert.equal(translateIndonesian(null), '');
   assert.equal(translateIndonesian(12), '12');
+});
+
+test('document localization preserves canonical values for translated options', () => {
+  const previous = {
+    document: globalThis.document,
+    Element: globalThis.Element,
+    Node: globalThis.Node,
+    MutationObserver: globalThis.MutationObserver,
+  };
+  class FakeElement {
+    constructor(tagName) {
+      this.tagName = tagName;
+      this.attributes = new Map();
+      this.childNodes = [];
+      this.parentElement = null;
+    }
+    closest() { return null; }
+    hasAttribute(name) { return this.attributes.has(name); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  }
+  class FakeMutationObserver {
+    observe() {}
+    disconnect() {}
+  }
+  const body = new FakeElement('BODY');
+  const option = new FakeElement('OPTION');
+  const text = { nodeType: 3, nodeValue: 'Wed', parentElement: option };
+  option.parentElement = body;
+  option.childNodes.push(text);
+  body.childNodes.push(option);
+  try {
+    globalThis.Element = FakeElement;
+    globalThis.Node = { TEXT_NODE: 3 };
+    globalThis.MutationObserver = FakeMutationObserver;
+    globalThis.document = { body };
+    const cleanup = localizeDocument('id');
+    assert.equal(text.nodeValue, 'Rab');
+    assert.equal(option.getAttribute('value'), 'Wed');
+    cleanup();
+  } finally {
+    globalThis.document = previous.document;
+    globalThis.Element = previous.Element;
+    globalThis.Node = previous.Node;
+    globalThis.MutationObserver = previous.MutationObserver;
+  }
 });
 
 test('Indonesian glossary uses clear fan wording and preserves official terms', () => {

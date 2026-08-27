@@ -811,6 +811,13 @@ function localizeNode(node, language) {
     const current = node.nodeValue;
     if (rendered.get(node) !== current) sources.set(node, current);
     const source = sources.get(node) ?? current;
+    // An <option> without an explicit value derives its submitted value from
+    // its text. Preserve the original gameplay value before translating that
+    // text (for example, Wed -> Rab), otherwise controlled selects can send a
+    // localized label into engine APIs that require canonical IDs.
+    if (node.parentElement?.tagName === 'OPTION' && !node.parentElement.hasAttribute('value')) {
+      node.parentElement.setAttribute('value', source.trim());
+    }
     const next = (language === 'id' ? translateIndonesian(source) : source).replace(/FRL(?=\d)/g, 'FRL.');
     rendered.set(node, next);
     if (current !== next) node.nodeValue = next;
