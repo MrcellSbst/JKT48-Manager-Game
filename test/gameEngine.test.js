@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getCampaignConflictReasons, getConfirmedScheduleForWeek, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
+import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getCampaignConflictReasons, getConfirmedScheduleForWeek, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduationState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, rollGraduationTarget, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
 import { MEMBER_DRAMA_CATEGORIES, MEMBER_DRAMA_TEMPLATES } from '../src/data/dramaData.js';
 import { ACTIVITY_SKILL_GAINS, BALANCE, CONCERT_BUDGETS, CONCERT_VENUES, DAYS, FAN_BALANCE, OPPORTUNITY_SKILL_GAINS, SCHEDULE_ACTIVITY_GROUPS, SCHEDULE_STANDALONE_ACTIVITIES, TRAINING_ACTIVITY_GROUPS } from '../src/data/balance.js';
 import { BONUS_BY_ID, getBonusUpgradeCost, getBonusValueAtLevel } from '../src/data/bonusTemplates.js';
+import { normalizeGameState } from '../src/state/gameStateMigration.js';
 import { translateIndonesian } from '../src/localization.js';
 import { createRunHistoryEntry, mergeRunHistory, normalizeMetaProfile } from '../src/state/saveDb.js';
 import { configureTheaterSpecialFlags, getAvailableStsLastShowMembers, getStsLastShowAssignmentConflicts, replaceTheaterSpecialAssignment } from '../src/engine/gameEngine.js';
@@ -2384,7 +2385,7 @@ test('punishment and release do not refund events without an affected-member ass
   assert.equal(released.notifications.some((notification) => notification.text.includes('refunded')), false);
 });
 
-test('graduation planning protects Year 1 and budgets four to six eligible departures per later year', () => {
+test('graduation planning protects Year 1 and budgets exactly four or six eligible departures per later year', () => {
   const draft = createGame('annual-graduation-budget-test');
   const foundingIds = draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id);
   const base = finalizeGameSetupEngine(draft, 'community', foundingIds);
@@ -2396,10 +2397,93 @@ test('graduation planning protects Year 1 and budgets four to six eligible depar
   for (let index = 0; index < BALANCE.weeksPerYear; index += 1) game = resolveWeek(game);
   const target = game.graduationTargets[3];
   const planned = game.graduations.filter((graduation) => graduation.planYear === 3);
-  assert.ok(target.targetCount >= 4 && target.targetCount <= 6);
+  assert.ok([4, 6].includes(target.targetCount));
   assert.equal(planned.length, target.targetCount);
   assert.equal(target.scheduledCount, target.targetCount);
   assert.ok(planned.every((graduation) => graduation.annualTarget === target.targetCount));
+});
+
+test('graduation target rolls are deterministic binary choices with persisted cadence metadata', () => {
+  const first = rollGraduationTarget('graduation-target-seed', 4);
+  const second = rollGraduationTarget('graduation-target-seed', 4);
+  assert.deepEqual(first, second);
+  assert.ok([4, 6].includes(first.targetCount));
+  assert.equal(first.schemaVersion, 2);
+  assert.equal(first.rolledAt.year, 4);
+  assert.equal(first.rolledAt.week, 1);
+  assert.equal(first.windows.length, first.targetCount);
+  assert.equal(first.cadence, first.targetCount === 4 ? 'quarterly' : 'bimonthly');
+  first.windows.forEach((window) => assert.ok(window.preferredMonth >= window.startMonth && window.preferredMonth <= window.endMonth));
+
+  const legacy = migrateGraduationState({ seed: 'legacy-target-seed', year: 4, week: 27, graduations: [], graduationTargets: { 3: { year: 3, targetCount: 5 }, 4: { year: 4, targetCount: 12 } } });
+  assert.equal(legacy.graduationTargets[3].cadence, 'legacy');
+  assert.equal(legacy.graduationTargets[4].cadence, 'legacy');
+  assert.equal(legacy.graduationTargets[3].targetCount, 5);
+  assert.equal(legacy.graduationTargets[4].targetCount, 12);
+  assert.deepEqual(migrateGraduationState(legacy), legacy);
+
+  const missing = migrateGraduationState({ seed: 'missing-target-seed', year: 2, week: 20, graduations: [], graduationTargets: {} });
+  assert.ok([4, 6].includes(missing.graduationTargets[2].targetCount));
+  assert.deepEqual(migrateGraduationState(missing), missing);
+
+  const stale = migrateGraduationState({ seed: 'stale-target-seed', year: 2, week: 20, graduations: [{ id: 'announced', announcementYear: 2, announcementWeek: 5, completed: false }], graduationTargets: { 2: { year: 2, targetCount: 4, scheduledCount: 99 } } });
+  assert.equal(stale.graduationTargets[2].scheduledCount, 1);
+
+  const normalized = normalizeGameState({ ...createGame('normalization-target-seed'), year: 2, week: 20, graduationTargets: {} });
+  assert.ok([4, 6].includes(normalized.graduationTargets[2].targetCount));
+});
+
+test('year-end settlement creates the next annual graduation target before Week 1 opens', () => {
+  const draft = createGame('settlement-graduation-target');
+  const base = finalizeGameSetupEngine(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id));
+  const settled = completeYearEndSettlement({
+    ...base,
+    year: 1,
+    week: BALANCE.weeksPerYear,
+    pendingYearEndSettlement: { id: 'settlement-1', closingYear: 1, nextYear: 2, stage: 'theater', tax: { taxDue: 0 }, taxPaid: 0, taxDebtAdded: 0 },
+    yearEndSettlements: [],
+  }, 'keep');
+  assert.equal(settled.year, 2);
+  assert.equal(settled.week, 1);
+  assert.ok([4, 6].includes(settled.graduationTargets[2].targetCount));
+  assert.equal(settled.graduationTargets[2].rolledAt.week, 1);
+  assert.deepEqual(completeYearEndSettlement(settled, 'keep'), settled);
+});
+
+function graduationCadenceFixture(seed, targetCount) {
+  const draft = createGame(seed);
+  const base = finalizeGameSetupEngine(draft, 'community', draft.members.slice(0, BALANCE.foundingRosterSize).map((member) => member.id));
+  const support = base.unsignedMembers.slice(0, 12).map((member) => ({ ...member, status: 'active', joinedYear: 0, joinedWeek: 1 }));
+  return {
+    ...base,
+    year: 3,
+    week: 1,
+    money: 9_000_000_000_000,
+    group: { ...base.group, fanbase: 100_000 },
+    members: [...base.members, ...support],
+    unsignedMembers: base.unsignedMembers.slice(12),
+    memberDramaCooldown: 999,
+    managementDramaCooldown: 999,
+    graduationTargets: { 3: { year: 3, targetCount } },
+  };
+}
+
+test('four-target graduation announcements occupy at most one quarter window', () => {
+  let game = graduationCadenceFixture('quarterly-graduation-cadence', 4);
+  for (let index = 0; index < BALANCE.weeksPerYear; index += 1) game = resolveWeek(game);
+  const announcements = game.graduations.filter((graduation) => graduation.planYear === 3 && graduation.announcementYear === 3);
+  assert.equal(announcements.length, 4);
+  const windows = announcements.map((graduation) => Math.floor((Math.ceil(graduation.announcementWeek / BALANCE.weeksPerMonth) - 1) / 3));
+  assert.equal(new Set(windows).size, 4);
+});
+
+test('six-target graduation announcements occupy at most one two-month window', () => {
+  let game = graduationCadenceFixture('bimonthly-graduation-cadence', 6);
+  for (let index = 0; index < BALANCE.weeksPerYear; index += 1) game = resolveWeek(game);
+  const announcements = game.graduations.filter((graduation) => graduation.planYear === 3 && graduation.announcementYear === 3);
+  assert.equal(announcements.length, 6);
+  const windows = announcements.map((graduation) => Math.floor((Math.ceil(graduation.announcementWeek / BALANCE.weeksPerMonth) - 1) / 2));
+  assert.equal(new Set(windows).size, 6);
 });
 
 test('active SSK, Request Hour, and Janken entrants can roll graduation one week after their campaign commitment', () => {

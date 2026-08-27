@@ -4,6 +4,7 @@ import {
   createBirthday,
   createFanTargetForYear,
   migrateEconomyState,
+  migrateGraduationState,
   migrateGraduatedRosterState,
   migrateInjuryHistoryState,
   migrateTrainingState,
@@ -39,7 +40,7 @@ export function normalizeGameState(state) {
   const bonusLoadout = state.bonusLoadout ?? [];
   const bonusLevels = Object.fromEntries(bonusLoadout.map((id) => [id, Math.max(1, Math.min(MAX_BONUS_LEVEL, Math.floor(Number(state.bonusLevels?.[id]) || 1)))]));
   const auditionCampaign = state.auditionCampaign ? { ...state.auditionCampaign, selectionConfirmed: state.auditionCampaign.selectionConfirmed ?? Boolean(state.auditionCampaign.selectedCandidateIds?.length) } : null;
-  return migrateEconomyState(migrateInjuryHistoryState(migrateGraduatedRosterState(migrateTrainingState({
+  return migrateEconomyState(migrateGraduationState(migrateInjuryHistoryState(migrateGraduatedRosterState(migrateTrainingState({
     ...state,
     calendarWeeks: BALANCE.weeksPerYear,
     runSalt: state.runSalt ?? `legacy-${String(state.seed ?? 'run')}`,
@@ -54,7 +55,7 @@ export function normalizeGameState(state) {
     members: (state.members ?? []).map((member) => ({ ...member, joinedYear: Number.isFinite(member.joinedYear) ? member.joinedYear : 1, joinedWeek: Number.isFinite(member.joinedWeek) ? convertWeek(member.joinedWeek) : 1, consistency: member.consistency ?? 60, adaptability: member.adaptability ?? 60, developmentCurve: member.developmentCurve ?? 'steady', fanComposition: member.fanComposition ?? { core: 25, casual: 25, digital: 25, event: 25 }, oshiSentiment: member.oshiSentiment ?? 0, salary: member.salary ?? null, setlistFamiliarity: member.setlistFamiliarity ?? {}, injury: member.injury ?? null, weeksWithoutEvent: member.weeksWithoutEvent ?? 0, rosterScope: member.rosterScope ?? (member.graduated ? 'ex' : 'active'), ...backfillBirthday(state.seed, member) })), unsignedMembers: (state.unsignedMembers ?? []).map((member) => ({ ...member, salary: member.salary ?? null, injury: member.injury ?? null, weeksWithoutEvent: member.weeksWithoutEvent ?? 0, rosterScope: member.rosterScope ?? (member.graduated ? 'ex' : 'active'), ...backfillBirthday(state.seed, member) })), fanNarratives: state.fanNarratives ?? [], dramaMemory: state.dramaMemory ?? [], failureCounters: state.failureCounters ?? { negativeCashWeeks: 0, lowTrustWeeks: 0, lowReputationWeeks: 0, lowFanbaseWeeks: 0 },
     history: convertEntries(state.history), activityEvents: convertEntries(state.activityEvents), weeklyReports: convertEntries(state.weeklyReports), concerts: convertEntries(state.concerts), yearEndMeetGreets: convertEntries(state.yearEndMeetGreets), renovations: convertEntries(state.renovations), graduations: convertEntries(state.graduations),
     lastResult: state.lastResult ? { ...state.lastResult, week: convertWeek(state.lastResult.week) } : state.lastResult,
-  }))));
+  })))));
 }
 
 export function normalizeSnapshot(snapshot) {

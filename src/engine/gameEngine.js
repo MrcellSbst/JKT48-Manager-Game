@@ -840,7 +840,10 @@ export function completeYearEndSettlement(state, decision = 'keep', offerId = nu
     facility = { decision, theaterName: offer.name, cost: offer.netPayment, offer };
   }
   const settlement = { ...pending, stage: 'completed', facility, completedAt: { year: next.year, week: next.week } };
-  return { ...next, year: pending.nextYear, week: 1, pendingYearEndSettlement: null, yearEndSettlements: [...(next.yearEndSettlements ?? []), settlement], history: [{ id: `year-${pending.nextYear}`, type: 'year', title: `Year ${pending.nextYear} begins`, detail: 'Annual tax and theater decisions are complete. The new season begins.', year: pending.nextYear, week: 1 }, ...(next.history ?? [])], notifications: [{ type: 'success', text: `Year ${pending.nextYear} is ready.` }, ...(next.notifications ?? [])].slice(0, 20) };
+  const nextYear = pending.nextYear;
+  const graduationTargets = { ...(next.graduationTargets ?? {}) };
+  if (nextYear >= 2 && !graduationTargets[nextYear]) graduationTargets[nextYear] = normalizeGraduationTarget(next, nextYear, rollGraduationTarget(next.seed, nextYear));
+  return { ...next, year: nextYear, week: 1, pendingYearEndSettlement: null, graduationTargets, yearEndSettlements: [...(next.yearEndSettlements ?? []), settlement], history: [{ id: `year-${nextYear}`, type: 'year', title: `Year ${nextYear} begins`, detail: 'Annual tax and theater decisions are complete. The new season begins.', year: nextYear, week: 1 }, ...(next.history ?? [])], notifications: [{ type: 'success', text: `Year ${nextYear} is ready.` }, ...(next.notifications ?? [])].slice(0, 20) };
 }
 
 // Stamina both lowers what an activity costs and raises what rest gives back, so investing in it
@@ -2752,6 +2755,111 @@ function graduationAfterCommitments(state, graduation, members) {
 
 const graduationMonthKey = (year, week) => `${year}-${Math.floor((week - 1) / BALANCE.weeksPerMonth)}`;
 
+const GRADUATION_TARGET_SCHEMA_VERSION = BALANCE.graduation.targetSchemaVersion ?? 2;
+
+const graduationCadenceForCount = (targetCount) => targetCount === 4 ? 'quarterly' : targetCount === 6 ? 'bimonthly' : 'legacy';
+
+function graduationWindowDefinitions(targetCount) {
+  const size = targetCount === 4 ? 3 : targetCount === 6 ? 2 : 0;
+  if (!size) return [];
+  return Array.from({ length: targetCount }, (_, index) => {
+    const startMonth = index * size + 1;
+    return { index, startMonth, endMonth: startMonth + size - 1 };
+  });
+}
+
+function graduationWindowsForTarget(seed, year, targetCount, storedWindows = []) {
+  return graduationWindowDefinitions(targetCount).map((definition) => {
+    const stored = storedWindows.find((window) => Number(window?.index) === definition.index);
+    const storedPreferredMonth = Number(stored?.preferredMonth);
+    const preferredMonth = Number.isInteger(storedPreferredMonth)
+      && storedPreferredMonth >= definition.startMonth
+      && storedPreferredMonth <= definition.endMonth
+      ? storedPreferredMonth
+      : randomInt(createRng(hashSeed(`${seed}:graduation-target:${year}:window:${definition.index}:v2`)), definition.startMonth, definition.endMonth);
+    return { ...definition, preferredMonth };
+  });
+}
+
+export function rollGraduationTarget(seed, year) {
+  const roll = createRng(hashSeed(`${seed}:graduation-target:${year}:v2`));
+  const targetCount = randomInt(roll, 0, 1) === 0 ? 4 : 6;
+  return {
+    year,
+    targetCount,
+    cadence: graduationCadenceForCount(targetCount),
+    schemaVersion: GRADUATION_TARGET_SCHEMA_VERSION,
+    rolledAt: { year, week: 1 },
+    scheduledCount: 0,
+    windows: graduationWindowsForTarget(seed, year, targetCount),
+  };
+}
+
+const graduationCountForYear = (graduations, year) => (graduations ?? []).filter((graduation) => {
+  const announcementYear = Number(graduation.announcementYear ?? graduation.planYear);
+  return announcementYear === year;
+}).length;
+
+function normalizeGraduationTarget(state, year, target) {
+  const targetCount = Number(target?.targetCount);
+  const scheduledCount = graduationCountForYear(state.graduations, year);
+  if (targetCount !== 4 && targetCount !== 6) {
+    return {
+      ...target,
+      year,
+      cadence: 'legacy',
+      schemaVersion: GRADUATION_TARGET_SCHEMA_VERSION,
+      rolledAt: target.rolledAt ?? { year, week: 1 },
+      scheduledCount,
+      windows: Array.isArray(target.windows) ? target.windows : [],
+    };
+  }
+  return {
+    ...target,
+    year,
+    targetCount,
+    cadence: graduationCadenceForCount(targetCount),
+    schemaVersion: GRADUATION_TARGET_SCHEMA_VERSION,
+    rolledAt: target.rolledAt ?? { year, week: 1 },
+    scheduledCount,
+    windows: graduationWindowsForTarget(state.seed, year, targetCount, Array.isArray(target.windows) ? target.windows : []),
+  };
+}
+
+export function migrateGraduationState(state) {
+  if (!state || typeof state !== 'object') return state;
+  const currentYear = Number(state.year);
+  const existingTargets = state.graduationTargets ?? {};
+  const targets = { ...existingTargets };
+  Object.entries(existingTargets).forEach(([yearKey, target]) => {
+    const year = Number(yearKey);
+    if (!Number.isInteger(year) || !target || typeof target !== 'object') return;
+    targets[year] = normalizeGraduationTarget(state, year, target);
+  });
+  if (currentYear >= 2 && !targets[currentYear]) targets[currentYear] = normalizeGraduationTarget(state, currentYear, rollGraduationTarget(state.seed, currentYear));
+  if (targets[currentYear] || Object.keys(existingTargets).length) return { ...state, graduationTargets: targets };
+  return state;
+}
+
+function graduationAnnouncementMonth(graduation, targetYear) {
+  const announcementYear = Number(graduation.announcementYear ?? graduation.planYear);
+  let announcementWeek = Number(graduation.announcementWeek ?? graduation.planWeek);
+  if (!Number.isFinite(announcementWeek) && Number(graduation.departureYear ?? targetYear) === targetYear) announcementWeek = Number(graduation.departureWeek);
+  if (announcementYear !== targetYear || !Number.isFinite(announcementWeek) || announcementWeek < 1) return null;
+  return Math.ceil(announcementWeek / BALANCE.weeksPerMonth);
+}
+
+function graduationWindowForMonth(target, month) {
+  return (target?.windows ?? []).find((window) => month >= window.startMonth && month <= window.endMonth) ?? null;
+}
+
+function graduationWindowHasAnnouncement(graduations, targetYear, window) {
+  return (graduations ?? []).some((graduation) => {
+    const month = graduationAnnouncementMonth(graduation, targetYear);
+    return month !== null && month >= window.startMonth && month <= window.endMonth;
+  });
+}
+
 // Keep one departure per four-week calendar month. Existing completed departures
 // reserve their month; earlier pending records keep priority over later records.
 function enforceGraduationMonthSpacing(graduations) {
@@ -2779,9 +2887,10 @@ function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
   const graduationTargets = { ...(state.graduationTargets ?? {}) };
   if (targetYear < 2 || (currentWeek - 1) % BALANCE.weeksPerMonth !== 0) return { graduations: existing, graduationTargets };
   if (!graduationTargets[targetYear]) {
-    const budgetRng = createRng(hashSeed(`${state.seed}:graduation-budget:${targetYear}`));
-    graduationTargets[targetYear] = { year: targetYear, targetCount: randomInt(budgetRng, BALANCE.graduation.normalMin, BALANCE.graduation.normalMax), scheduledCount: existing.filter((item) => item.planYear === targetYear).length };
+    graduationTargets[targetYear] = rollGraduationTarget(state.seed, targetYear);
   }
+  const target = normalizeGraduationTarget({ ...state, graduations: existing }, targetYear, graduationTargets[targetYear]);
+  graduationTargets[targetYear] = target;
   const alreadyPlannedIds = new Set(existing.filter((item) => !item.completed).map((item) => item.memberId));
   const eligible = members.map((member) => {
     const joinedYear = Number.isFinite(member.joinedYear) ? member.joinedYear : 1;
@@ -2792,22 +2901,28 @@ function scheduleGraduations(state, targetYear, currentWeek, members, rng) {
     if (alreadyPlannedIds.has(member.id)) return false;
     return tenureWeeks >= config.minimumTenureYears * BALANCE.weeksPerYear;
   });
-  const maximum = graduationTargets[targetYear].targetCount;
-  const plannedThisYear = existing.filter((item) => item.planYear === targetYear).length;
+  const maximum = target.targetCount;
+  const plannedThisYear = graduationCountForYear(existing, targetYear);
   if (plannedThisYear >= maximum) return { graduations: existing, graduationTargets };
-  // Pending graduates are already excluded by getTheaterEligibleMembers, so subtracting
-  // them again would stop a safe 18-member roster before its sixth planned departure.
+  // The roster floor limits how many announcements can safely be made this year.
   const safeMaximum = Math.max(0, getTheaterEligibleMembers({ members }).length - BALANCE.theaterMinimumMembers);
-  if (safeMaximum === 0 || eligible.length === 0) return { graduations: existing, graduationTargets };
+  const pendingThisYear = existing.filter((item) => Number(item.announcementYear ?? item.planYear) === targetYear && !item.completed).length;
+  if ((target.cadence === 'legacy' ? safeMaximum === 0 : pendingThisYear >= safeMaximum) || eligible.length === 0) return { graduations: existing, graduationTargets };
   const currentMonth = Math.ceil(currentWeek / BALANCE.weeksPerMonth);
-  const remainingBudget = maximum - plannedThisYear;
-  const remainingMonths = 13 - currentMonth;
-  if (remainingMonths > remainingBudget && rng() >= remainingBudget / remainingMonths) return { graduations: existing, graduationTargets };
+  if (target.cadence !== 'legacy') {
+    const window = graduationWindowForMonth(target, currentMonth);
+    if (!window || graduationWindowHasAnnouncement(existing, targetYear, window)) return { graduations: existing, graduationTargets };
+    if (currentMonth < window.preferredMonth) return { graduations: existing, graduationTargets };
+  } else {
+    const remainingBudget = maximum - plannedThisYear;
+    const remainingMonths = 13 - currentMonth;
+    if (remainingMonths > remainingBudget && rng() >= remainingBudget / remainingMonths) return { graduations: existing, graduationTargets };
+  }
   const member = eligible.sort((first, second) => second.tenureWeeks - first.tenureWeeks || (second.member.weeksWithoutEvent ?? 0) - (first.member.weeksWithoutEvent ?? 0) || first.member.id.localeCompare(second.member.id))[0].member;
   const lead = randomInt(rng, config.minLead, config.maxLead);
   const departure = fromAbsoluteWeek(toAbsoluteWeek(targetYear, currentWeek) + lead);
   const plan = graduationAfterCommitments(state, { id: `graduation-${targetYear}-${currentMonth}-${member.id}`, memberId: member.id, memberName: member.nickname || member.name, planYear: targetYear, annualTarget: maximum, announcementYear: targetYear, announcementWeek: currentWeek, departureYear: departure.year, departureWeek: departure.week, announced: false, completed: false }, members);
-  graduationTargets[targetYear] = { ...graduationTargets[targetYear], scheduledCount: plannedThisYear + 1 };
+  graduationTargets[targetYear] = { ...target, scheduledCount: plannedThisYear + 1 };
   return { graduations: [...existing, plan], graduationTargets };
 }
 
@@ -2928,7 +3043,7 @@ export function endRun(state) {
 
 export function resolveWeek(state) {
   if (state.runStatus === 'ended') return state;
-  state = migrateEconomyState(migrateInjuryHistoryState(migrateGraduatedRosterState(state)));
+  state = migrateGraduationState(migrateEconomyState(migrateInjuryHistoryState(migrateGraduatedRosterState(state))));
   if (state.pendingYearEndSettlement) return state;
   const specialAssignmentConflicts = getStsLastShowAssignmentConflicts(state);
   if (specialAssignmentConflicts.length) {
