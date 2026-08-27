@@ -2180,14 +2180,68 @@ function createConcertSummary(rng, members, day, concert = null, state = null) {
     const swapIndex = randomInt(rng, 0, index);
     [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
   }
-  const songCount = randomInt(rng, 35, 40);
-  const songs = pool.slice(0, songCount).map((song, index) => {
+  const campaign = concert?.campaignId
+    ? [state?.campaign, ...(state?.campaignHistory ?? [])].find((entry) => entry?.id === concert.campaignId) ?? null
+    : null;
+  const campaignType = concert?.campaignType ?? campaign?.type ?? null;
+  const rankedCampaignConcert = Boolean(concert?.campaignReward && ['sousenkyo', 'request-hour', 'janken'].includes(campaignType));
+  let songCount = randomInt(rng, 35, 40);
+  let selectedSongs;
+  if (campaignType === 'request-hour' && rankedCampaignConcert) {
+    const topCount = Number(concert?.requestHourTopCount ?? campaign?.requestHourTopCount ?? campaign?.result?.requestHourTopCount ?? campaign?.result?.topCount) === 30 ? 30 : 40;
+    const standings = concert?.rankedSongs?.length ? concert.rankedSongs : campaign?.result?.standings ?? [];
+    const ranked = standings.slice(0, topCount).map((entry, index) => ({
+      songId: entry.songId,
+      title: entry.title ?? dreamSetlistSongs.find((song) => song.id === entry.songId)?.title ?? entry.songId,
+      votes: entry.votes ?? null,
+      rank: index + 1,
+    }));
+    const usedIds = new Set(ranked.map((song) => song.songId));
+    if (!ranked.length && (concert?.rewardSongId ?? campaign?.rewardSongId)) {
+      const songId = concert?.rewardSongId ?? campaign?.rewardSongId;
+      ranked.push({ songId, title: dreamSetlistSongs.find((song) => song.id === songId)?.title ?? songId, votes: null, rank: 1 });
+      usedIds.add(songId);
+    }
+    for (const song of pool) {
+      if (ranked.length >= topCount) break;
+      if (usedIds.has(song.id)) continue;
+      ranked.push({ songId: song.id, title: song.title, votes: null, rank: ranked.length + 1 });
+      usedIds.add(song.id);
+    }
+    songCount = ranked.length;
+    selectedSongs = ranked.sort((first, second) => second.rank - first.rank);
+  } else if (rankedCampaignConcert) {
+    const mainSongId = concert?.rewardSongId ?? campaign?.rewardSongId ?? campaign?.result?.rewardSongId;
+    const underGirlsSongId = campaignType === 'sousenkyo'
+      ? concert?.underGirlsSongId ?? campaign?.underGirlsSongId ?? campaign?.result?.underGirlsSongId
+      : null;
+    const pinned = [mainSongId, underGirlsSongId].filter((songId, index, ids) => songId && ids.indexOf(songId) === index).map((songId, index) => ({
+      songId,
+      title: dreamSetlistSongs.find((song) => song.id === songId)?.title ?? songId,
+      rank: index + 1,
+    }));
+    const usedIds = new Set(pinned.map((song) => song.songId));
+    const remaining = pool.filter((song) => !usedIds.has(song.id)).slice(0, Math.max(0, songCount - pinned.length)).map((song, index) => ({ songId: song.id, title: song.title, rank: pinned.length + index + 1 }));
+    selectedSongs = [...pinned, ...remaining].sort((first, second) => second.rank - first.rank);
+  } else {
+    selectedSongs = pool.slice(0, songCount).map((song) => ({ songId: song.id, title: song.title }));
+  }
+  const memberById = new Map(members.map((member) => [member.id, member]));
+  const performerNamesFor = (memberIds = []) => memberIds.map((memberId) => memberById.get(memberId)).filter(Boolean).map((member) => member.nickname || member.name);
+  const songs = selectedSongs.map((song, index) => {
+    const specialPerformerIds = campaignType === 'sousenkyo' && song.rank === 1
+      ? concert?.senbatsuMemberIds ?? campaign?.result?.senbatsu ?? []
+      : campaignType === 'sousenkyo' && song.rank === 2 && (concert?.underGirlsSongId ?? campaign?.underGirlsSongId ?? campaign?.result?.underGirlsSongId)
+        ? concert?.underGirlsMemberIds ?? campaign?.result?.undergirls ?? []
+        : [];
+    const specialPerformerNames = performerNamesFor(specialPerformerIds);
+    if (specialPerformerNames.length) return { ...song, performancePosition: index + 1, performerType: 'members', performerNames: specialPerformerNames };
     const memberFeature = index % 5 === 2 || index % 7 === 4;
-    if (!memberFeature) return { songId: song.id, title: song.title, performerType: 'team', performerNames: [] };
+    if (!memberFeature) return { ...song, performancePosition: index + 1, performerType: 'team', performerNames: [] };
     const performerCount = randomInt(rng, 1, Math.min(3, members.length));
     const start = randomInt(rng, 0, Math.max(0, members.length - 1));
     const performerNames = Array.from({ length: performerCount }, (_, offset) => members[(start + offset) % members.length].nickname || members[(start + offset) % members.length].name);
-    return { songId: song.id, title: song.title, performerType: 'members', performerNames };
+    return { ...song, performancePosition: index + 1, performerType: 'members', performerNames };
   });
   const occupancy = concert?.capacity ? concert.sold / concert.capacity : 0;
   const chemistryBonus = state ? (chemistryScore(state, members.map((member) => member.id), 'performance') - 50) * 0.08 : 0;
@@ -2202,7 +2256,7 @@ function createConcertSummary(rng, members, day, concert = null, state = null) {
   const popularityDelta = overall >= 85 ? 5 : overall >= 70 ? 3 : overall >= 55 ? 1 : -2;
   const fanTrustDelta = occupancy >= 0.85 && fanExpectation >= 65 ? 4 : occupancy < 0.45 || fanExpectation < 35 ? -6 : occupancy < 0.65 ? -2 : 1;
   const reputationDelta = overall >= 80 ? 3 : overall >= 65 ? 1 : overall < 50 ? -3 : 0;
-  return { title: concert?.title ?? 'Concert', day, songCount, songs, evaluation: { attendance: concert?.sold ?? members.length, capacity: concert?.capacity ?? members.length, occupancy: Math.round(occupancy * 1000) / 10, memberPerformance, productionQuality, setlistReception, fanExpectation, managementEfficiency, overall, popularityDelta, fanTrustDelta, reputationDelta, revenue: concert?.revenue ?? 0, profit: (concert?.revenue ?? 0) - (concert?.upfrontCost ?? 0) } };
+  return { title: concert?.title ?? 'Concert', day, songCount, songs, ranked: rankedCampaignConcert, performanceOrder: rankedCampaignConcert ? 'descending-rank' : 'setlist', campaignType, evaluation: { attendance: concert?.sold ?? members.length, capacity: concert?.capacity ?? members.length, occupancy: Math.round(occupancy * 1000) / 10, memberPerformance, productionQuality, setlistReception, fanExpectation, managementEfficiency, overall, popularityDelta, fanTrustDelta, reputationDelta, revenue: concert?.revenue ?? 0, profit: (concert?.revenue ?? 0) - (concert?.upfrontCost ?? 0) } };
 }
 
 function mvViewGain(single, group, viewWeek) {
@@ -2222,7 +2276,7 @@ function campaignRewardMemberIds(state, campaign, members, target) {
   const byId = new Set(eligible.map((member) => member.id));
   const result = campaign.result ?? {};
   if (campaign.type === 'sousenkyo') {
-    return [...new Set((result.senbatsu ?? []).filter((memberId) => byId.has(memberId)))].slice(0, 12);
+    return [...new Set([...(result.senbatsu ?? []), ...(result.undergirls ?? [])].filter((memberId) => byId.has(memberId)))].slice(0, 24);
   }
   if (campaign.type === 'request-hour') {
     const count = eligible.length >= 40 ? 40 : eligible.length >= 30 ? 30 : eligible.length;
@@ -2274,7 +2328,7 @@ function campaignRewardConcert({ state, campaign, members, concerts, yearEndMeet
   const capacity = venue.capacity;
   const projectedSold = Math.min(capacity, Math.round(demand * 0.9));
   const rewardConcertId = `campaign-concert-${campaign.id}`;
-  const concert = { id: rewardConcertId, title: `${campaign.type === 'sousenkyo' ? 'Sousenkyo' : campaign.type === 'request-hour' ? 'Request Hour' : 'Janken'} result concert`, eventType: 'campaign-reward', campaignId: campaign.id, campaignType: campaign.type, campaignReward: true, budgetId: budget.id, budgetName: budget.name, productionCost, venueId: venue.id, venueName: venue.name, venueCost, upfrontCost, grossVenueCost: costs.grossVenueCost, grossProductionCost: costs.grossProductionCost, productionCostRatio: costs.productionRatio, costYear: costs.costYear, annualCostRate: costs.yearRate, targetYear: target.year, targetMonth: Math.ceil(target.week / BALANCE.weeksPerMonth), targetWeek: target.week, day: target.day, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute: target.absolute - 2, salesWeeks: Math.max(1, target.absolute - toAbsoluteWeek(state.year, state.week) - 1), memberIds: performerIds, rewardSongId: campaign.rewardSongId };
+  const concert = { id: rewardConcertId, title: `${campaign.type === 'sousenkyo' ? 'Sousenkyo' : campaign.type === 'request-hour' ? 'Request Hour' : 'Janken'} result concert`, eventType: 'campaign-reward', campaignId: campaign.id, campaignType: campaign.type, campaignReward: true, budgetId: budget.id, budgetName: budget.name, productionCost, venueId: venue.id, venueName: venue.name, venueCost, upfrontCost, grossVenueCost: costs.grossVenueCost, grossProductionCost: costs.grossProductionCost, productionCostRatio: costs.productionRatio, costYear: costs.costYear, annualCostRate: costs.yearRate, targetYear: target.year, targetMonth: Math.ceil(target.week / BALANCE.weeksPerMonth), targetWeek: target.week, day: target.day, announcementYear: state.year, announcementWeek: state.week, status: 'selling', capacity, projectedDemand: demand, projectedSold, sold: 0, revenue: 0, ticketPrice: 450_000, saleCloseAbsolute: target.absolute - 2, salesWeeks: Math.max(1, target.absolute - toAbsoluteWeek(state.year, state.week) - 1), memberIds: performerIds, rewardSongId: campaign.rewardSongId, underGirlsSongId: campaign.underGirlsSongId ?? campaign.result?.underGirlsSongId ?? null, requestHourTopCount: campaign.type === 'request-hour' ? (Number(campaign.requestHourTopCount ?? campaign.result?.requestHourTopCount ?? campaign.result?.topCount) === 30 ? 30 : 40) : null, rankedSongs: campaign.type === 'request-hour' ? (campaign.result?.standings ?? []).map((entry) => ({ songId: entry.songId, title: entry.title, votes: entry.votes, rank: entry.rank })) : [], senbatsuMemberIds: campaign.result?.senbatsu ?? [], underGirlsMemberIds: campaign.result?.undergirls ?? [], winnerMemberId: campaign.result?.winnerMemberId ?? null };
   return { campaign: { ...campaign, status: 'concert-scheduled', rewardConcertId, rewardConcertStatus: 'scheduled', rewardConcertYear: target.year, rewardConcertWeek: target.week, rewardConcertMemberIds: performerIds, rewardConcertPerformerCount: performerIds.length }, concert, upfrontCost };
 }
 
@@ -3721,7 +3775,7 @@ export function resolveWeek(state) {
     completedMentorships,
     concertSummary,
     yearEndMeetGreetSummary,
-    campaign: campaignResult.campaign ? { id: campaignResult.campaign.id, type: campaignResult.campaign.type, status: campaignResult.campaign.status, held: campaignResult.campaign.held !== false, currentWeek: campaignResult.campaign.currentWeek ?? week, startWeek: campaignResult.campaign.startWeek, durationWeeks: campaignResult.campaign.durationWeeks, concertBudgetId: campaignResult.campaign.concertBudgetId, concertVenueId: campaignResult.campaign.concertVenueId, mvBudgetId: campaignResult.campaign.mvBudgetId, rewardConcertId: campaignResult.campaign.rewardConcertId ?? null, rewardConcertYear: campaignResult.campaign.rewardConcertYear ?? null, rewardConcertWeek: campaignResult.campaign.rewardConcertWeek ?? null, totalVotes: campaignResult.campaign.totalVotes ?? 0, votingRevenue: campaignResult.campaign.votingRevenue ?? 0, rewardSongId: campaignResult.campaign.rewardSongId ?? null, underGirlsSongId: campaignResult.campaign.underGirlsSongId ?? campaignResult.campaign.result?.underGirlsSongId ?? null, mvProjectId: campaignResult.campaign.mvProjectId ?? null, underGirlsMvProjectId: campaignResult.campaign.underGirlsMvProjectId ?? null, result: campaignResult.campaign.result ?? null } : null,
+    campaign: campaignResult.campaign ? { id: campaignResult.campaign.id, type: campaignResult.campaign.type, status: campaignResult.campaign.status, held: campaignResult.campaign.held !== false, currentWeek: campaignResult.campaign.currentWeek ?? week, startWeek: campaignResult.campaign.startWeek, durationWeeks: campaignResult.campaign.durationWeeks, concertBudgetId: campaignResult.campaign.concertBudgetId, concertVenueId: campaignResult.campaign.concertVenueId, mvBudgetId: campaignResult.campaign.mvBudgetId, requestHourTopCount: campaignResult.campaign.type === 'request-hour' ? (Number(campaignResult.campaign.requestHourTopCount ?? campaignResult.campaign.result?.requestHourTopCount ?? campaignResult.campaign.result?.topCount) === 30 ? 30 : 40) : null, rewardConcertId: campaignResult.campaign.rewardConcertId ?? null, rewardConcertYear: campaignResult.campaign.rewardConcertYear ?? null, rewardConcertWeek: campaignResult.campaign.rewardConcertWeek ?? null, totalVotes: campaignResult.campaign.totalVotes ?? 0, votingRevenue: campaignResult.campaign.votingRevenue ?? 0, rewardSongId: campaignResult.campaign.rewardSongId ?? null, underGirlsSongId: campaignResult.campaign.underGirlsSongId ?? campaignResult.campaign.result?.underGirlsSongId ?? null, mvProjectId: campaignResult.campaign.mvProjectId ?? null, underGirlsMvProjectId: campaignResult.campaign.underGirlsMvProjectId ?? null, result: campaignResult.campaign.result ?? null } : null,
     statistics: {
       before: { money: state.money, fanbase: state.group.fanbase, popularity: state.group.popularity, fanTrust: state.group.fanTrust, reputation: state.group.reputation },
       after: { money: nextMoney, fanbase: group.fanbase, popularity: group.popularity, fanTrust: group.fanTrust, reputation: group.reputation },

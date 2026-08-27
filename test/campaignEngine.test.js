@@ -138,6 +138,28 @@ test('Request Hour only uses canonical DreamSetlist songs', () => {
   assert.ok(result.result.standings.every((entry) => dreamSetlistSongs.some((song) => song.id === entry.songId)));
 });
 
+test('Request Hour persists Top 30 or Top 40 while every song remains in the ballot', () => {
+  const base = { seed: 'rh-top-selection', year: 2, week: 1, runStatus: 'active', members: members(16), group: { fanTrust: 55, reputation: 60, fanbase: 150_000 }, campaign: null, campaignHistory: [] };
+  const top30 = startCampaign(base, { type: 'request-hour', durationWeeks: 8, requestHourTopCount: 30 });
+  assert.equal(top30.campaign.requestHourTopCount, 30);
+  assert.equal(top30.campaign.participants.songIds.length, dreamSetlistSongs.length);
+  assert.equal(Object.keys(top30.campaign.participants.votes).length, dreamSetlistSongs.length);
+  const legacyCampaign = { ...top30.campaign };
+  delete legacyCampaign.requestHourTopCount;
+  const migrated = advanceCampaign({ ...top30, campaign: legacyCampaign }, { year: 2, week: 1, members: base.members, group: base.group, rng: createRng(hashSeed('rh-legacy-active')) });
+  assert.equal(migrated.campaign.requestHourTopCount, 40);
+
+  const votes = Object.fromEntries(dreamSetlistSongs.slice(0, 60).map((song, index) => [song.id, 60 - index]));
+  const resolved30 = resolveRequestHour({ requestHourTopCount: 30, participants: { votes } }, createRng(hashSeed('rh-top-30')));
+  const resolved40 = resolveRequestHour({ participants: { votes } }, createRng(hashSeed('rh-legacy-top-40')));
+  assert.equal(resolved30.result.topCount, 30);
+  assert.equal(resolved30.result.requestHourTopCount, 30);
+  assert.equal(resolved30.result.standings.length, 30);
+  assert.equal(resolved40.requestHourTopCount, 40);
+  assert.equal(resolved40.result.requestHourTopCount, 40);
+  assert.equal(resolved40.result.standings.length, 40);
+});
+
 test('Janken bracket uses byes and seeded RPS, independent of member stats', () => {
   const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
   const first = resolveJankenBracket(ids, 'janken-seed');

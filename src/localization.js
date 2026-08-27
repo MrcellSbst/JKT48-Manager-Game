@@ -483,6 +483,16 @@ Object.assign(ID, {
   'Preparing migration': 'Menyiapkan migrasi',
 });
 
+Object.assign(ID, {
+  'Request Hour ranking': 'Peringkat Request Hour',
+  'Top 30': 'Top 30',
+  'Top 40': 'Top 40',
+  'Janken winner': 'Pemenang Janken',
+  'Request Hour, Sousenkyo, and Janken reward concerts': 'Konser hadiah Request Hour, Sousenkyo, dan Janken',
+  'Request Hour accepts votes for all eligible songs. Choose Top 30 or Top 40 for the result concert; the lowest selected rank opens the concert and #1 closes it.': 'Request Hour menerima suara untuk semua lagu yang memenuhi syarat. Pilih Top 30 atau Top 40 untuk konser hasil; peringkat terendah yang dipilih membuka konser dan #1 menutupnya.',
+  'Sousenkyo #1 is the Senbatsu MV song; #2 is the Under Girls MV song when available. Janken #1 is the winner\'s MV reward song.': '#1 Sousenkyo adalah lagu MV Senbatsu; #2 adalah lagu MV Under Girls jika tersedia. #1 Janken adalah lagu hadiah MV pemenang.',
+});
+
 export const LOCALIZATION_ALLOWLIST = Object.freeze([
   'JKT48', 'JKT48V', 'MV', 'VC', 'M&G', 'Video Call', 'Meet & Greet',
   'Center', 'Trainee', 'Setlist', 'Senbatsu', 'Sousenkyo', 'Request Hour', 'Janken',

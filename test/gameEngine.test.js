@@ -1131,6 +1131,70 @@ test('campaign rewards run result concert before the configured MV budget', () =
   assert.ok(rewardMv.productionCost > 0);
 });
 
+test('Request Hour reward concert uses selected Top count and closes with rank one', () => {
+  const draft = createGame('request-hour-ranked-concert-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const votes = Object.fromEntries(dreamSetlistSongs.map((song, index) => [song.id, dreamSetlistSongs.length - index]));
+  const campaign = {
+    id: 'campaign-2-request-hour-ranked', type: 'request-hour', campaignYear: 2, status: 'locked', startWeek: 1, durationWeeks: 12, endWeek: 12, resultWeek: 13,
+    concertBudgetId: 'standard', concertVenueId: 'hall', concertDay: 'Sat', mvBudgetId: 'medium', requestHourTopCount: 30,
+    participants: { memberIds: base.members.map((member) => member.id), songIds: dreamSetlistSongs.map((song) => song.id), votes },
+    liveStandings: [], totalVotes: 0, votingRevenue: 0, result: null, rewardConcertId: null, rewardConcertStatus: null, mvProjectId: null, mvProductionWeeks: 0,
+  };
+  let game = { ...base, year: 2, week: 13, money: 2_000_000_000, campaign, nextCampaignConfig: null, dramaCooldown: 99, memberDramaCooldown: 99, managementDramaCooldown: 99 };
+  game = resolveWeek(game);
+  assert.equal(game.campaign.result.topCount, 30);
+  assert.equal(game.campaign.result.standings.length, 30);
+  const concertId = game.campaign.rewardConcertId;
+  assert.equal(game.concerts.find((concert) => concert.id === concertId).rankedSongs.length, 30);
+  for (let guard = 0; guard < 12 && game.concerts.find((concert) => concert.id === concertId)?.status !== 'completed'; guard += 1) game = resolveWeek(game);
+  const summary = game.concerts.find((concert) => concert.id === concertId)?.summary;
+  assert.equal(summary.songCount, 30);
+  assert.equal(summary.ranked, true);
+  assert.equal(summary.performanceOrder, 'descending-rank');
+  assert.equal(summary.songs[0].rank, 30);
+  assert.equal(summary.songs.at(-1).rank, 1);
+  assert.equal(summary.songs.at(-1).songId, game.campaign.rewardSongId);
+  assert.deepEqual(summary.songs.map((song) => song.performancePosition), Array.from({ length: 30 }, (_, index) => index + 1));
+});
+
+test('SSK and Janken reward concerts pin their MV songs to closing ranks', () => {
+  for (const type of ['sousenkyo', 'janken']) {
+    const draft = createGame(`ranked-${type}-concert-test`);
+    const foundingIds = draft.members.slice(0, 12).map((member) => member.id);
+    const base = finalizeGameSetup(draft, 'community', foundingIds);
+    const roster = type === 'sousenkyo' ? [...base.members, ...draft.members.slice(12, 24)] : base.members;
+    const participantIds = roster.map((member) => member.id);
+    const campaign = {
+      id: `campaign-2-${type}-ranked`, type, campaignYear: 2, status: 'locked', startWeek: 1, durationWeeks: 12, endWeek: 12, resultWeek: 13,
+      concertBudgetId: 'standard', concertVenueId: 'hall', concertDay: 'Sat', mvBudgetId: 'medium',
+      participants: { memberIds: participantIds, memberSnapshots: roster.map((member) => ({ memberId: member.id, name: member.name, nickname: member.nickname })), votes: Object.fromEntries(participantIds.map((memberId, index) => [memberId, index + 1])) },
+      liveStandings: [], totalVotes: 0, votingRevenue: 0, result: null, rewardConcertId: null, rewardConcertStatus: null, mvProjectId: null, mvProductionWeeks: 0,
+    };
+    let game = { ...base, members: roster, year: 2, week: 13, money: 2_000_000_000, campaign, nextCampaignConfig: null, dramaCooldown: 99, memberDramaCooldown: 99, managementDramaCooldown: 99 };
+    game = resolveWeek(game);
+    const concertId = game.campaign.rewardConcertId;
+    const scheduled = game.concerts.find((concert) => concert.id === concertId);
+    if (type === 'sousenkyo') {
+      assert.equal(scheduled.memberIds.length, 24);
+      assert.equal(scheduled.underGirlsMemberIds.length, 12);
+    } else {
+      assert.ok(game.campaign.result.winnerMemberId);
+      assert.equal(scheduled.winnerMemberId, game.campaign.result.winnerMemberId);
+    }
+    for (let guard = 0; guard < 12 && game.concerts.find((concert) => concert.id === concertId)?.status !== 'completed'; guard += 1) game = resolveWeek(game);
+    const summary = game.concerts.find((concert) => concert.id === concertId)?.summary;
+    assert.ok(summary.songCount >= 35 && summary.songCount <= 40);
+    assert.equal(summary.songs.at(-1).rank, 1);
+    assert.equal(summary.songs.at(-1).songId, game.campaign.rewardSongId);
+    if (type === 'sousenkyo') {
+      assert.equal(summary.songs.at(-2).rank, 2);
+      assert.equal(summary.songs.at(-2).songId, game.campaign.result.underGirlsSongId);
+      assert.equal(summary.songs.at(-2).performerNames.length, 12);
+    }
+  }
+});
+
 test('active major campaign blocks regular MV production in both directions', () => {
   const draft = createGame('major-campaign-mv-lock-test');
   const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));

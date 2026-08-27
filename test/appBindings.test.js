@@ -177,6 +177,17 @@ test('main campaign result exposes reward concert and MV metadata', async () => 
   assert.match(source, /single\.releasedYear/);
 });
 
+test('Request Hour ranking controls and campaign concert summaries expose ranked rewards', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /const \[requestHourTopCount, setRequestHourTopCount\] = useState\(40\)/);
+  assert.match(source, /nextType === 'request-hour' \? <label><span>\{text\('Result concert size', 'Ukuran konser hasil'\)\}/);
+  assert.match(source, /startMajorCampaign\(state, \{ durationWeeks, concertBudgetId, concertVenueId, mvBudgetId, concertDay, requestHourTopCount \}\)/);
+  assert.match(source, /const displaySongs = ranked \? \[\.\.\.summary\.songs\]\.sort/);
+  assert.match(source, /song\.rank \?\? index \+ 1/);
+  assert.match(source, /text\('Janken winner', 'Pemenang Janken'\)/);
+  assert.match(source, /memberSnapshots\?\.find/);
+});
+
 test('year-end event Review checks the full target month', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(Number\(requestedMgWeek\)\) \? Number\(requestedMgWeek\) : \(?mgWeeks\[0\] \?\? null\)?/);

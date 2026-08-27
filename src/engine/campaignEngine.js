@@ -14,6 +14,9 @@ export const CAMPAIGN_WEEKS_PER_YEAR = 48;
 export const CAMPAIGN_MV_PRODUCTION_WEEKS = 4;
 export const CAMPAIGN_DEFAULT_CONCERT_DAY = 'Sat';
 export const CAMPAIGN_TERMINAL_STATUSES = ['completed', 'cancelled', 'skipped'];
+export const REQUEST_HOUR_TOP_COUNTS = Object.freeze([30, 40]);
+
+export const normalizeRequestHourTopCount = (value) => Number(value) === 30 ? 30 : 40;
 
 export function isMajorCampaignActive(state = {}) {
   return Boolean(state.campaign && !CAMPAIGN_TERMINAL_STATUSES.includes(state.campaign.status));
@@ -101,24 +104,24 @@ function makeJankenBracketPreview(memberIds = []) {
   };
 }
 
-export function createCampaignConfig({ campaignYear, configuredInYear = campaignYear, firstCampaignYear = CAMPAIGN_FIRST_YEAR, type = campaignTypeForYear(campaignYear, firstCampaignYear), startWeek = 1, durationWeeks = 12, budget = 0, concertBudgetId = 'standard', concertVenueId = 'hall', mvBudgetId = 'medium', concertDay = CAMPAIGN_DEFAULT_CONCERT_DAY, held = true } = {}) {
+export function createCampaignConfig({ campaignYear, configuredInYear = campaignYear, firstCampaignYear = CAMPAIGN_FIRST_YEAR, type = campaignTypeForYear(campaignYear, firstCampaignYear), startWeek = 1, durationWeeks = 12, budget = 0, concertBudgetId = 'standard', concertVenueId = 'hall', mvBudgetId = 'medium', concertDay = CAMPAIGN_DEFAULT_CONCERT_DAY, requestHourTopCount = 40, held = true } = {}) {
   if (!type) return null;
   const duration = clampCampaignDuration(durationWeeks);
   const safeStartWeek = Math.max(1, Math.round(Number(startWeek) || 1));
   const startAbsoluteWeek = toCampaignAbsoluteWeek(campaignYear, safeStartWeek);
   const endCalendar = fromCampaignAbsoluteWeek(startAbsoluteWeek + duration - 1);
   const resultCalendar = fromCampaignAbsoluteWeek(startAbsoluteWeek + duration);
-  return { id: `campaign-${campaignYear}-${type}-${safeStartWeek}`, type, campaignYear, configuredInYear, startYear: campaignYear, startWeek: safeStartWeek, startAbsoluteWeek, durationWeeks: duration, endYear: endCalendar.year, endWeek: endCalendar.week, endAbsoluteWeek: startAbsoluteWeek + duration - 1, resultYear: resultCalendar.year, resultWeek: resultCalendar.week, resultAbsoluteWeek: startAbsoluteWeek + duration, budget: Math.max(0, Math.round(Number(budget) || 0)), concertBudgetId: validBudgetId(CONCERT_BUDGETS, concertBudgetId, 'standard'), concertVenueId: validBudgetId(CONCERT_VENUES, concertVenueId, 'hall'), mvBudgetId: validBudgetId(SINGLE_BUDGETS, mvBudgetId, 'medium'), concertDay: DAYS.includes(concertDay) ? concertDay : CAMPAIGN_DEFAULT_CONCERT_DAY, held: held !== false, configured: true };
+  return { id: `campaign-${campaignYear}-${type}-${safeStartWeek}`, type, campaignYear, configuredInYear, startYear: campaignYear, startWeek: safeStartWeek, startAbsoluteWeek, durationWeeks: duration, endYear: endCalendar.year, endWeek: endCalendar.week, endAbsoluteWeek: startAbsoluteWeek + duration - 1, resultYear: resultCalendar.year, resultWeek: resultCalendar.week, resultAbsoluteWeek: startAbsoluteWeek + duration, budget: Math.max(0, Math.round(Number(budget) || 0)), concertBudgetId: validBudgetId(CONCERT_BUDGETS, concertBudgetId, 'standard'), concertVenueId: validBudgetId(CONCERT_VENUES, concertVenueId, 'hall'), mvBudgetId: validBudgetId(SINGLE_BUDGETS, mvBudgetId, 'medium'), concertDay: DAYS.includes(concertDay) ? concertDay : CAMPAIGN_DEFAULT_CONCERT_DAY, requestHourTopCount: type === 'request-hour' ? normalizeRequestHourTopCount(requestHourTopCount) : null, held: held !== false, configured: true };
 }
 
-export function configureNextCampaign(state, { startWeek = 1, durationWeeks = 12, budget = 0, type, concertBudgetId, concertVenueId, mvBudgetId, concertDay, held } = {}) {
+export function configureNextCampaign(state, { startWeek = 1, durationWeeks = 12, budget = 0, type, concertBudgetId, concertVenueId, mvBudgetId, concertDay, requestHourTopCount, held } = {}) {
   const firstCampaignYear = state.firstCampaignYear ?? CAMPAIGN_FIRST_YEAR;
   const campaignYear = Math.max(firstCampaignYear, (state.year ?? 1) + 1);
   const expectedType = nextCampaignType(state);
   const campaignType = type ?? expectedType;
   if (!campaignType || campaignType !== expectedType) return state;
   const previous = state.nextCampaignConfig?.campaignYear === campaignYear ? state.nextCampaignConfig : {};
-  return { ...state, nextCampaignConfig: createCampaignConfig({ campaignYear, configuredInYear: state.year, firstCampaignYear, type: campaignType, startWeek, durationWeeks, budget, concertBudgetId: concertBudgetId ?? previous.concertBudgetId ?? 'standard', concertVenueId: concertVenueId ?? previous.concertVenueId ?? 'hall', mvBudgetId: mvBudgetId ?? previous.mvBudgetId ?? 'medium', concertDay: concertDay ?? previous.concertDay ?? CAMPAIGN_DEFAULT_CONCERT_DAY, held: held ?? previous.held ?? true }) };
+  return { ...state, nextCampaignConfig: createCampaignConfig({ campaignYear, configuredInYear: state.year, firstCampaignYear, type: campaignType, startWeek, durationWeeks, budget, concertBudgetId: concertBudgetId ?? previous.concertBudgetId ?? 'standard', concertVenueId: concertVenueId ?? previous.concertVenueId ?? 'hall', mvBudgetId: mvBudgetId ?? previous.mvBudgetId ?? 'medium', concertDay: concertDay ?? previous.concertDay ?? CAMPAIGN_DEFAULT_CONCERT_DAY, requestHourTopCount: requestHourTopCount ?? previous.requestHourTopCount ?? 40, held: held ?? previous.held ?? true }) };
 }
 
 export function nextCampaignType(state = {}) {
@@ -127,10 +130,10 @@ export function nextCampaignType(state = {}) {
   return CAMPAIGN_ROTATION[(CAMPAIGN_ROTATION.indexOf(lastType) + 1) % CAMPAIGN_ROTATION.length];
 }
 
-export function startCampaign(state, { members = state.members ?? [], type = nextCampaignType(state), startWeek = state.week, durationWeeks = 12, budget = 0, concertBudgetId = 'standard', concertVenueId = 'hall', mvBudgetId = 'medium', concertDay = CAMPAIGN_DEFAULT_CONCERT_DAY } = {}) {
+export function startCampaign(state, { members = state.members ?? [], type = nextCampaignType(state), startWeek = state.week, durationWeeks = 12, budget = 0, concertBudgetId = 'standard', concertVenueId = 'hall', mvBudgetId = 'medium', concertDay = CAMPAIGN_DEFAULT_CONCERT_DAY, requestHourTopCount = 40 } = {}) {
   const firstCampaignYear = state.firstCampaignYear ?? CAMPAIGN_FIRST_YEAR;
   if (state.year < firstCampaignYear || !CAMPAIGN_ROTATION.includes(type) || getMajorCampaignStartBlockReason(state)) return state;
-  const config = createCampaignConfig({ campaignYear: state.year, configuredInYear: state.year, type, startWeek: Math.max(state.week, startWeek), durationWeeks, budget, concertBudgetId, concertVenueId, mvBudgetId, concertDay, held: true });
+  const config = createCampaignConfig({ campaignYear: state.year, configuredInYear: state.year, type, startWeek: Math.max(state.week, startWeek), durationWeeks, budget, concertBudgetId, concertVenueId, mvBudgetId, concertDay, requestHourTopCount, held: true });
   const rng = createRng(hashSeed(`${state.seed}:campaign:${state.year}:${state.week}:${type}:${(state.campaignHistory ?? []).length}`));
   const campaign = initializeCampaign(config, members, rng);
   return { ...state, campaign, nextCampaignConfig: null, lastCampaignType: type, history: [{ id: `${campaign.id}-start`, type: 'campaign', campaignType: type, title: `${type} campaign scheduled`, detail: `Management chose to hold ${type} beginning in Year ${state.year}, Week ${state.week}.`, year: state.year, week: state.week }, ...(state.history ?? [])], notifications: [{ type: 'success', text: `${type} campaign scheduled.`, }, ...(state.notifications ?? [])].slice(0, 20) };
@@ -148,7 +151,7 @@ function initializeCampaign(config, members, rng) {
     id: config.id, type: config.type, campaignYear: config.campaignYear, configuredInYear: config.configuredInYear, held: config.held !== false,
     status: 'configured', currentYear: config.startYear, currentWeek: config.startWeek, progressWeeks: 0, startYear: config.startYear, startWeek: config.startWeek, startAbsoluteWeek: config.startAbsoluteWeek, durationWeeks: config.durationWeeks, endYear: config.endYear, endWeek: config.endWeek, endAbsoluteWeek: config.endAbsoluteWeek, resultYear: config.resultYear, resultWeek: config.resultWeek, resultAbsoluteWeek: config.resultAbsoluteWeek,
     budget: config.budget, spent: 0, totalVotes: 0, votingRevenue: 0, weeklyVoteHistory: [], participants, liveStandings: [], result: null,
-    concertBudgetId: config.concertBudgetId, concertVenueId: config.concertVenueId, concertDay: config.concertDay, mvBudgetId: config.mvBudgetId, rewardConcertId: null, rewardConcertStatus: null, rewardConcertYear: null, rewardConcertWeek: null, rewardConcertMemberIds: [], rewardConcertPerformerCount: 0, rewardConcertCompletedWeek: null, rewardSongId: null, underGirlsSongId: null, mvProjectId: null, underGirlsMvProjectId: null, mvProductionWeeks: 0, mvProductionDurationWeeks: CAMPAIGN_MV_PRODUCTION_WEEKS, bracket: config.type === 'janken' ? makeJankenBracketPreview(participants.memberIds) : null, lifecycle: [{ status: 'configured', year: config.campaignYear, week: config.startWeek }], history: [],
+    concertBudgetId: config.concertBudgetId, concertVenueId: config.concertVenueId, concertDay: config.concertDay, mvBudgetId: config.mvBudgetId, requestHourTopCount: config.type === 'request-hour' ? normalizeRequestHourTopCount(config.requestHourTopCount) : null, rewardConcertId: null, rewardConcertStatus: null, rewardConcertYear: null, rewardConcertWeek: null, rewardConcertMemberIds: [], rewardConcertPerformerCount: 0, rewardConcertCompletedWeek: null, rewardSongId: null, underGirlsSongId: null, mvProjectId: null, underGirlsMvProjectId: null, mvProductionWeeks: 0, mvProductionDurationWeeks: CAMPAIGN_MV_PRODUCTION_WEEKS, bracket: config.type === 'janken' ? makeJankenBracketPreview(participants.memberIds) : null, lifecycle: [{ status: 'configured', year: config.campaignYear, week: config.startWeek }], history: [],
   };
   return campaign;
 }
@@ -238,6 +241,9 @@ export function advanceCampaign(state, { year = state.year, week = state.week, m
   let revenue = 0;
   let perVote = 0;
   if (!campaign) return { campaign, nextCampaignConfig, campaignHistory: state.campaignHistory ?? [], revenue, perVote, events };
+  if (campaign.type === 'request-hour' && !REQUEST_HOUR_TOP_COUNTS.includes(Number(campaign.requestHourTopCount))) {
+    campaign = { ...campaign, requestHourTopCount: 40 };
+  }
   const currentAbsoluteWeek = toCampaignAbsoluteWeek(year, week);
   const startAbsoluteWeek = campaign.startAbsoluteWeek ?? toCampaignAbsoluteWeek(campaign.campaignYear, campaign.startWeek);
   const endAbsoluteWeek = campaign.endAbsoluteWeek ?? toCampaignAbsoluteWeek(campaign.campaignYear, campaign.endWeek);
