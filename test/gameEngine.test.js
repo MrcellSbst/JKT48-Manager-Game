@@ -756,6 +756,25 @@ test('injury history migration backfills one active legacy incident and stays id
   assert.deepEqual(migrateInjuryHistoryState(migrated), migrated);
 });
 
+test('injury migration clears completed graduates and legacy regenerated candidates', () => {
+  const draft = createGame('legacy-regenerated-injury-clear-test');
+  const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const member = game.members[0];
+  const incident = { id: `injury-${member.identityId}-1-1`, memberId: member.id, identityId: member.identityId, severity: 'minor', label: 'Minor', startYear: 1, startWeek: 1, originalWeeks: 1, workload: 8, assignments: [], status: 'recovered', recoveredYear: 1, recoveredWeek: 2 };
+  const returnedCandidate = { ...game.unsignedMembers[0], id: `${game.unsignedMembers[0].identityId}-return-1`, incarnation: 1, injuryHistory: [incident] };
+  const legacy = {
+    ...game,
+    unsignedMembers: [returnedCandidate, ...game.unsignedMembers.slice(1)],
+    graduations: [{ id: 'legacy-completed-graduation', memberId: member.id, completed: true, memberSnapshot: { ...member, status: 'graduated', injuryHistory: [incident] } }],
+  };
+  const migrated = migrateInjuryHistoryState(legacy);
+  assert.deepEqual(migrated.unsignedMembers[0].injuryHistory, []);
+  assert.equal(migrated.unsignedMembers[0].injury, null);
+  assert.deepEqual(migrated.graduations[0].memberSnapshot.injuryHistory, []);
+  assert.equal(migrated.graduations[0].memberSnapshot.injury, null);
+  assert.deepEqual(migrateInjuryHistoryState(migrated), migrated);
+});
+
 test('resolved injuries record full workload, activities, onset, and recovery once', () => {
   let injuredGame = null;
   let injuredMemberId = null;
@@ -784,7 +803,7 @@ test('resolved injuries record full workload, activities, onset, and recovery on
   assert.deepEqual(migrateInjuryHistoryState(recoveredGame), recoveredGame);
 });
 
-test('injury history survives release and pool return for the same identity', () => {
+test('regenerated members return to the audition pool with cleared injury history', () => {
   let game = createGame('injury-release-history-test');
   const member = game.members[0];
   const activeIncident = { id: `injury-${member.identityId}-1-1`, memberId: member.id, identityId: member.identityId, severity: 'minor', label: 'Minor', startYear: 1, startWeek: 1, originalWeeks: 1, workload: 8, assignments: [], status: 'active', recoveredYear: null, recoveredWeek: null };
@@ -795,9 +814,8 @@ test('injury history survives release and pool return for the same identity', ()
   const poolMember = returned.unsignedMembers.find((item) => item.identityId === member.identityId);
   assert.ok(poolMember);
   assert.equal(poolMember.injury, null);
-  assert.equal(poolMember.injuryHistory.length, 1);
-  assert.equal(poolMember.injuryHistory[0].status, 'recovered');
-  assert.equal(returned.history.filter((event) => event.id === `${activeIncident.id}-recovery`).length, 1);
+  assert.deepEqual(poolMember.injuryHistory, []);
+  assert.equal(returned.history.filter((event) => event.id === `${activeIncident.id}-recovery`).length, 0);
 });
 
 test('weekly result exposes an income and expense breakdown matching net cash', () => {
@@ -901,6 +919,32 @@ test('different members can have Seitansai shows in the same week', () => {
   assert.equal(secondShow.theaterShows.Mon.seitansaiMemberId, first.id);
   assert.equal(secondShow.theaterShows.Tue.seitansaiMemberId, second.id);
   assert.deepEqual(getStsLastShowAssignmentConflicts(secondShow), []);
+});
+
+test('Seitansai and Last Show cannot share the same theater day', () => {
+  const game = createGame('same-day-special-show-guard-test');
+  const [birthdayMember, graduate] = game.members;
+  const seitansai = configureTheaterSpecialFlags(game, 'Sat', { isSeitansai: true, seitansaiMemberId: birthdayMember.id });
+  assert.equal(configureTheaterSpecialFlags(seitansai, 'Sat', { isLastShow: true, lastShowMemberId: graduate.id }), seitansai);
+
+  const lastShow = configureTheaterSpecialFlags(game, 'Sat', { isLastShow: true, lastShowMemberId: graduate.id });
+  assert.equal(configureTheaterSpecialFlags(lastShow, 'Sat', { isSeitansai: true, seitansaiMemberId: birthdayMember.id }), lastShow);
+
+  const corrupted = {
+    ...game,
+    theaterShows: {
+      Sat: {
+        isSeitansai: true,
+        seitansaiMemberId: birthdayMember.id,
+        isLastShow: true,
+        lastShowMemberId: graduate.id,
+      },
+    },
+  };
+  assert.equal(getStsLastShowAssignmentConflicts(corrupted)[0]?.type, 'same-day-special-show');
+  const blocked = resolveWeek(corrupted);
+  assert.equal(blocked.week, game.week);
+  assert.match(blocked.notifications[0].text, /cannot be scheduled on the same theater day/);
 });
 
 test('resolveWeek blocks corrupted duplicate STS / Last Show assignments', () => {
@@ -2275,8 +2319,9 @@ test('graduation preparation charges once and applies final-event and successor 
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const graduate = game.members[0];
   const successor = game.members[1];
+  const injuryIncident = { id: `injury-${graduate.identityId}-1-1`, memberId: graduate.id, identityId: graduate.identityId, severity: 'minor', label: 'Minor', startYear: 1, startWeek: 1, originalWeeks: 1, workload: 8, assignments: [], status: 'recovered', recoveredYear: 1, recoveredWeek: 2 };
   const graduation = { id: 'graduation-test', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: false };
-  const staged = { ...game, year: 2, week: 1, graduations: [graduation] };
+  const staged = { ...game, year: 2, week: 1, members: game.members.map((member) => member.id === graduate.id ? { ...member, injuryHistory: [injuryIncident] } : member), graduations: [graduation] };
   const prepared = prepareGraduation(staged, graduation.id, { finalShow: true, specialSegment: true, merchandise: true, successorId: successor.id });
   assert.equal(prepared.money, staged.money - 28_000_000);
   assert.equal(prepared.graduations[0].preparation.successorId, successor.id);
@@ -2289,6 +2334,8 @@ test('graduation preparation charges once and applies final-event and successor 
   assert.equal(resolved.members.some((member) => member.id === graduate.id), false);
   assert.equal(completed.memberSnapshot.id, graduate.id);
   assert.equal(completed.memberSnapshot.status, 'graduated');
+  assert.equal(completed.memberSnapshot.injury, null);
+  assert.deepEqual(completed.memberSnapshot.injuryHistory, []);
   assert.equal(completed.outcome.fanGain, 1_650);
   assert.equal(completed.outcome.merchandiseRevenue, 18_000_000);
   assert.equal(promotedSuccessor.performance, successor.performance + 2);
@@ -2686,13 +2733,14 @@ test('graduated member returns to the audition pool after exactly two years with
   const draft = createGame('graduation-pool-return-test');
   const game = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
   const graduate = game.members[0];
+  const injuryIncident = { id: `injury-${graduate.identityId}-1-1`, memberId: graduate.id, identityId: graduate.identityId, severity: 'minor', label: 'Minor', startYear: 1, startWeek: 1, originalWeeks: 1, workload: 8, assignments: [], status: 'recovered', recoveredYear: 1, recoveredWeek: 2 };
   const rosterSupport = { ...game.unsignedMembers[0], status: 'active' };
   const graduation = { id: 'graduation-pool-return', memberId: graduate.id, memberName: graduate.nickname || graduate.name, departureYear: 2, departureWeek: 1, announced: true, completed: true };
   const staged = {
     ...game,
     year: 3,
     week: 47,
-    members: [{ ...graduate, status: 'graduated', canPerformTheater: false }, ...game.members.slice(1), rosterSupport],
+    members: [{ ...graduate, status: 'graduated', canPerformTheater: false, injuryHistory: [injuryIncident] }, ...game.members.slice(1), rosterSupport],
     unsignedMembers: game.unsignedMembers.slice(1),
     graduations: [graduation],
     dramaCooldown: 999,
@@ -2700,6 +2748,8 @@ test('graduated member returns to the audition pool after exactly two years with
   const oneWeekEarly = resolveWeek(staged);
   assert.equal(oneWeekEarly.members.some((member) => member.id === graduate.id), false);
   assert.equal(oneWeekEarly.graduations[0].memberSnapshot.id, graduate.id);
+  assert.equal(oneWeekEarly.graduations[0].memberSnapshot.injury, null);
+  assert.deepEqual(oneWeekEarly.graduations[0].memberSnapshot.injuryHistory, []);
   assert.equal(oneWeekEarly.graduations[0].returnedToPool, undefined);
   const yearEnd = resolveWeek(oneWeekEarly);
   const returned = completeYearEndSettlement(settleAnnualTax(yearEnd), 'keep');
@@ -2707,6 +2757,8 @@ test('graduated member returns to the audition pool after exactly two years with
   assert.equal(returned.year, 4);
   assert.equal(returned.week, 1);
   assert.ok(recycled);
+  assert.equal(recycled.injury, null);
+  assert.deepEqual(recycled.injuryHistory, []);
   assert.notEqual(recycled.id, graduate.id);
   assert.equal(returned.members.some((member) => member.id === graduate.id), false);
   assert.equal(returned.graduations[0].returnedToPool, true);

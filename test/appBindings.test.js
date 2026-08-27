@@ -127,7 +127,8 @@ test('Seitansai defaults to an unassigned birthday member for each theater day',
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   assert.match(source, /getAvailableStsLastShowMembers\(game/);
   assert.match(source, /availableBirthdayMembers\[0\]\?\.id/);
-  assert.match(source, /disabled=\{!isSeitansai && !seitansaiMemberId\}/);
+  assert.match(source, /disabled=\{isLastShow \|\| \(!isSeitansai && !seitansaiMemberId\)\}/);
+  assert.match(source, /checked=\{isLastShow\} disabled=\{isSeitansai\}/);
 });
 
 test('Wiki documents every run-ending threshold and counter reset', async () => {

@@ -643,8 +643,8 @@ function makePoolCandidate(member, poolSize, qualityBonus = 0) {
     status: 'trainee',
     energy: 100,
     suspensionWeeks: 0,
-    injury: member.injury ?? null,
-    injuryHistory: member.injuryHistory ?? [],
+    injury: null,
+    injuryHistory: [],
     weeksWithoutEvent: 0,
     graduationPending: false,
     traineeWeeks: 0,
@@ -657,16 +657,13 @@ function makePoolCandidate(member, poolSize, qualityBonus = 0) {
   };
 }
 
+const clearMemberInjuryHistory = (member) => member ? { ...member, injury: null, injuryHistory: [] } : member;
+
 function recycleMemberForPool(member, state, graduation) {
   const identityId = member.identityId ?? member.id;
   const incarnation = (member.incarnation ?? 0) + 1;
   const rng = createRng(hashSeed(`${state.seed}:salt:${state.runSalt ?? 'legacy'}:pool-return:${graduation.id}:${incarnation}`));
   const archetype = ARCHETYPES[randomInt(rng, 0, ARCHETYPES.length - 1)];
-  const injuryHistory = (member.injuryHistory ?? []).map((incident) => {
-    if (incident.status !== 'active') return incident;
-    const recoveredAt = fromAbsoluteWeek(toAbsoluteWeek(incident.startYear, incident.startWeek) + Math.max(1, incident.originalWeeks ?? 1));
-    return { ...incident, status: 'recovered', recoveredYear: recoveredAt.year, recoveredWeek: recoveredAt.week };
-  });
   return {
     id: `${identityId}-return-${incarnation}`,
     identityId,
@@ -701,7 +698,7 @@ function recycleMemberForPool(member, state, graduation) {
     canPerformTheater: true,
     suspensionWeeks: 0,
     injury: null,
-    injuryHistory,
+    injuryHistory: [],
     weeksWithoutEvent: 0,
     salary: member.salary,
     // A returning graduate is the same person, so the birthday carries over even though every
@@ -1137,14 +1134,6 @@ function injuryTimelineEvent(incident, memberName, status) {
     };
 }
 
-function appendMissingInjuryRecoveryEvents(member, history) {
-  const memberName = member.nickname || member.name;
-  (member.injuryHistory ?? []).filter((incident) => incident.status === 'recovered').forEach((incident) => {
-    const event = injuryTimelineEvent(incident, memberName, 'recovered');
-    if (!history.some((item) => item.id === event.id)) history.unshift(event);
-  });
-}
-
 function migrateMemberInjuryHistory(member, state) {
   if (!member) return { member, backfilledIncident: null };
   const injuryHistory = Array.isArray(member.injuryHistory) ? member.injuryHistory.map((incident) => ({
@@ -1207,10 +1196,20 @@ export function migrateInjuryHistoryState(state) {
     if (migrated.backfilledIncident) backfilled.push({ incident: migrated.backfilledIncident, memberName: member.nickname || member.name });
     return migrated.member;
   };
-  const members = (state.members ?? []).map(migrateMember);
-  const unsignedMembers = (state.unsignedMembers ?? []).map(migrateMember);
+  const members = (state.members ?? []).map((member) => member.status === 'graduated' ? clearMemberInjuryHistory(member) : migrateMember(member));
+  const unsignedMembers = (state.unsignedMembers ?? []).map((member) => (member.incarnation ?? 0) > 0 || /-return-\d+$/.test(member.id ?? '')
+    ? clearMemberInjuryHistory(member)
+    : migrateMember(member));
   const departures = (state.departures ?? []).map((departure) => departure.member ? { ...departure, member: migrateMember(departure.member) } : departure);
-  const graduations = (state.graduations ?? []).map((graduation) => graduation.memberSnapshot ? { ...graduation, memberSnapshot: migrateMember(graduation.memberSnapshot) } : graduation);
+  const graduations = (state.graduations ?? []).map((graduation) => {
+    if (!graduation.memberSnapshot) return graduation;
+    return {
+      ...graduation,
+      memberSnapshot: graduation.completed
+        ? clearMemberInjuryHistory(graduation.memberSnapshot)
+        : migrateMember(graduation.memberSnapshot),
+    };
+  });
   const history = [...(state.history ?? [])];
   const historyIds = new Set(history.map((event) => event.id));
   const migrationEvents = backfilled.map(({ incident, memberName }) => injuryTimelineEvent(incident, memberName, 'onset')).filter((event) => !historyIds.has(event.id));
@@ -1615,15 +1614,26 @@ const specialShowAssignmentEntries = (state, { excludeDay = null, excludeKey = n
   }));
 
 export function getStsLastShowAssignmentConflicts(state) {
+  const sameDayConflicts = Object.entries(state.theaterShows ?? {})
+    .filter(([, show]) => show?.isSeitansai && show?.isLastShow)
+    .map(([day, show]) => ({
+      type: 'same-day-special-show',
+      day,
+      assignments: [
+        { day, assignmentKey: 'seitansaiMemberId', memberId: show.seitansaiMemberId },
+        { day, assignmentKey: 'lastShowMemberId', memberId: show.lastShowMemberId },
+      ],
+    }));
   const assignmentsByMember = new Map();
   specialShowAssignmentEntries(state).forEach((assignment) => {
     const current = assignmentsByMember.get(assignment.memberId) ?? [];
     current.push(assignment);
     assignmentsByMember.set(assignment.memberId, current);
   });
-  return [...assignmentsByMember.entries()]
+  const duplicateMemberConflicts = [...assignmentsByMember.entries()]
     .filter(([, assignments]) => assignments.length > 1)
-    .map(([memberId, assignments]) => ({ memberId, assignments }));
+    .map(([memberId, assignments]) => ({ type: 'duplicate-member', memberId, assignments }));
+  return [...sameDayConflicts, ...duplicateMemberConflicts];
 }
 
 export function getAvailableStsLastShowMembers(state, { day, assignmentKey, eligibleMembers = [] } = {}) {
@@ -3101,9 +3111,15 @@ export function resolveWeek(state) {
   if (state.pendingYearEndSettlement) return state;
   const specialAssignmentConflicts = getStsLastShowAssignmentConflicts(state);
   if (specialAssignmentConflicts.length) {
+    const hasSameDayConflict = specialAssignmentConflicts.some((conflict) => conflict.type === 'same-day-special-show');
     return {
       ...state,
-      notifications: [{ type: 'critical', text: 'STS / Last Show assignments must be unique. Resolve duplicate member selections before confirming the week.' }, ...(state.notifications ?? [])].slice(0, 20),
+      notifications: [{
+        type: 'critical',
+        text: hasSameDayConflict
+          ? 'Seitansai and Last Show cannot be scheduled on the same theater day.'
+          : 'STS / Last Show assignments must be unique. Resolve duplicate member selections before confirming the week.',
+      }, ...(state.notifications ?? [])].slice(0, 20),
     };
   }
   const rng = createRng(hashSeed(`${state.seed}:${state.rngStep}`));
@@ -3415,9 +3431,9 @@ export function resolveWeek(state) {
       notifications.push({ type: 'critical', text: `${graduation.memberName} has graduated.` });
       history.unshift({ id: `${graduation.id}-departure`, type: 'member', title: `${graduation.memberName} graduates`, detail: preparation.finalShow ? `The final show closes the member's active career with ${appliedGraduationFans.toLocaleString()} fan growth.` : 'The member leaves the active theater roster.', year, week: state.week });
       const graduatingMember = members.find((member) => member.id === graduation.memberId);
-      const memberSnapshot = graduatingMember
+      const memberSnapshot = clearMemberInjuryHistory(graduatingMember
         ? { ...graduatingMember, status: 'graduated', theaterEligible: false, canPerformTheater: false, graduationPending: false }
-        : graduation.memberSnapshot;
+        : graduation.memberSnapshot);
       if (memberSnapshot) dismissedGraduates.push(memberSnapshot);
       members = members
         .filter((member) => member.id !== graduation.memberId)
@@ -3431,7 +3447,6 @@ export function resolveWeek(state) {
   let departures = (state.departures ?? []).map((departure) => {
     if (departure.status !== 'fired' || currentAbsolute + 1 < departure.returnAbsolute) return departure;
     const recycled = recycleMemberForPool(departure.member, state, departure);
-    appendMissingInjuryRecoveryEvents(recycled, history);
     if (!(unsignedMembers ?? []).some((candidate) => (candidate.identityId ?? candidate.id) === recycled.identityId)) unsignedMembers.push(recycled);
     notifications.push({ type: 'success', text: `${departure.member.nickname || departure.member.name} returns to the audition pool after release.` });
     history.unshift({ id: `${departure.id}-pool-return`, type: 'member', title: `${departure.member.nickname || departure.member.name} returns to the talent pool`, detail: 'Two years after release, the member can be recruited again with newly generated stats.', year, week: state.week });
@@ -3445,7 +3460,6 @@ export function resolveWeek(state) {
     const graduatedMember = graduation.memberSnapshot ?? members.find((member) => member.id === graduation.memberId && member.status === 'graduated');
     if (!graduatedMember) return { ...graduation, returnedToPool: true, poolReturnYear: poolCalendar.year, poolReturnWeek: poolCalendar.week };
     const recycled = recycleMemberForPool(graduatedMember, state, graduation);
-    appendMissingInjuryRecoveryEvents(recycled, history);
     const identityAlreadyAvailable = unsignedMembers.some((member) => (member.identityId ?? member.id) === recycled.identityId);
     members = members.filter((member) => member.id !== graduatedMember.id);
     if (!identityAlreadyAvailable) unsignedMembers.push(recycled);
