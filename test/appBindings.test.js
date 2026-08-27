@@ -240,3 +240,12 @@ test('starting a new year persists locally before its dedicated cloud checkpoint
   assert.match(block, /if \(startedNewYear && user\)[\s\S]*await pushSave\('new-year'\)/);
   assert.match(block, /New year saved locally, but cloud sync failed/);
 });
+
+test('graduation countdown uses a valid middle-dot separator', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('function GraduationCountdown');
+  const block = source.slice(start, source.indexOf('\n}', start));
+  assert.ok(start >= 0);
+  assert.match(block, /\}\s·\s\{t\(calendarLabel/);
+  assert.doesNotMatch(block, /Â|Ã/);
+});
