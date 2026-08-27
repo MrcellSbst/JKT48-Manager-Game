@@ -1086,8 +1086,8 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   const [mgDay, setMgDay] = useState('Sat');
   const [requestedAnniversaryWeek, setAnniversaryWeek] = useState(anniversaryWeeks[0] ?? 48);
   const [anniversaryDay, setAnniversaryDay] = useState('Sat');
-  const [anniversaryBudget, setAnniversaryBudget] = useState('standard');
-  const [anniversaryVenue, setAnniversaryVenue] = useState(venues[0]?.id ?? 'hall');
+  const [requestedAnniversaryBudget, setRequestedAnniversaryBudget] = useState('standard');
+  const [requestedAnniversaryVenue, setRequestedAnniversaryVenue] = useState(venues[0]?.id ?? 'hall');
   const [anniversaryTitle, setAnniversaryTitle] = useState('');
   const [mgTitle, setMgTitle] = useState('');
   const [confirm, setConfirm] = useState(null);
@@ -1095,20 +1095,33 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   // A controlled select whose saved value is no longer in its options renders
   // the first option while React keeps the stale value. Use the visible week
   // for conflict checks, confirmation copy, and the eventual engine action.
-  const selectedMgWeek = mgWeeks.includes(requestedMgWeek) ? requestedMgWeek : (mgWeeks[0] ?? null);
-  const selectedAnniversaryWeek = anniversaryWeeks.includes(requestedAnniversaryWeek) ? requestedAnniversaryWeek : (anniversaryWeeks[0] ?? null);
+  const selectedMgWeek = mgWeeks.includes(Number(requestedMgWeek)) ? Number(requestedMgWeek) : (mgWeeks[0] ?? null);
+  const selectedAnniversaryWeek = anniversaryWeeks.includes(Number(requestedAnniversaryWeek)) ? Number(requestedAnniversaryWeek) : (anniversaryWeeks[0] ?? null);
   const mgWeek = selectedMgWeek;
   const anniversaryWeek = selectedAnniversaryWeek;
+  // Keep controlled select values canonical. The Indonesian localization
+  // observer rewrites option labels after render; it must never be able to
+  // make the confirmation action use a stale or display-only value.
+  const anniversaryBudget = CONCERT_BUDGETS.some((budget) => budget.id === requestedAnniversaryBudget)
+    ? requestedAnniversaryBudget
+    : (CONCERT_BUDGETS[0]?.id ?? '');
+  const anniversaryVenue = venues.some((venue) => venue.id === requestedAnniversaryVenue)
+    ? requestedAnniversaryVenue
+    : (venues[0]?.id ?? '');
+  const setAnniversaryBudget = setRequestedAnniversaryBudget;
+  const setAnniversaryVenue = setRequestedAnniversaryVenue;
+  const selectedAnniversaryBudgetId = anniversaryBudget;
+  const selectedAnniversaryVenueId = anniversaryVenue;
   const selectedAnniversaryBudget = CONCERT_BUDGETS.find((budget) => budget.id === anniversaryBudget) ?? CONCERT_BUDGETS[0];
   const selectedAnniversaryVenue = venues.find((venue) => venue.id === anniversaryVenue) ?? venues[0];
   const anniversaryCost = getConcertCostBreakdown(game, selectedAnniversaryBudget, selectedAnniversaryVenue);
   const anniversaryUpfrontCost = anniversaryCost.upfrontCost;
   useEffect(() => {
-    if (!venues.some((venue) => venue.id === anniversaryVenue)) setAnniversaryVenue(venues[0]?.id ?? '');
-  }, [anniversaryVenue, venues]);
+    if (!venues.some((venue) => venue.id === requestedAnniversaryVenue)) setAnniversaryVenue(venues[0]?.id ?? '');
+  }, [requestedAnniversaryVenue, venues]);
   useEffect(() => {
-    if (!CONCERT_BUDGETS.some((budget) => budget.id === anniversaryBudget)) setAnniversaryBudget(CONCERT_BUDGETS[0].id);
-  }, [anniversaryBudget]);
+    if (!CONCERT_BUDGETS.some((budget) => budget.id === requestedAnniversaryBudget)) setAnniversaryBudget(CONCERT_BUDGETS[0].id);
+  }, [requestedAnniversaryBudget]);
   // Keep the booking preview in lockstep with the engine.  A campaign may be
   // announced several weeks ahead, so checking today's injury/suspension state
   // here can disagree with the target-date validation used when booking.
@@ -1144,7 +1157,7 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
     if (!mgWeeks.includes(requestedMgWeek) && mgWeeks.length) setMgWeek(mgWeeks[0]);
   }, [game.year, game.week]);
   useEffect(() => {
-    if (!anniversaryWeeks.includes(requestedAnniversaryWeek) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]);
+    if (!anniversaryWeeks.includes(Number(requestedAnniversaryWeek)) && anniversaryWeeks.length) setAnniversaryWeek(anniversaryWeeks[0]);
   }, [game.year, game.week]);
   if (!mgWeeks.length && !anniversaryWeeks.length && !mgExisting && !anniversaryExisting) return null;
   const commitAnnualEvent = (action, failureText, failureCode, succeeded) => {
@@ -1195,7 +1208,7 @@ function FixedAnnualEvents({ game, setGame, language = 'en' }) {
   const scheduleAnniversary = () => {
     if (!selectedAnniversaryWeek || anniversaryConflicts.length) return;
     commitAnnualEvent(
-      (current) => announceAnniversaryConcert(current, selectedAnniversaryWeek, anniversaryDay, anniversaryTitle, selectedAnniversaryBudget.id, selectedAnniversaryVenue?.id ?? anniversaryVenue, ['Tue', 'Thu']),
+      (current) => announceAnniversaryConcert(current, selectedAnniversaryWeek, anniversaryDay, anniversaryTitle.trim(), selectedAnniversaryBudgetId, selectedAnniversaryVenueId, ['Tue', 'Thu']),
       ANNIVERSARY_CONCERT_FAILURE,
       ANNIVERSARY_CONCERT_FAILURE_CODE,
       (next, current) => (next.concerts ?? []).length > (current.concerts ?? []).length,

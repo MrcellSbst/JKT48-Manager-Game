@@ -1707,6 +1707,14 @@ test('annual booking rejects malformed target dates without mutating state', () 
   assert.equal(announceAnniversaryConcert(game, 45, 'Sat', 'Invalid', 'standard', game.concertVenueOffers[0].id, null), game);
 });
 
+test('anniversary booking normalizes select week values before confirmation', () => {
+  const draft = createGame('anniversary-select-value-test');
+  const game = finalizeGameSetup({ ...draft, week: 43 }, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const booked = announceAnniversaryConcert(game, '45', 'Sat', 'December Anniversary', 'standard', game.concertVenueOffers[0].id, ['Tue', 'Thu']);
+  assert.equal(booked.concerts[0].eventType, 'anniversary');
+  assert.equal(booked.concerts[0].targetWeek, 45);
+});
+
 test('successful anniversary booking clears stale concert block warnings', () => {
   const draft = createGame('anniversary-stale-warning-test');
   const game = finalizeGameSetup({ ...draft, week: 43, notifications: [{ type: 'critical', code: 'campaign-blocked', campaignType: 'concert', text: 'Campaign blocked: stale conflict.' }] }, 'community', draft.members.slice(0, 16).map((member) => member.id));

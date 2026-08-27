@@ -179,8 +179,8 @@ test('main campaign result exposes reward concert and MV metadata', async () => 
 
 test('year-end event Review checks the full target month', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(requestedMgWeek\) \? requestedMgWeek : \(?mgWeeks\[0\] \?\? null\)?/);
-  assert.match(source, /const selectedAnniversaryWeek = anniversaryWeeks\.includes\(requestedAnniversaryWeek\) \? requestedAnniversaryWeek : \(?anniversaryWeeks\[0\] \?\? null\)?/);
+  assert.match(source, /const selectedMgWeek = mgWeeks\.includes\(Number\(requestedMgWeek\)\) \? Number\(requestedMgWeek\) : \(?mgWeeks\[0\] \?\? null\)?/);
+  assert.match(source, /const selectedAnniversaryWeek = anniversaryWeeks\.includes\(Number\(requestedAnniversaryWeek\)\) \? Number\(requestedAnniversaryWeek\) : \(?anniversaryWeeks\[0\] \?\? null\)?/);
   assert.match(source, /const mgWeek = selectedMgWeek/);
   assert.match(source, /const anniversaryWeek = selectedAnniversaryWeek/);
   assert.match(source, /week: selectedMgWeek,\s*type: 'yearEndMeetGreet',\s*day: mgDay,\s*monthScope: true/);
@@ -188,8 +188,10 @@ test('year-end event Review checks the full target month', async () => {
   assert.match(source, /scheduleYearEndMeetGreet\(current, selectedMgWeek, mgDay, current\.week(?:, \{\}, mgTitle)?\)/);
   assert.match(source, /announceAnniversaryConcert\(current, selectedAnniversaryWeek, anniversaryDay/);
   assert.match(source, /memberCanPerformOnCampaignDate\(game, member, activityId, game\.year, targetWeek\)/);
-  assert.match(source, /if \(!venues\.some\(\(venue\) => venue\.id === anniversaryVenue\)\) setAnniversaryVenue\(venues\[0\]\?\.id \?\? ''\)/);
-  assert.match(source, /selectedAnniversaryVenue\?\.id \?\? anniversaryVenue/);
+  assert.match(source, /const anniversaryBudget = CONCERT_BUDGETS\.some\(\(budget\) => budget\.id === requestedAnniversaryBudget\)/);
+  assert.match(source, /const anniversaryVenue = venues\.some\(\(venue\) => venue\.id === requestedAnniversaryVenue\)/);
+  assert.match(source, /if \(!venues\.some\(\(venue\) => venue\.id === requestedAnniversaryVenue\)\) setAnniversaryVenue\(venues\[0\]\?\.id \?\? ''\)/);
+  assert.match(source, /announceAnniversaryConcert\(current, selectedAnniversaryWeek, anniversaryDay, anniversaryTitle\.trim\(\), selectedAnniversaryBudgetId, selectedAnniversaryVenueId/);
 });
 
 test('setup rebuilds preserve difficulty and per-run stat salt', async () => {

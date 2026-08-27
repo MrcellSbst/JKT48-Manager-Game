@@ -2082,8 +2082,12 @@ export function scheduleYearEndMeetGreet(state, targetWeek, day, salesStartWeek,
 }
 
 export function announceAnniversaryConcert(state, targetWeek, concertDay, requestedTitle = '', budgetId = 'standard', venueId = null, rehearsalDays = ['Tue', 'Thu']) {
-  if (state.runStatus === 'ended' || !Number.isInteger(targetWeek) || !DAYS.includes(concertDay) || !Array.isArray(rehearsalDays) || state.week < 25 || targetWeek < 45 || targetWeek > 48 || targetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
-  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: targetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true, allowQ4: true });
+  // Select controls expose their values as strings in some browsers. Normalize
+  // the week at the engine boundary so Indonesian/localized option labels can
+  // never turn a valid anniversary booking into a silent no-op.
+  const normalizedTargetWeek = Number(targetWeek);
+  if (state.runStatus === 'ended' || !Number.isInteger(normalizedTargetWeek) || !DAYS.includes(concertDay) || !Array.isArray(rehearsalDays) || state.week < 25 || normalizedTargetWeek < 45 || normalizedTargetWeek > 48 || normalizedTargetWeek - state.week < 2 || rehearsalDays.some((day) => !DAYS.includes(day) || day === concertDay) || new Set(rehearsalDays).size !== rehearsalDays.length) return state;
+  const conflictReasons = getCampaignConflictReasons(state, { year: state.year, week: normalizedTargetWeek, type: 'concert', days: [concertDay, ...rehearsalDays], monthScope: true, allowQ4: true });
   if (conflictReasons.length) return conflictNotification(state, conflictReasons, 'concert');
   if (state.concerts.some((concert) => concert.eventType === 'anniversary' && concert.targetYear === state.year)) return state;
   // Saved UI selections can outlive a refreshed venue-offer list. Keep the
@@ -2091,15 +2095,15 @@ export function announceAnniversaryConcert(state, targetWeek, concertDay, reques
   // instead of passing a stale ID into announceConcert.
   const chosenVenue = concertVenueFor(state, venueId) ?? state.concertVenueOffers?.[0] ?? CONCERT_VENUES[0];
   const chosenBudget = concertBudgetFor(budgetId) ?? CONCERT_BUDGETS.find((budget) => budget.id === 'standard') ?? CONCERT_BUDGETS[0];
-  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, chosenBudget.id, chosenVenue.id, targetWeek, { allowQ4: true, eventType: 'anniversary' });
+  const announced = announceConcert(state, concertDay, state.year, 12, requestedTitle || `JKT48 Anniversary ${state.year}`, chosenBudget.id, chosenVenue.id, normalizedTargetWeek, { allowQ4: true, eventType: 'anniversary' });
   if (announced === state) return state;
   const createdId = announced.concerts.at(-1).id;
-  const targetAbsolute = toAbsoluteWeek(state.year, targetWeek);
+  const targetAbsolute = toAbsoluteWeek(state.year, normalizedTargetWeek);
   const currentAbsolute = toAbsoluteWeek(state.year, state.week);
   return {
     ...announced,
     concerts: announced.concerts.map((concert) => concert.id === createdId
-      ? { ...concert, eventType: 'anniversary', targetWeek, targetMonth: 12, rehearsalDays, saleCloseAbsolute: targetAbsolute - 2, salesWeeks: targetAbsolute - currentAbsolute - 1 }
+      ? { ...concert, eventType: 'anniversary', targetWeek: normalizedTargetWeek, targetMonth: 12, rehearsalDays, saleCloseAbsolute: targetAbsolute - 2, salesWeeks: targetAbsolute - currentAbsolute - 1 }
       : concert),
     // A previous stale confirmation can leave a concert block notice behind.
     // Once booking succeeds, that notice is no longer true and must not be
