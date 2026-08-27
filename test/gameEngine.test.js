@@ -2833,6 +2833,12 @@ test('missing the annual fan target applies review penalties without ending the 
   const next = completeYearEndSettlement(settleAnnualTax(pending), 'keep');
   assert.equal(next.runStatus, 'active');
   assert.equal(next.year, 2);
+  assert.equal(next.fanTarget.year, 2);
+  assert.equal(next.fanTarget.targetFanbase, target.targetFanbase);
+  assert.equal(next.fanTarget.carriedForward, true);
+  assert.equal(next.fanTarget.carriedFromYear, 1);
+  assert.equal(next.fanTargetHistory.at(-1).nextTargetFanbase, target.targetFanbase);
+  assert.equal(next.fanTargetHistory.at(-1).targetCarriedForward, true);
   assert.equal(next.fanTargetHistory.at(-1).id, 'majorFailure');
   // Major-failure trust loss combines with the normal month-end cash-pressure penalty from payroll.
   assert.equal(next.group.fanTrust, base.group.fanTrust - 9);
@@ -2852,8 +2858,42 @@ test('overperforming creates the next target from the previous target, not actua
   assert.equal(next.fanTarget.year, 2);
   assert.equal(next.fanTarget.baseTarget, 100_000);
   assert.equal(next.fanTarget.targetFanbase, 220_000);
+  assert.equal(next.fanTarget.carriedForward, undefined);
+  assert.equal(next.fanTargetHistory.at(-1).targetCarriedForward, false);
   assert.equal(next.fanTargetHistory.at(-1).id, 'exceptional');
   assert.equal(next.fanTargetMetaReward, 2);
+});
+
+test('a carried fan target grows only after it is eventually achieved', () => {
+  const draft = createGame('carried-fan-target-success-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const yearFiveTarget = { formulaVersion: 2, year: 5, baseTarget: 500_000, startingFanbase: 600_000, requiredGain: 400_000, targetFanbase: 1_000_000 };
+  const yearFivePending = resolveWeek({ ...base, year: 5, week: BALANCE.weeksPerYear, group: { ...base.group, fanbase: 900_000 }, fanTarget: yearFiveTarget });
+  const yearSix = completeYearEndSettlement(settleAnnualTax(yearFivePending), 'keep');
+  assert.equal(yearSix.fanTarget.targetFanbase, 1_000_000);
+  assert.equal(yearSix.fanTarget.carriedFromYear, 5);
+  const reloadedYearSix = normalizeGameState(yearSix);
+  assert.deepEqual(reloadedYearSix.fanTarget, yearSix.fanTarget);
+
+  const yearSixPending = resolveWeek({ ...reloadedYearSix, week: BALANCE.weeksPerYear, group: { ...reloadedYearSix.group, fanbase: 1_000_000 } });
+  const yearSeven = completeYearEndSettlement(settleAnnualTax(yearSixPending), 'keep');
+  assert.equal(yearSeven.year, 7);
+  assert.equal(yearSeven.fanTarget.baseTarget, 1_000_000);
+  assert.equal(yearSeven.fanTarget.targetFanbase, calculateNextFanTarget(1_000_000, 7));
+  assert.equal(yearSeven.fanTarget.carriedForward, undefined);
+});
+
+test('repeated fan-target misses keep the same target', () => {
+  const draft = createGame('repeated-fan-target-miss-test');
+  const base = finalizeGameSetup(draft, 'community', draft.members.slice(0, 12).map((member) => member.id));
+  const yearFiveTarget = { formulaVersion: 2, year: 5, baseTarget: 500_000, startingFanbase: 600_000, requiredGain: 400_000, targetFanbase: 1_000_000 };
+  const yearFivePending = resolveWeek({ ...base, year: 5, week: BALANCE.weeksPerYear, group: { ...base.group, fanbase: 800_000 }, fanTarget: yearFiveTarget });
+  const yearSix = completeYearEndSettlement(settleAnnualTax(yearFivePending), 'keep');
+  const yearSixPending = resolveWeek({ ...yearSix, week: BALANCE.weeksPerYear, group: { ...yearSix.group, fanbase: 900_000 } });
+  const yearSeven = completeYearEndSettlement(settleAnnualTax(yearSixPending), 'keep');
+  assert.equal(yearSeven.fanTarget.targetFanbase, 1_000_000);
+  assert.equal(yearSeven.fanTarget.carriedForward, true);
+  assert.equal(yearSeven.fanTarget.carriedFromYear, 5);
 });
 
 test('fan soft-cap bands and resistance follow the configured boundaries', () => {

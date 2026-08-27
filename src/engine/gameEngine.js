@@ -1379,10 +1379,23 @@ export function calculateNextFanTarget(lastFanTarget, year) {
   return Math.round(lastFanTarget * (1 + (fixedGrowthPercent + runningGrowthPercent + bonusPercent) / 100));
 }
 
-export function createAnnualFanTarget(year, lastFanTarget = FAN_BALANCE.startingFanTarget, startingFanbase = FAN_BALANCE.startingFans) {
+export function createAnnualFanTarget(year, lastFanTarget = FAN_BALANCE.startingFanTarget, startingFanbase = FAN_BALANCE.startingFans, { carryForward = false, carriedFromYear = null } = {}) {
   const baseTarget = year === 1 ? FAN_BALANCE.startingFanTarget : lastFanTarget;
-  const targetFanbase = year === 1 ? FAN_BALANCE.startingFanTarget : calculateNextFanTarget(baseTarget, year);
-  return { formulaVersion: 2, year, baseTarget, startingFanbase, requiredGain: Math.max(0, targetFanbase - startingFanbase), targetFanbase };
+  const isCarriedForward = year > 1 && carryForward;
+  const targetFanbase = year === 1
+    ? FAN_BALANCE.startingFanTarget
+    : isCarriedForward
+      ? baseTarget
+      : calculateNextFanTarget(baseTarget, year);
+  return {
+    formulaVersion: 2,
+    year,
+    baseTarget,
+    startingFanbase,
+    requiredGain: Math.max(0, targetFanbase - startingFanbase),
+    targetFanbase,
+    ...(isCarriedForward ? { carriedForward: true, carriedFromYear: carriedFromYear ?? year - 1 } : {}),
+  };
 }
 
 export function createFanTargetForYear(year, startingFanbase = FAN_BALANCE.startingFans) {
@@ -3813,8 +3826,21 @@ export function resolveWeek(state) {
   const weeklyReports = [...(state.weeklyReports ?? []), lastResult];
   const nextConcertVenueOffers = year !== state.year ? generateConcertVenueOffers(state.seed, year, hasBonus(state, 'B007') ? bonusValue(state, 'B007') : 0) : state.concertVenueOffers;
   const chemistry = ensureChemistry(state, members);
-  const fanTargetHistory = state.week === BALANCE.weeksPerYear ? [...(state.fanTargetHistory ?? []), { ...currentFanTarget, actualFanbase: group.fanbase, ...protectedAnnualFanPerformance }] : (state.fanTargetHistory ?? []);
-  const fanTarget = state.week === BALANCE.weeksPerYear ? createAnnualFanTarget(year, currentFanTarget.targetFanbase, group.fanbase) : currentFanTarget;
+  const fanTarget = state.week === BALANCE.weeksPerYear
+    ? createAnnualFanTarget(year, currentFanTarget.targetFanbase, group.fanbase, {
+      carryForward: annualFanPerformance.ratio < 1,
+      carriedFromYear: currentFanTarget.carriedFromYear ?? currentFanTarget.year,
+    })
+    : currentFanTarget;
+  const fanTargetHistory = state.week === BALANCE.weeksPerYear
+    ? [...(state.fanTargetHistory ?? []), {
+      ...currentFanTarget,
+      actualFanbase: group.fanbase,
+      ...protectedAnnualFanPerformance,
+      nextTargetFanbase: fanTarget.targetFanbase,
+      targetCarriedForward: Boolean(fanTarget.carriedForward),
+    }]
+    : (state.fanTargetHistory ?? []);
   const fanTargetMetaReward = (state.fanTargetMetaReward ?? 0) + (annualFanPerformance?.metaReward ?? 0);
   if (annualFanPerformance) {
     history.unshift({ id: `fan-target-${state.year}`, type: 'year', title: `Year ${state.year} fan target: ${annualFanPerformance.label}`, detail: `${group.fanbase.toLocaleString()} fans against a ${currentFanTarget.targetFanbase.toLocaleString()} target (${annualFanPerformance.achievementPercent}%). Next target: ${fanTarget.targetFanbase.toLocaleString()}.`, year: state.year, week: state.week });
