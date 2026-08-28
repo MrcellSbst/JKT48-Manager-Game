@@ -8,20 +8,24 @@ const COPY = {
     label: 'New game update',
     heading: 'Update available',
     published: 'Published',
-    refreshHint: 'Refresh the game to load this update on your device.',
+    refreshHint: 'Your run will be saved locally and to cloud before this update reloads the game.',
+    refreshHintLocal: 'Your run will be saved locally before this update reloads the game.',
     later: 'Later',
     refresh: 'Refresh now',
     refreshing: 'Refreshing…',
+    refreshFailed: 'Refresh stopped because the latest save could not be confirmed. Try again.',
     close: 'Close update notice',
   },
   id: {
     label: 'Pembaruan game baru',
     heading: 'Pembaruan tersedia',
     published: 'Diterbitkan',
-    refreshHint: 'Muat ulang game untuk memasang pembaruan ini di perangkat Anda.',
+    refreshHint: 'Permainan akan disimpan secara lokal dan ke cloud sebelum pembaruan memuat ulang game.',
+    refreshHintLocal: 'Permainan akan disimpan secara lokal sebelum pembaruan memuat ulang game.',
     later: 'Nanti',
     refresh: 'Muat ulang sekarang',
     refreshing: 'Memuat ulang…',
+    refreshFailed: 'Muat ulang dihentikan karena penyimpanan terbaru belum dapat dikonfirmasi. Coba lagi.',
     close: 'Tutup pemberitahuan pembaruan',
   },
 };
@@ -50,9 +54,10 @@ function formatPublishedAt(value, language) {
   return `${formatted} · UTC+7`;
 }
 
-export default function PatchnoteNotice({ language = 'en', canShow = true }) {
+export default function PatchnoteNotice({ language = 'en', canShow = true, cloudEnabled = false, onBeforeRefresh }) {
   const [patchnote, setPatchnote] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
   const dialogRef = useRef(null);
   const refreshRef = useRef(null);
   const refreshingRef = useRef(false);
@@ -107,7 +112,15 @@ export default function PatchnoteNotice({ language = 'en', canShow = true }) {
     if (refreshing) return;
     refreshingRef.current = true;
     setRefreshing(true);
-    await hardRefreshPage();
+    setRefreshError('');
+    try {
+      await hardRefreshPage({ beforeRefresh: onBeforeRefresh });
+    } catch (error) {
+      console.error(error);
+      refreshingRef.current = false;
+      setRefreshing(false);
+      setRefreshError(copy.refreshFailed);
+    }
   };
 
   return createPortal(<div className="patchnote-notice-backdrop" role="presentation" onMouseDown={(event) => {
@@ -124,7 +137,8 @@ export default function PatchnoteNotice({ language = 'en', canShow = true }) {
         {publishedAt ? <span>{copy.published} {publishedAt}</span> : null}
       </div>
       <div id="patchnote-notice-content" className="patchnote-notice-content">{body}</div>
-      <p id="patchnote-refresh-hint" className="patchnote-refresh-hint">{copy.refreshHint}</p>
+      <p id="patchnote-refresh-hint" className="patchnote-refresh-hint">{cloudEnabled ? copy.refreshHint : copy.refreshHintLocal}</p>
+      {refreshError ? <p className="save-error visible" role="alert">{refreshError}</p> : null}
       <footer>
         <button type="button" className="secondary-button" disabled={refreshing} onClick={() => setPatchnote(null)}>{copy.later}</button>
         <button ref={refreshRef} type="button" className="setup-primary" disabled={refreshing} onClick={refresh}><RefreshCw aria-hidden="true" className={refreshing ? 'spinning' : ''} size={17} /> {refreshing ? copy.refreshing : copy.refresh}</button>

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { clearLocalDatabase, getLegacyRecoveryData, getLocalSnapshot, getV2RecoveryData, hasLegacySaves, migrateLocalSaves, replaceLocalSnapshot, verifyLocalSaves } from '../state/saveDb.js';
 import { canonicalJson, decodeSnapshot, encodeSnapshot } from '../state/saveFormat.js';
+import { compareSaveFreshness } from '../state/saveFreshness.js';
 import { normalizeSnapshot } from '../state/gameStateMigration.js';
 import { simpleDecrypt } from '../utils/crypto.js';
 
@@ -39,6 +40,7 @@ export function AuthProvider({ children }) {
   const migrationRetryRef = useRef(null);
   const recoveryDataRef = useRef(null);
   const migratedSectionsRef = useRef(new Set());
+  const cloudUploadQueueRef = useRef(Promise.resolve());
 
   const setProgress = useCallback((phase, message) => setSyncState((current) => ({ ...current, phase, message, error: '' })), []);
   const setFailure = useCallback((error) => setSyncState((current) => ({ ...current, phase: 'error', message: '', error: error.message || 'Cloud operation failed. Check your connection and retry.' })), []);
@@ -159,14 +161,18 @@ export function AuthProvider({ children }) {
     return runMigration(migrate, { recoveryData: legacyData, onRetryComplete });
   }, [runMigration]);
 
-  const uploadLocalSnapshot = useCallback(async () => {
-    const snapshot = normalizeSnapshot(await getLocalSnapshot());
-    const encoded = await encodeSnapshot(snapshot);
-    const body = { format: 2, manifest: encoded.manifest, sections: encoded.sections };
-    if (cloudRevisionRef.current !== null) body.expectedRevision = cloudRevisionRef.current;
-    const result = await request('/api/save/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    cloudRevisionRef.current = Number(result.revision ?? cloudRevisionRef.current ?? 1);
-    return result;
+  const uploadLocalSnapshot = useCallback(() => {
+    const upload = cloudUploadQueueRef.current.catch(() => {}).then(async () => {
+      const snapshot = normalizeSnapshot(await getLocalSnapshot());
+      const encoded = await encodeSnapshot(snapshot);
+      const body = { format: 2, manifest: encoded.manifest, sections: encoded.sections };
+      if (cloudRevisionRef.current !== null) body.expectedRevision = cloudRevisionRef.current;
+      const result = await request('/api/save/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      cloudRevisionRef.current = Number(result.revision ?? cloudRevisionRef.current ?? 1);
+      return result;
+    });
+    cloudUploadQueueRef.current = upload;
+    return upload;
   }, []);
 
   useEffect(() => {
@@ -216,13 +222,23 @@ export function AuthProvider({ children }) {
         const local = await getLocalSnapshot();
         setProgress('loading', 'Loading cloud save…');
         const cloud = await fetchCloudSnapshot({ onRetryComplete: async (loaded) => {
-          if (!local.activeRun && loaded?.snapshot) await replaceLocalSnapshot(loaded.snapshot);
+          const currentLocal = await getLocalSnapshot();
+          const freshness = compareSaveFreshness(currentLocal, loaded?.snapshot);
+          if (freshness === 'cloud') await replaceLocalSnapshot(loaded.snapshot);
+          else if (freshness === 'local') await uploadLocalSnapshot();
           setStorageRevision((revision) => revision + 1);
         } });
         let cloudUpdatedAt = cloud?.updatedAt ?? null;
-        if (cloud && !local.activeRun) {
-          await replaceLocalSnapshot(cloud.snapshot);
-          if (!cancelled) setStorageRevision((revision) => revision + 1);
+        if (cloud) {
+          const freshness = compareSaveFreshness(local, cloud.snapshot);
+          if (freshness === 'cloud') {
+            await replaceLocalSnapshot(cloud.snapshot);
+            if (!cancelled) setStorageRevision((revision) => revision + 1);
+          } else if (freshness === 'local') {
+            setProgress('saving', 'Uploading newer browser save...');
+            const uploaded = await uploadLocalSnapshot();
+            cloudUpdatedAt = uploaded.updated_at ?? cloudUpdatedAt;
+          }
         } else if (!cloud) {
           setProgress('saving', 'No cloud save found. Uploading local save…');
           const uploaded = await uploadLocalSnapshot();
@@ -244,13 +260,32 @@ export function AuthProvider({ children }) {
     try {
       const session = await request('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
       setUser({ username: session.username, user_id: session.user_id });
+      const local = await getLocalSnapshot();
       setProgress('loading', 'Loading cloud save…');
       const installCloud = async (cloud) => { if (cloud?.snapshot) await replaceLocalSnapshot(cloud.snapshot); setStorageRevision((revision) => revision + 1); };
-      const cloud = await fetchCloudSnapshot({ onRetryComplete: installCloud });
+      const installNewest = async (loaded) => {
+        const currentLocal = await getLocalSnapshot();
+        const freshness = compareSaveFreshness(currentLocal, loaded?.snapshot);
+        if (freshness === 'cloud') await installCloud(loaded);
+        else if (freshness === 'local') await uploadLocalSnapshot();
+      };
+      const cloud = await fetchCloudSnapshot({ onRetryComplete: installNewest });
       let updatedAt = null;
-      if (cloud) { await installCloud(cloud); updatedAt = cloud.updatedAt; }
+      let loadedCloud = false;
+      if (cloud) {
+        const freshness = compareSaveFreshness(local, cloud.snapshot);
+        if (freshness === 'cloud') {
+          await installCloud(cloud);
+          loadedCloud = true;
+        } else if (freshness === 'local') {
+          setProgress('saving', 'Uploading newer browser save...');
+          const uploaded = await uploadLocalSnapshot();
+          updatedAt = uploaded.updated_at ?? cloud.updatedAt;
+        }
+        if (!updatedAt) updatedAt = cloud.updatedAt;
+      }
       else { setProgress('saving', 'No cloud save found. Uploading local save…'); const uploaded = await uploadLocalSnapshot(); updatedAt = uploaded.updated_at ?? null; }
-      setSyncState({ phase: 'success', message: cloud ? 'Cloud save loaded.' : 'Local save uploaded.', error: '', updatedAt });
+      setSyncState({ phase: 'success', message: loadedCloud ? 'Cloud save loaded.' : 'Latest browser save confirmed in cloud.', error: '', updatedAt });
       return session;
     } catch (error) { setFailure(error); throw error; }
   }, [fetchCloudSnapshot, setFailure, setProgress, uploadLocalSnapshot]);
@@ -270,7 +305,7 @@ export function AuthProvider({ children }) {
 
   const pushSave = useCallback(async (reason = 'manual') => {
     if (!user) return { skipped: true };
-    const messages = reason === 'month' ? ['Saving monthly checkpoint to cloud…', 'Monthly cloud checkpoint saved.'] : reason === 'new-year' ? ['Saving new-year checkpoint to cloud…', 'New-year cloud checkpoint saved.'] : ['Saving run to cloud…', 'Cloud save complete.'];
+    const messages = reason === 'week' ? ['Saving weekly checkpoint to cloud…', 'Weekly cloud checkpoint saved.'] : reason === 'new-year' ? ['Saving new-year checkpoint to cloud…', 'New-year cloud checkpoint saved.'] : reason === 'refresh' ? ['Saving before refresh…', 'Refresh save confirmed.'] : ['Saving run to cloud…', 'Cloud save complete.'];
     setProgress('saving', messages[0]);
     try { const result = await uploadLocalSnapshot(); setSyncState({ phase: 'success', message: messages[1], error: '', updatedAt: result.updated_at ?? null }); return result; }
     catch (error) { setFailure(error); throw error; }

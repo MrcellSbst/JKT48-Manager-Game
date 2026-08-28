@@ -82,10 +82,12 @@ export function rememberPatchnote(patchnote, storage = null) {
 }
 
 export async function hardRefreshPage({
+  beforeRefresh,
   navigatorObject = globalThis.navigator,
   cachesObject = globalThis.caches,
   locationObject = globalThis.location,
 } = {}) {
+  await beforeRefresh?.();
   try {
     if (navigatorObject && 'serviceWorker' in navigatorObject) {
       const registrations = await navigatorObject.serviceWorker.getRegistrations();

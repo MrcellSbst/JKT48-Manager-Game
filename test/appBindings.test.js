@@ -218,7 +218,7 @@ test('ended local runs reopen their summary and are not offered as resumable sav
   assert.match(source, /const endedRun = normalized\?\.state\.runStatus === 'ended'/);
   assert.match(source, /if \(endedRun \|\| storageRevision > 0\)/);
   assert.match(source, /setSaves\(normalized && !endedRun \? \[normalized\] : \[\]\)/);
-  assert.match(source, /await saveActiveRun\(ended\);\s+setSaves\(\[\]\);\s+setGame\(ended\)/);
+  assert.match(source, /await saveGameLocally\(ended\);\s+setSaves\(\[\]\);\s+setGame\(ended\)/);
 });
 
 test('fan-event History keeps legacy grouping and renders custom titles verbatim', async () => {
@@ -248,9 +248,33 @@ test('starting a new year persists locally before its dedicated cloud checkpoint
   const start = source.indexOf('const applySettlementAction');
   const block = source.slice(start, source.indexOf('const renovate =', start));
   assert.match(block, /const startedNewYear = Boolean\(game\.pendingYearEndSettlement\)/);
-  assert.match(block, /await saveActiveRun\(next\);[\s\S]*const verifiedLocal = await loadActiveRun\(\);[\s\S]*canonicalJson\(verifiedLocal\.state\) !== canonicalJson\(next\)[\s\S]*setGame\(next\);/);
+  assert.match(block, /await saveGameLocally\(next\);[\s\S]*const verifiedLocal = await loadActiveRun\(\);[\s\S]*canonicalJson\(verifiedLocal\.state\) !== canonicalJson\(next\)[\s\S]*setGame\(next\);/);
   assert.match(block, /if \(startedNewYear && user\)[\s\S]*await pushSave\('new-year'\)/);
   assert.match(block, /New year saved locally, but cloud sync failed/);
+});
+
+test('autosave persists every state change and cloud-checkpoints every resolved week', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /window\.setTimeout\(\(\) => \{\s*saveGameLocally\(game\)/);
+  assert.match(source, /document\.addEventListener\('visibilitychange', saveIfHidden\)/);
+  assert.match(source, /window\.addEventListener\('beforeunload', warnIfDirty\)/);
+  const advanceStart = source.indexOf('const advance = async');
+  const advance = source.slice(advanceStart, source.indexOf('const applySettlementAction', advanceStart));
+  assert.match(advance, /await saveGameLocally\(next\);/);
+  assert.match(advance, /if \(user\) \{[\s\S]*await pushSave\('week'\)/);
+  assert.doesNotMatch(advance, /weeksPerMonth/);
+});
+
+test('both hard refresh and patchnote refresh save locally then cloud before reload', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const hardRefresh = await readFile(new URL('../src/components/HardRefreshButton.jsx', import.meta.url), 'utf8');
+  const patchnote = await readFile(new URL('../src/components/PatchnoteNotice.jsx', import.meta.url), 'utf8');
+  const start = source.indexOf('const saveBeforeRefresh');
+  const block = source.slice(start, source.indexOf('\n  useEffect', start));
+  assert.match(block, /await saveGameLocally\(currentGame\);[\s\S]*await pushSave\('refresh'\)/);
+  assert.match(source, /onBeforeRefresh=\{saveBeforeRefresh\}/);
+  assert.match(hardRefresh, /hardRefreshPage\(\{ beforeRefresh: onBeforeRefresh \}\)/);
+  assert.match(patchnote, /hardRefreshPage\(\{ beforeRefresh: onBeforeRefresh \}\)/);
 });
 
 test('graduation countdown uses a valid middle-dot separator', async () => {

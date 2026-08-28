@@ -7,6 +7,17 @@ const META_STORE = 'meta';
 const MANIFEST_STORE = 'save_manifests';
 const SECTION_STORE = 'save_sections';
 const DB_VERSION = 3;
+let saveOperationQueue = Promise.resolve();
+
+function enqueueSaveOperation(operation) {
+  const queued = saveOperationQueue.catch(() => {}).then(operation);
+  saveOperationQueue = queued;
+  return queued;
+}
+
+export function flushSaveOperations() {
+  return saveOperationQueue.catch(() => {});
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -243,13 +254,15 @@ export async function listSaves(options = {}) {
 }
 
 export async function loadSave(slot, options = {}) {
+  await flushSaveOperations();
   const snapshot = await loadSnapshot(slot, options);
   return snapshot?.activeRun ? { slot, state: snapshot.activeRun.state, updatedAt: snapshot.activeRun.updatedAt ?? snapshot.savedAt } : undefined;
 }
 
-export async function writeSave(slot, state, options = {}) {
+async function writeSaveNow(slot, state, options = {}) {
   const existing = await loadSnapshot(slot, options);
-  const profile = existing?.metaProfile ?? normalizeMetaProfile(await readStore(META_STORE, 'profile'));
+  const storedProfile = await readStore(META_STORE, 'profile');
+  const profile = storedProfile ? normalizeMetaProfile(storedProfile) : existing?.metaProfile ?? normalizeMetaProfile();
   const updatedAt = Date.now();
   const snapshot = { version: SAVE_FORMAT_VERSION, savedAt: updatedAt, activeRun: { slot, state, updatedAt }, metaProfile: profile };
   const encoded = await encodeSnapshot(snapshot, { slot, updatedAt, onProgress: options.onProgress });
@@ -257,7 +270,11 @@ export async function writeSave(slot, state, options = {}) {
   return { slot, state, updatedAt };
 }
 
-export async function deleteSave(slot) {
+export function writeSave(slot, state, options = {}) {
+  return enqueueSaveOperation(() => writeSaveNow(slot, state, options));
+}
+
+async function deleteSaveNow(slot) {
   await mutateStores([STORE_NAME, MANIFEST_STORE, SECTION_STORE], (transaction) => {
     transaction.objectStore(STORE_NAME).delete(slot);
     transaction.objectStore(MANIFEST_STORE).delete(String(slot));
@@ -266,7 +283,12 @@ export async function deleteSave(slot) {
   });
 }
 
+export function deleteSave(slot) {
+  return enqueueSaveOperation(() => deleteSaveNow(slot));
+}
+
 export async function getActiveRun(options = {}) {
+  await flushSaveOperations();
   const saves = await listSaves(options);
   if (saves.length === 0) return null;
   const newest = saves.reduce((latest, save) => save.updatedAt > latest.updatedAt ? save : latest);
@@ -287,12 +309,14 @@ async function saveMetaProfileOnly(profile) {
   await mutateStores([META_STORE], (transaction) => transaction.objectStore(META_STORE).put({ ...normalized, id: 'profile' }));
 }
 
-export async function saveMetaProfile(profile) {
-  const normalized = normalizeMetaProfile(profile);
-  await saveMetaProfileOnly(normalized);
-  const active = await loadSave(1);
-  if (active?.state) await writeSave(1, active.state);
-  return normalized;
+export function saveMetaProfile(profile) {
+  const normalized = { ...normalizeMetaProfile(profile), updatedAt: Date.now() };
+  return enqueueSaveOperation(async () => {
+    await saveMetaProfileOnly(normalized);
+    const snapshot = await loadSnapshot(1);
+    if (snapshot?.activeRun?.state) await writeSaveNow(1, snapshot.activeRun.state);
+    return normalized;
+  });
 }
 
 export function createRunHistoryEntry(game, completedAt = Date.now()) {
@@ -311,6 +335,7 @@ export function mergeRunHistory(profile, entry, limit = 50) {
 }
 
 export async function getLocalSnapshot(options = {}) {
+  await flushSaveOperations();
   const [activeRun, metaProfile] = await Promise.all([getActiveRun(options), getMetaProfile()]);
   return { version: SAVE_FORMAT_VERSION, savedAt: Date.now(), activeRun, metaProfile };
 }
@@ -323,7 +348,7 @@ export async function replaceLocalSnapshot(snapshot, options = {}) {
   else await deleteActiveRun();
 }
 
-export async function clearLocalDatabase() {
+async function clearLocalDatabaseNow() {
   const db = await openDb();
   try {
     const storeNames = Array.from(db.objectStoreNames);
@@ -336,6 +361,10 @@ export async function clearLocalDatabase() {
       storeNames.forEach((storeName) => transaction.objectStore(storeName).clear());
     });
   } finally { db.close(); }
+}
+
+export function clearLocalDatabase() {
+  return enqueueSaveOperation(clearLocalDatabaseNow);
 }
 
 export const clearLocalSnapshot = clearLocalDatabase;

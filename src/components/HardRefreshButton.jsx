@@ -1,25 +1,33 @@
 import { useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { hardRefreshPage } from '../utils/patchnotes.js';
 import './HardRefreshButton.css';
 
-export default function HardRefreshButton() {
+const COPY = {
+  en: { label: 'Hard refresh page', title: 'Save, then fetch the latest app version', idle: 'Hard Refresh', saving: 'Saving & refreshing…', failed: 'Refresh stopped because the save could not be confirmed. Try again.' },
+  id: { label: 'Muat ulang penuh halaman', title: 'Simpan, lalu ambil versi aplikasi terbaru', idle: 'Muat Ulang Penuh', saving: 'Menyimpan & memuat ulang…', failed: 'Muat ulang dihentikan karena penyimpanan belum dapat dikonfirmasi. Coba lagi.' },
+};
+
+export default function HardRefreshButton({ onBeforeRefresh, language = 'en' }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const copy = COPY[language] ?? COPY.en;
   const handleRefresh = async () => {
     if (refreshing) return;
     setRefreshing(true);
+    setError('');
     try {
-      if ('serviceWorker' in navigator) {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map((registration) => registration.unregister()));
-      }
-      if ('caches' in window) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((key) => caches.delete(key)));
-      }
-    } finally {
-      window.location.reload();
+      await hardRefreshPage({ beforeRefresh: onBeforeRefresh });
+    } catch (refreshError) {
+      console.error(refreshError);
+      setError(copy.failed);
+      setRefreshing(false);
     }
   };
-  return <button type="button" className={`hard-refresh-button${refreshing ? ' is-refreshing' : ''}`} onClick={handleRefresh} disabled={refreshing} aria-label="Hard refresh page" title="Fetch latest app version from server">
-    <span aria-hidden="true">↻</span><span>{refreshing ? 'Refreshing…' : 'Hard Refresh'}</span>
-  </button>;
+  return <>
+    {error ? <p className="hard-refresh-error" role="alert">{error}</p> : null}
+    <button type="button" className={`hard-refresh-button${refreshing ? ' is-refreshing' : ''}`} onClick={handleRefresh} disabled={refreshing} aria-label={copy.label} title={copy.title}>
+      <RefreshCw aria-hidden="true" size={20} /><span>{refreshing ? copy.saving : copy.idle}</span>
+    </button>
+  </>;
 }

@@ -52,7 +52,7 @@ export function VoucherProvider({ children }) {
 
   const editStat = useCallback(async (payload) => {
     // Voucher API edits the cloud snapshot. Push latest local run first so roster
-    // changes made since last monthly checkpoint cannot produce a stale member ID.
+    // changes made since the last cloud checkpoint cannot produce a stale member ID.
     await pushSave('voucher');
     const result = await request('/api/voucher/edit-member-stat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     await loadCloudSave();

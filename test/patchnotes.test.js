@@ -160,11 +160,23 @@ test('seen tracking compares canonical patchnote publication time', () => {
 test('hard refresh unregisters workers, clears Cache Storage, and reloads', async () => {
   const calls = [];
   await hardRefreshPage({
+    beforeRefresh: async () => calls.push('save'),
     navigatorObject: { serviceWorker: { getRegistrations: async () => [{ unregister: async () => calls.push('unregister-1') }, { unregister: async () => calls.push('unregister-2') }] } },
     cachesObject: { keys: async () => ['app', 'images'], delete: async (key) => calls.push(`cache-${key}`) },
     locationObject: { reload: (hard) => calls.push(`reload-${hard}`) },
   });
-  assert.deepEqual(calls, ['unregister-1', 'unregister-2', 'cache-app', 'cache-images', 'reload-true']);
+  assert.deepEqual(calls, ['save', 'unregister-1', 'unregister-2', 'cache-app', 'cache-images', 'reload-true']);
+});
+
+test('hard refresh does not clear caches or reload when saving fails', async () => {
+  const calls = [];
+  await assert.rejects(() => hardRefreshPage({
+    beforeRefresh: async () => { calls.push('save'); throw new Error('offline'); },
+    navigatorObject: { serviceWorker: { getRegistrations: async () => [{ unregister: async () => calls.push('unregister') }] } },
+    cachesObject: { keys: async () => ['app'], delete: async () => calls.push('cache') },
+    locationObject: { reload: () => calls.push('reload') },
+  }), /offline/);
+  assert.deepEqual(calls, ['save']);
 });
 
 test('app exposes hidden patchnote admin route and mounts update notice only on start and Command pages', async () => {
@@ -173,7 +185,7 @@ test('app exposes hidden patchnote admin route and mounts update notice only on 
   assert.match(source, /const ADMIN_PATCHNOTES_PATH = '\/admin\/patchnotes'/);
   assert.match(source, /<PatchnotesAdminDashboard language=\{language\}/);
   assert.match(source, /const patchnoteCanShow = !adminRoute && \(\(!game && !setupDraft\) \|\| \(Boolean\(game\) && game\.runStatus !== 'ended' && activeView === 'dashboard'\)\)/);
-  assert.match(source, /const accountLayer = <><PatchnoteNotice language=\{language\} canShow=\{patchnoteCanShow\} \/><SyncOverlay/);
+  assert.match(source, /const accountLayer = <><PatchnoteNotice language=\{language\} canShow=\{patchnoteCanShow\} cloudEnabled=\{Boolean\(user\)\} onBeforeRefresh=\{saveBeforeRefresh\} \/><SyncOverlay/);
   const unauthenticatedBranch = source.match(/if \(!user && !guestMode\)[^\r\n]+/)?.[0] ?? '';
   assert.doesNotMatch(unauthenticatedBranch, /PatchnoteNotice|accountLayer/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS manager_patchnotes/);

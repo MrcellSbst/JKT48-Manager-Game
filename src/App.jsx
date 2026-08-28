@@ -469,7 +469,7 @@ function TutorialCoach({ game, language, activeView, onNavigate, onAction, onSki
   return <aside className="tutorial-coach" aria-label={t('Tutorial coach')} aria-live="polite"><header><span>{t(replay ? 'Tutorial replay' : `Week ${chapter.week} tutorial`)}</span><strong>{chapter.week}/4</strong></header><h2>{t(copy.title)}</h2><p>{t(copy.body)}</p><ul>{copy.steps.map(([id, liveDone, label]) => { const done = !replay && (completed.has(id) || liveDone); return <li key={id} className={done ? 'done' : ''}><Check size={16} aria-hidden="true" /><span>{t(label)}</span></li>; })}</ul><div className="tutorial-coach-actions">{replay ? <><button type="button" className="secondary-button" disabled={replayChapter === 1} onClick={() => onReplayChapter(replayChapter - 1)}>{t('Previous')}</button><button type="button" onClick={() => replayChapter === 4 ? onCloseReplay() : onReplayChapter(replayChapter + 1)}>{t(replayChapter === 4 ? 'Finish replay' : 'Next')}</button></> : <><button type="button" className="secondary-button" onClick={onSkip}>{t('Skip tutorial')}</button><button type="button" onClick={() => activeView === chapter.view ? onAction(`${chapter.id}-understood`) : onNavigate(chapter.view)}>{t(activeView === chapter.view ? allDone ? 'Got it' : 'Continue' : `Open ${targetLabel}`)}</button></>}</div></aside>;
 }
 
-function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndRun, onManualSave, onToggleTheme, onToggleLanguage, onOpenAccount, onLogout, user, accountBusy, advancing, manualSaving, saveMessage, theme, language, onTutorialAction, tutorialCoach, children }) {
+function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndRun, onManualSave, onBeforeRefresh, onToggleTheme, onToggleLanguage, onOpenAccount, onLogout, user, accountBusy, advancing, manualSaving, saveMessage, theme, language, onTutorialAction, tutorialCoach, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 760px)').matches);
@@ -524,7 +524,7 @@ function AppShell({ game, activeView, setActiveView, onAdvance, onNewRun, onEndR
     {isMobileViewport && mobileOpen ? <button className="scrim" aria-label={translate(language, 'Close menu')} type="button" onClick={() => setMobileOpen(false)} /> : null}
     {confirmAdvance ? <ModalPortal><div className="setup-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmAdvance(false); }}><section className="confirm-week-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-week-title"><div className="confirm-week-icon"><Clock3 aria-hidden="true" size={25} /></div><span className="eyebrow">{translate(language, 'Schedule confirmation')}</span><h2 id="confirm-week-title">{translate(language, 'End this week?')}</h2><p>{translate(language, 'All scheduled activities and planned training will resolve, finances will be calculated, and the calendar will advance. This action cannot be undone.')}</p><div className="resolve-week-counts"><span><CalendarDays aria-hidden="true" size={18} /><small>{translate(language, 'Schedule activities')}</small><strong>{scheduledActivityCount}</strong></span><span><Dumbbell aria-hidden="true" size={18} /><small>{translate(language, 'Training sessions')}</small><strong>{plannedTrainingCount}</strong></span></div>{game.week === BALANCE.weeksPerYear ? <p className="fan-target-warning"><ShieldAlert aria-hidden="true" size={18} />{translate(language, 'The annual fan result resolves after this week. It affects Fan Trust, Reputation, annual grade, and Management Token reward, but does not end the run.')}</p> : null}<div className="confirm-week-actions"><button type="button" className="secondary-button" onClick={() => setConfirmAdvance(false)}>{translate(language, 'Cancel')}</button><button type="button" className="setup-primary" onClick={() => { setConfirmAdvance(false); onAdvance(); }}>{translate(language, 'End week')} <ChevronRight aria-hidden="true" size={18} /></button></div></section></div></ModalPortal> : null}
     {tutorialCoach}
-    <HardRefreshButton />
+    <HardRefreshButton onBeforeRefresh={onBeforeRefresh} language={language} />
   </div>;
 }
 
@@ -1947,9 +1947,9 @@ function StatisticsDashboard({ game, language = 'en' }) {
 
 function Saves({ game, activeSave, onLoad, onDelete, user, syncState, onCloudSave, onCloudLoad, onOpenAccount }) {
   return <div className="page saves-page">
-    <section className="page-heading"><div><span className="eyebrow">Save operations</span><h1>Save and load</h1><p>Weekly autosaves stay in IndexedDB. Cloud checkpoints run monthly, on manual save, and before logout.</p><small className="save-timezone-note">All times shown in WIB (UTC+7).</small></div></section>
+    <section className="page-heading"><div><span className="eyebrow">Save operations</span><h1>Save and load</h1><p>Every game-state change autosaves to IndexedDB. Cloud checkpoints run after each resolved week, on manual save, before refresh, and before logout.</p><small className="save-timezone-note">All times shown in WIB (UTC+7).</small></div></section>
     <div className="save-operation-grid">
-    <section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>Local browser save</span><h2>{calendarLabel(game.year, game.week)}</h2><p>{game.seed} · {number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${formatDateTime(activeSave.updatedAt)}` : 'Waiting for next weekly autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload local save</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section>
+    <section className="save-grid single-save"><article className="save-card occupied"><div className="slot-number">48</div><span>Local browser save</span><h2>{calendarLabel(game.year, game.week)}</h2><p>{game.seed} · {number.format(game.group.fanbase)} fans · {money(game.money)}</p><small>{activeSave ? `Saved ${formatDateTime(activeSave.updatedAt)}` : 'Waiting for first autosave'}</small><div className="save-actions"><button type="button" onClick={onLoad}>Reload local save</button><IconButton label="Delete active run" onClick={onDelete}><Trash2 size={18} /></IconButton></div></article></section>
       <section className={user ? 'cloud-save-panel connected' : 'cloud-save-panel'}><div className="cloud-save-icon"><Cloud size={26} /></div><div><span>Cloud account</span><h2>{user ? user.username : 'Guest mode'}</h2><p>{user ? 'Encrypted snapshot ready for cross-device recovery.' : 'This run exists only in this browser until you register.'}</p>{syncState.updatedAt ? <small>Last cloud confirmation {formatCloudDateTime(syncState.updatedAt)}</small> : <small>{user ? 'No cloud confirmation this session.' : 'IndexedDB remains active.'}</small>}</div><div className="cloud-save-actions">{user ? <><button type="button" onClick={onCloudSave}><Cloud size={17} />Save to cloud</button><button type="button" className="secondary-button" onClick={onCloudLoad}><Download size={17} />Load cloud save</button></> : <button type="button" onClick={onOpenAccount}>Register and upload this run</button>}</div></section>
     </div>
     <p className="storage-note">Loading cloud data replaces this browser's active run and Management Token profile.</p>
@@ -2262,6 +2262,51 @@ export default function App() {
   const advancingRef = useRef(false);
   const rewardingRef = useRef(false);
   const rewardingPromiseRef = useRef(null);
+  const latestGameRef = useRef(null);
+  const lastPersistedGameRef = useRef(null);
+
+  const saveGameLocally = useCallback(async (state) => {
+    if (!state) return null;
+    const saved = await saveActiveRun(state);
+    lastPersistedGameRef.current = state;
+    return saved;
+  }, []);
+
+  const saveBeforeRefresh = useCallback(async () => {
+    const currentGame = latestGameRef.current;
+    if (currentGame) await saveGameLocally(currentGame);
+    if (user) await pushSave('refresh');
+  }, [pushSave, saveGameLocally, user]);
+
+  useEffect(() => {
+    latestGameRef.current = game;
+    if (!game || lastPersistedGameRef.current === game) return undefined;
+    const timerId = window.setTimeout(() => {
+      saveGameLocally(game).catch((error) => {
+        console.error(error);
+        setSaveMessage('Local autosave failed. Use Save run before leaving this page.');
+      });
+    }, 500);
+    return () => window.clearTimeout(timerId);
+  }, [game, saveGameLocally]);
+
+  useEffect(() => {
+    const saveIfHidden = () => {
+      if (document.visibilityState === 'hidden' && latestGameRef.current) void saveGameLocally(latestGameRef.current).catch(console.error);
+    };
+    const warnIfDirty = (event) => {
+      if (!latestGameRef.current || lastPersistedGameRef.current === latestGameRef.current) return;
+      void saveGameLocally(latestGameRef.current).catch(console.error);
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    document.addEventListener('visibilitychange', saveIfHidden);
+    window.addEventListener('beforeunload', warnIfDirty);
+    return () => {
+      document.removeEventListener('visibilitychange', saveIfHidden);
+      window.removeEventListener('beforeunload', warnIfDirty);
+    };
+  }, [saveGameLocally]);
 
   const refreshSaves = useCallback(async () => { const active = await getActiveRun(); const normalized = active ? { ...active, state: normalizeSessionActivities(active.state) } : null; setSaves(normalized?.state.runStatus === 'ended' ? [] : normalized ? [normalized] : []); return normalized; }, []);
   useEffect(() => {
@@ -2320,7 +2365,7 @@ export default function App() {
     await saveMetaProfile(next);
     setMetaProfile(next);
   };
-  const completeSetup = async (readyGame) => { await saveActiveRun(readyGame); setSaves([{ slot: 1, state: readyGame, updatedAt: Date.now() }]); setGraduationAlert(null); setTutorialReplayChapter(null); setGame(readyGame); setSetupDraft(null); setActiveView('dashboard'); };
+  const completeSetup = async (readyGame) => { await saveGameLocally(readyGame); setSaves([{ slot: 1, state: readyGame, updatedAt: Date.now() }]); setGraduationAlert(null); setTutorialReplayChapter(null); setGame(readyGame); setSetupDraft(null); setActiveView('dashboard'); };
   const load = async () => { const save = await loadActiveRun(); if (save) { const normalized = normalizeSessionActivities(save.state); setGraduationAlert(null); setTutorialReplayChapter(null); setSetupDraft(null); setGame(normalized); setActiveView('dashboard'); } };
   const remove = async () => {
     await deleteActiveRun();
@@ -2335,14 +2380,14 @@ export default function App() {
     try {
       const next = resolveWeek(game);
       const newAnnouncement = (next.graduations ?? []).find((graduation) => graduation.announced && !(game.graduations ?? []).some((previous) => previous.id === graduation.id && previous.announced));
-      await saveActiveRun(next);
+      await saveGameLocally(next);
       let cloudMessage = '';
-      if (user && next.lastResult.week % BALANCE.weeksPerMonth === 0) {
+      if (user) {
         try {
-          await pushSave('month');
-          cloudMessage = 'Month resolved and cloud checkpoint saved.';
+          await pushSave('week');
+          cloudMessage = 'Week resolved and cloud checkpoint saved.';
         } catch {
-          cloudMessage = 'Month resolved locally, but cloud sync failed. Use Save run to retry.';
+          cloudMessage = 'Week resolved locally, but cloud sync failed. The next weekly save will retry.';
         }
       }
       setGame(next);
@@ -2372,7 +2417,7 @@ export default function App() {
         && !next.pendingYearEndSettlement
         && next.year > game.year
         && next.week === 1;
-      await saveActiveRun(next);
+      await saveGameLocally(next);
       if (startedNewYear) {
         const verifiedLocal = await loadActiveRun();
         if (!verifiedLocal?.state || canonicalJson(verifiedLocal.state) !== canonicalJson(next)) {
@@ -2400,7 +2445,7 @@ export default function App() {
     const next = renovateTheater(game);
     if (next === game) return;
     try {
-      await saveActiveRun(next);
+      await saveGameLocally(next);
       setGame(next);
       await refreshSaves();
     } catch (error) {
@@ -2413,7 +2458,7 @@ export default function App() {
     setManualSaving(true);
     setSaveMessage('');
     try {
-      await saveActiveRun(game);
+      await saveGameLocally(game);
       if (user) await pushSave('manual');
       await refreshSaves();
       setSaveMessage(user ? 'Run saved locally and to cloud.' : 'Guest run saved locally.');
@@ -2427,7 +2472,7 @@ export default function App() {
   const finishRun = async () => {
     const ended = endRun(game);
     try {
-      await saveActiveRun(ended);
+      await saveGameLocally(ended);
       setSaves([]);
       setGame(ended);
       setConfirmEndRun(false);
@@ -2447,7 +2492,7 @@ export default function App() {
     const claimedGame = needsReward ? { ...game, metaRewardClaimed: true } : game;
     const rewardedMeta = needsReward ? { ...metaProfile, currency: metaProfile.currency + game.runSummary.metaReward, completedRuns: (metaProfile.completedRuns ?? 0) + 1 } : metaProfile;
     const nextMeta = mergeRunHistory(rewardedMeta, historyEntry);
-    const rewardingPromise = Promise.all([saveActiveRun(claimedGame), saveMetaProfile(nextMeta)]);
+    const rewardingPromise = Promise.all([saveGameLocally(claimedGame), saveMetaProfile(nextMeta)]);
     rewardingPromiseRef.current = rewardingPromise;
     rewardingPromise.then(() => { setGame((current) => current?.runStatus === 'ended' && current.seed === claimedGame.seed ? claimedGame : current); setMetaProfile(nextMeta); }).catch(console.error).finally(() => { rewardingRef.current = false; if (rewardingPromiseRef.current === rewardingPromise) rewardingPromiseRef.current = null; });
   }, [game, metaLoaded, metaProfile]);
@@ -2476,13 +2521,13 @@ export default function App() {
 
   const accountBusy = ['authenticating', 'loading', 'saving', 'logging-out'].includes(syncState.phase);
   const openAccount = async () => {
-    if (game) await saveActiveRun(game);
+    if (game) await saveGameLocally(game);
     setAccountOpen(true);
   };
   const handleLogout = async () => {
     setSaveMessage('');
     try {
-      if (game) await saveActiveRun(game);
+      if (game) await saveGameLocally(game);
       await logout();
       setGuestMode(false);
       setAccountOpen(false);
@@ -2517,14 +2562,14 @@ export default function App() {
     if (JSON.stringify(tutorialState) === JSON.stringify(game.tutorialState)) return;
     const next = { ...game, tutorialState };
     setGame(next);
-    void saveActiveRun(next).catch(console.error);
+    void saveGameLocally(next).catch(console.error);
   };
   const skipCurrentTutorial = () => {
     if (!game) return;
     const tutorialState = skipTutorial(game.tutorialState);
     const next = { ...game, tutorialState };
     setGame(next);
-    void saveActiveRun(next).catch(console.error);
+    void saveGameLocally(next).catch(console.error);
   };
   useEffect(() => {
     if (!game || normalizeTutorialState(game.tutorialState).status !== 'active' || game.year !== 1) return;
@@ -2540,7 +2585,7 @@ export default function App() {
     if (JSON.stringify(tutorialState) === JSON.stringify(game.tutorialState)) return;
     const next = { ...game, tutorialState };
     setGame(next);
-    void saveActiveRun(next).catch(console.error);
+    void saveGameLocally(next).catch(console.error);
   }, [activeView, game]);
   const navigateView = (view) => {
     if (view === 'roster') setSelectedMember(null);
@@ -2548,10 +2593,10 @@ export default function App() {
   };
   const preGameMenu = <PreGameMenu theme={theme} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} language={language} onToggleLanguage={toggleLanguage} user={user} onOpenAccount={openAccount} onLogout={handleLogout} accountBusy={accountBusy} />;
   const patchnoteCanShow = !adminRoute && ((!game && !setupDraft) || (Boolean(game) && game.runStatus !== 'ended' && activeView === 'dashboard'));
-  const accountLayer = <><PatchnoteNotice language={language} canShow={patchnoteCanShow} /><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
+  const accountLayer = <><PatchnoteNotice language={language} canShow={patchnoteCanShow} cloudEnabled={Boolean(user)} onBeforeRefresh={saveBeforeRefresh} /><SyncOverlay />{accountOpen ? <AuthScreen language={language} onClose={() => setAccountOpen(false)} onAuthenticated={() => { setGuestMode(false); setAccountOpen(false); }} /> : null}</>;
   if (['running', 'failed'].includes(migrationState.status)) return <MigrationScreen language={language} migrationState={migrationState} onRetry={retryMigration} onDownloadRecovery={migrationState.canDownloadRecovery ? downloadMigrationRecovery : undefined} />;
   if (authLoading) return <><main className="startup-sync" role="status"><div className="startup-sync-mark">48</div><strong>{translate(language, 'Checking account…')}</strong><span>{translate(language, 'Loading browser save status.')}</span></main><SyncOverlay /></>;
-  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /><HardRefreshButton /></>;
+  if (!user && !guestMode) return <><AuthScreen language={language} allowGuest onGuest={() => setGuestMode(true)} /><SyncOverlay /><HardRefreshButton onBeforeRefresh={saveBeforeRefresh} language={language} /></>;
   if (adminRoute && String(user?.user_id) === '1') {
     const leaveAdminRoute = () => {
       window.history.replaceState({}, '', '/');
@@ -2560,11 +2605,11 @@ export default function App() {
     };
     return <>{adminRoute === 'patchnotes' ? <PatchnotesAdminDashboard language={language} onBack={leaveAdminRoute} /> : <VoucherAdminDashboard onBack={leaveAdminRoute} />}{accountLayer}</>;
   }
-  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}<HardRefreshButton /></>;
-  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} language={language} />{accountLayer}<HardRefreshButton /></>;
-  if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}<HardRefreshButton /></>;
+  if (!game && setupDraft) return <>{preGameMenu}<FoundingSetup draft={setupDraft} metaProfile={metaProfile} onUpgradeBonus={upgradeBonus} onChangeRosterScope={changeRosterScope} onChangeDifficulty={changeDifficulty} onComplete={completeSetup} onCancel={() => setSetupDraft(null)} />{accountLayer}<HardRefreshButton onBeforeRefresh={saveBeforeRefresh} language={language} /></>;
+  if (!game) return <>{preGameMenu}<StartScreen saves={saves} onStart={start} onLoad={load} metaProfile={metaProfile} language={language} />{accountLayer}<HardRefreshButton onBeforeRefresh={saveBeforeRefresh} language={language} /></>;
+  if (game.runStatus === 'ended') return <>{preGameMenu}<RunEndScreen game={game} onNewRun={beginAnotherRun} />{accountLayer}<HardRefreshButton onBeforeRefresh={saveBeforeRefresh} language={language} /></>;
 
-  return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => { setTutorialReplayChapter(null); setGame(null); }} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language} onTutorialAction={commitTutorialAction} tutorialCoach={<TutorialCoach game={game} language={language} activeView={activeView} onNavigate={navigateView} onAction={commitTutorialAction} onSkip={skipCurrentTutorial} replayChapter={tutorialReplayChapter} onReplayChapter={setTutorialReplayChapter} onCloseReplay={() => setTutorialReplayChapter(null)} />}>
+  return <><AppShell game={game} activeView={activeView} setActiveView={navigateView} onAdvance={advance} onNewRun={() => { setTutorialReplayChapter(null); setGame(null); }} onEndRun={() => setConfirmEndRun(true)} onManualSave={manualSave} onBeforeRefresh={saveBeforeRefresh} onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} onToggleLanguage={toggleLanguage} onOpenAccount={openAccount} onLogout={handleLogout} user={user} accountBusy={accountBusy} advancing={advancing} manualSaving={manualSaving} saveMessage={saveMessage} theme={theme} language={language} onTutorialAction={commitTutorialAction} tutorialCoach={<TutorialCoach game={game} language={language} activeView={activeView} onNavigate={navigateView} onAction={commitTutorialAction} onSkip={skipCurrentTutorial} replayChapter={tutorialReplayChapter} onReplayChapter={setTutorialReplayChapter} onCloseReplay={() => setTutorialReplayChapter(null)} />}>
     {activeView === 'dashboard' ? <Dashboard game={game} setGame={setGame} setView={navigateView} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} onReplayTutorial={() => setTutorialReplayChapter(1)} /> : null}
     {activeView === 'schedule' ? <Schedule game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
     {activeView === 'training' ? <Training game={game} setGame={setGame} selectedMember={selectedMember} setSelectedMember={setSelectedMember} language={language} /> : null}
