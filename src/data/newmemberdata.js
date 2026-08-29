@@ -527,7 +527,7 @@ export const memberData = {
       nickname: "Auwia",
       team: "TRAINEE",
       photo: "AULIA_RIZA.jpg",
-      graduated: false
+      graduated: true
     },
     {
       name: "Bong Aprilli",
