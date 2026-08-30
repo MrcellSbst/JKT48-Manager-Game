@@ -103,13 +103,28 @@ Guest saves remain in browser IndexedDB. Account saves use the same data locally
 
 - Only one run can be active at a time.
 - Local progress saves after founding setup and each resolved week.
-- Signed-in runs create cloud checkpoints every four resolved weeks, on manual Save run, and before logout.
+- Signed-in runs create cloud checkpoints after every resolved week, on manual Save run, before refresh, and before logout.
 - Registering uploads existing guest progress.
 - Logging in loads existing account data; explicit Load cloud save is also available from Save and load.
 - Logout waits for successful cloud save and session deletion, then clears all Manager data from local IndexedDB.
 - Clearing browser site data removes guest progress that has not been uploaded.
 
 Before deploying the v2 application, apply the D1 schema with `npm run db:migrate:remote`. Existing accounts migrate lazily when loaded. To inspect or migrate dormant accounts in resumable batches, sign in as `user_id = 1`, set `MANAGER_API_URL` and `MANAGER_SESSION_TOKEN`, then run `npm run db:migrate:saves` for a dry run or `npm run db:migrate:saves -- --commit` to migrate and delete verified legacy rows.
+
+### Admin save recovery
+
+For a valid legacy save, ask the user to sign in once and leave the blocking “Updating your save data” screen open. The client decrypts and normalizes the save, submits it to `/api/save/migrate`, verifies the v2 read-back, and deletes the legacy row only after verification.
+
+For dormant accounts, the admin batch runner is dry-run by default:
+
+```powershell
+$env:MANAGER_API_URL = 'https://jkt48-manager.foureality.my.id'
+$env:MANAGER_SESSION_TOKEN = '<session_token_cookie_for_user_id_1>'
+$env:MIGRATION_BATCH_SIZE = '25'
+npm.cmd run db:migrate:saves
+```
+
+Review the failures, then repeat with `npm.cmd run db:migrate:saves -- --commit`. Commit mode deletes a legacy row only after conversion and v2 read-back verification. The runner is resumable; set `MIGRATION_CURSOR` to continue from a reported cursor if needed. It does not repair corrupted encrypted payloads or corrupted v2 sections: those rows are retained. For those cases, obtain the user's downloaded recovery copy or a known-good local/cloud snapshot before any manual database action; do not delete the only remaining row.
 
 ## Project Structure
 

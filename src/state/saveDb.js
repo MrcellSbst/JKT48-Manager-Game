@@ -41,6 +41,15 @@ function requestResult(request) {
   });
 }
 
+// Older/partially-written IndexedDB rows may have no record object or no
+// slot field. Never dereference those rows during startup verification.
+function getStoredSlot(record) {
+  if (!record || typeof record !== 'object') return null;
+  const fallback = typeof record.id === 'string' && /^\d+$/.test(record.id) ? record.id : null;
+  const slot = Number(record.slot ?? fallback);
+  return Number.isInteger(slot) && slot > 0 ? slot : null;
+}
+
 async function readStore(storeName, key) {
   const db = await openDb();
   try { return await requestResult(db.transaction(storeName, 'readonly').objectStore(storeName).get(key)); } finally { db.close(); }
@@ -68,7 +77,7 @@ async function readV2Record(slot) {
   const manifestRecord = await readStore(MANIFEST_STORE, String(slot));
   if (!manifestRecord?.manifest) return null;
   const allSections = await readAll(SECTION_STORE);
-  return { manifest: manifestRecord.manifest, sections: Object.fromEntries(allSections.filter((section) => section.slot === slot).map((section) => [section.name, section.payload])) };
+  return { manifest: manifestRecord.manifest, sections: Object.fromEntries(allSections.filter((section) => getStoredSlot(section) === slot && section.name).map((section) => [section.name, section.payload])) };
 }
 
 async function writeV2Record(slot, encoded, updatedAt) {
@@ -211,10 +220,10 @@ export async function getV2RecoveryData() {
 }
 
 export async function verifyLocalSaves({ onProgress } = {}) {
-  const manifests = await readAll(MANIFEST_STORE);
+  const manifests = (await readAll(MANIFEST_STORE)).filter((record) => getStoredSlot(record) !== null);
   const total = manifests.length;
   for (let index = 0; index < total; index += 1) {
-    const slot = manifests[index].slot;
+    const slot = getStoredSlot(manifests[index]);
     report(onProgress, 'reading-back', index, total || 1, String(slot));
     const record = await readV2Record(slot);
     await decodeSnapshot(record, {
@@ -244,7 +253,10 @@ export async function listSaves(options = {}) {
   const legacy = await readAll(STORE_NAME);
   for (const save of legacy) await ensureMigrated(save.slot, options);
   const manifests = await readAll(MANIFEST_STORE);
-  const slots = [...new Set([...manifests.map((item) => item.slot), ...legacy.map((item) => item.slot)])];
+  const slots = [...new Set([
+    ...manifests.map(getStoredSlot).filter((slot) => slot !== null),
+    ...legacy.map(getStoredSlot).filter((slot) => slot !== null),
+  ])];
   const result = [];
   for (const slot of slots) {
     const snapshot = await loadSnapshot(slot, options);
@@ -279,7 +291,7 @@ async function deleteSaveNow(slot) {
     transaction.objectStore(STORE_NAME).delete(slot);
     transaction.objectStore(MANIFEST_STORE).delete(String(slot));
     const sections = transaction.objectStore(SECTION_STORE);
-    sections.getAll().onsuccess = (event) => event.target.result.filter((item) => item.slot === slot).forEach((item) => sections.delete(item.id));
+    sections.getAll().onsuccess = (event) => event.target.result.filter((item) => getStoredSlot(item) === slot).forEach((item) => sections.delete(item.id));
   });
 }
 
