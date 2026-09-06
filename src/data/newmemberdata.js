@@ -329,7 +329,7 @@ export const memberData = {
       nickname: "Alya",
       team: "LOVE",
       photo: "ALYA_AMANDA.jpg",
-      graduated: false
+      graduated: True
     },
     {
       name: "Anindya Ramadhani",
