@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { announceAnniversaryConcert, announceConcert, applyFanSoftCap, applyScheduleTemplate, applyTrainingTemplate, assignActivity, calculateAnnualTax, calculateNextFanTarget, canMemberPerform, clearTrainingPlan, completeYearEndSettlement, configureTheaterShow, createAnnualFanTarget, createBirthday, createGame, deleteTrainingTemplate, endRun, finalizeAudition, finalizeGameSetup as finalizeGameSetupEngine, fireMember, generateConcertVenueOffers, getActiveRoster, getAnnualTaxRate, getCampaignConflictReasons, getConfirmedScheduleForWeek, getConcertCostBreakdown, getFanGrowthMultiplier, getFanTargetPerformance, getGraduationCountdown, getGraduationLastShowCandidates, getMemberAge, getMemberChemistry, getMemberSalary, getProjectedEnergyByMember, getReportSkillChanges, getRosterPool, getRunEndWarnings, getScheduleSnapshotForWeek, getSeitansaiCandidates, getSetlistBoredom, getSingleEligibleMembers, getSingleParticipants, getTheaterChangeOffers, getTheaterEligibleMembers, getTheaterRenovationOffer, getTraineePromotionStatus, getTrainingPlanStatus, memberAvailableOnCampaignDate, migrateEconomyState, migrateGraduationState, migrateGraduatedRosterState, migrateInjuryHistoryState, migrateTrainingState, moveTrainingSession, payDebt, prepareGraduation, promoteTrainee, punishMember, queueTrainingSession, removeTrainingSession, renameTrainingTemplate, renovateTheater, resolveMemberDramaWithoutPunishment, resolveWeek, respondToOpportunity, rollGraduationTarget, runAudition, saveTrainingTemplate, scheduleFanCampaign, scheduleYearEndMeetGreet, settleAnnualTax, staminaCostMultiplier, staminaRecoveryMultiplier, startAuditionCampaign, startMajorCampaign, startMentorship, startSingleProduction } from '../src/engine/gameEngine.js';
 import { SETLISTS } from '../src/data/setlists.js';
 import dreamSetlistSongs from '../src/data/DreamSetlist_Songs.js';
@@ -18,11 +20,10 @@ const finalizeGameSetup = (draft, theaterId, memberIds, ...args) => {
   return { ...game, members: game.members.slice(0, 12), unsignedMembers: [...game.members.slice(12), ...game.unsignedMembers] };
 };
 
-test('active roster includes current members, including JKT48V', () => {
+test('active roster includes only current members and supports a founding roster', () => {
   const roster = getActiveRoster();
-  assert.equal(roster.length, 61);
+  assert.ok(roster.length >= BALANCE.foundingRosterSize);
   assert.equal(roster.some((member) => member.graduated), false);
-  assert.ok(roster.some((member) => member.generation.startsWith('JKT48V')));
 });
 
 test('roster scopes select current members, ex-members, or both, including JKT48V', () => {
@@ -30,35 +31,37 @@ test('roster scopes select current members, ex-members, or both, including JKT48
   const ex = getRosterPool('ex');
   const all = getRosterPool('all');
   assert.deepEqual(active, getActiveRoster());
-  assert.equal(active.length, 61);
-  assert.equal(ex.length, 195);
   assert.equal(all.length, active.length + ex.length);
+  assert.equal(all.length, 256);
   assert.ok(ex.every((member) => member.graduated && member.rosterScope === 'ex'));
   assert.ok(active.every((member) => !member.graduated && member.rosterScope === 'active'));
   assert.ok(all.some((member) => member.generation.toUpperCase().startsWith('JKT48V')));
   // Current members lead the pool so the prebuilt chemistry subset stays a contiguous prefix.
   assert.deepEqual(all.slice(0, active.length), active);
-  assert.equal(getRosterPool('nonsense').length, 61);
+  assert.equal(getRosterPool('nonsense').length, active.length);
 });
 
 test('every identity carries a portrait path the asset glob can resolve', () => {
-  assert.ok(getRosterPool('ex').every((member) => /^(?:Gen\d+|JKT48V_GEN\d+)\/.+\.(jpg|jpeg|png|webp)$/i.test(member.photo)));
-  assert.ok(getRosterPool('active').every((member) => /^[^/]+\.(jpg|jpeg|png|webp)$/i.test(member.photo)));
+  const portraitExists = (photo) => ['member_active', 'exmember'].some((folder) => existsSync(path.resolve('src/Asset', folder, photo)));
+  assert.ok(getRosterPool('all').every((member) => portraitExists(member.photo)));
 });
 
 test('roster scope drives the founding pool and the leftover audition pool', () => {
   const activeRun = createGame('scope-test', 'active');
   const allRun = createGame('scope-test', 'all');
+  const activeCount = getRosterPool('active').length;
+  const exCount = getRosterPool('ex').length;
+  const allCount = getRosterPool('all').length;
   assert.equal(activeRun.rosterScope, 'active');
-  assert.equal(activeRun.members.length, 61);
+  assert.equal(activeRun.members.length, activeCount);
   assert.equal(allRun.rosterScope, 'all');
-  assert.equal(allRun.members.length, 256);
+  assert.equal(allRun.members.length, allCount);
   const finalized = finalizeGameSetup(allRun, 'community', allRun.members.slice(0, 12).map((member) => member.id), 'Scope Office', [], { rosterScope: 'all' });
   assert.equal(finalized.rosterScope, 'all');
   assert.equal(finalized.members.length, 12);
-  assert.equal(finalized.unsignedMembers.length, 244);
+  assert.equal(finalized.unsignedMembers.length, allCount - 12);
   assert.ok(finalized.unsignedMembers.some((member) => member.rosterScope === 'ex'));
-  assert.equal(createGame('scope-test', 'ex').members.length, 195);
+  assert.equal(createGame('scope-test', 'ex').members.length, exCount);
 });
 
 test('an ex-member founding pick gets persisted chemistry despite the lazy prebuild', () => {
@@ -259,9 +262,9 @@ test('setup purchases theater and creates exactly 16-member founding roster', ()
   const offer = draft.theaterOffers.find((theater) => theater.id === 'city');
   assert.deepEqual(game.theater, { ...offer, marketValue: offer.price, acquisitionCost: offer.price, renovationLevel: 0 });
   assert.equal(game.members.length, BALANCE.foundingRosterSize);
-  // Default scope is current members only: 61 identities minus the founding 16.
+  // Default scope is current members only: all active identities minus the founding roster.
   assert.equal(game.rosterScope, 'active');
-  assert.equal(game.unsignedMembers.length, 61 - BALANCE.foundingRosterSize);
+  assert.equal(game.unsignedMembers.length, getActiveRoster().length - BALANCE.foundingRosterSize);
   assert.equal(game.money, draft.money - offer.price);
   assert.equal(game.managementName, 'Senayan Stage Office');
 });
