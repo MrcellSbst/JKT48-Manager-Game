@@ -657,7 +657,7 @@ export const memberData = {
       nickname: "Pia",
       team: "JKT48_VIRTUAL",
       photo: "PIA_MERALEO.jpg",
-      graduated: false
+      graduated: true
     },
     {
       name: "Tana Nona",
