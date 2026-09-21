@@ -7,3 +7,5 @@ dist/
 *.csv
 *.csv
 output.csv
+design-direction.md
+test/JKT48-Manager-Game.code-workspace
