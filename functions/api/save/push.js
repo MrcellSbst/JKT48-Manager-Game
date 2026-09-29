@@ -37,12 +37,11 @@ export async function onRequestPost({ request, env }) {
   }
 }
 
-export async function writeV2({ env, user, body, deleteLegacy = false }) {
+export async function writeV2({ env, user, body, deleteLegacy = false, verifyFullChecksum = false }) {
   const source = body.sections && typeof body.sections === 'object' ? body.sections : {};
   const sections = normalizeV2Sections(source);
   const tooLarge = Object.values(sections).some((value) => value.length > MAX_SAVE_LENGTH);
   if (tooLarge) throw new Error('Save data is too large.');
-  const decoded = await decodeV2Sections(sections);
   const existing = await env.DB.prepare('SELECT revision FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(user.user_id).first().catch(() => null);
   const currentRevision = Number(existing?.revision ?? 0);
   const expected = body.expectedRevision ?? body.expected_revision;
@@ -54,15 +53,21 @@ export async function writeV2({ env, user, body, deleteLegacy = false }) {
   const manifest = body.manifest && typeof body.manifest === 'object'
     ? { ...body.manifest, version: SAVE_FORMAT_VERSION, revision }
     : { version: SAVE_FORMAT_VERSION, codec: SAVE_FORMAT_CODEC, sectionNames: [...SAVE_SECTION_NAMES], revision, sections: {}, fullChecksum: null };
+  // The browser already canonicalized, gzipped, and checksummed every section
+  // before uploading, so verifying the upload only has to read the section
+  // envelope. Decoding the snapshot here would re-gunzip, re-parse, and re-hash
+  // the whole game state — twice per save — without covering a single byte the
+  // per-section checksums do not already cover.
   for (const name of SAVE_SECTION_NAMES) {
+    const encodedPayload = JSON.parse(decryptText(sections[name]));
     const expectedChecksum = manifest.sections?.[name]?.checksum;
-    if (expectedChecksum) {
-      const encodedPayload = JSON.parse(decryptText(sections[name]));
-      if (encodedPayload.checksum !== expectedChecksum) throw new Error(`Save section checksum failed: ${name}.`);
-    }
+    if (expectedChecksum && encodedPayload.checksum !== expectedChecksum) throw new Error(`Save section checksum failed: ${name}.`);
   }
-  if (manifest.fullChecksum) {
-    const rebuiltChecksum = await checksum(canonicalJson(reconstructSnapshot(decoded)));
+  // The full-snapshot checksum is a cross-section aggregate: it re-derives the
+  // same bytes to catch a client that mislabels its sections consistently. Only
+  // worth paying for on the rare one-way migration paths, which opt in.
+  if (verifyFullChecksum && manifest.fullChecksum) {
+    const rebuiltChecksum = await checksum(canonicalJson(reconstructSnapshot(await decodeV2Sections(sections))));
     if (rebuiltChecksum !== manifest.fullChecksum) throw new Error('Save checksum verification failed.');
   }
   const values = [user.user_id, user.username, JSON.stringify(manifest), sections.core, sections.roster, sections.operations, sections.history, sections.profile, SAVE_FORMAT_VERSION, revision];

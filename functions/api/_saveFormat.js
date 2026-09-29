@@ -1,9 +1,32 @@
 const SAVE_KEY = 'JKT48ManagerSaveKey48';
+const SAVE_KEY_BYTES = new TextEncoder().encode(SAVE_KEY);
 
 export const SAVE_FORMAT_VERSION = 2;
 export const SAVE_FORMAT_CODEC = 'gzip-xor-v1';
 export const SAVE_SECTION_NAMES = Object.freeze(['core', 'roster', 'operations', 'history', 'profile']);
 export const MAX_SECTION_LENGTH = 8_000_000;
+
+// Save sections are routinely multi-megabyte, so every byte/string conversion
+// below runs over the whole payload. Building the binary string one character
+// at a time makes V8 reallocate and recons the rope on each append, and
+// `Uint8Array.from` invokes its mapper once per character. Both are replaced by
+// chunked / index-assignment equivalents that produce identical output.
+const BINARY_CHUNK = 8192;
+
+function toBinaryString(bytes) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += BINARY_CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + BINARY_CHUNK));
+  }
+  return binary;
+}
+
+function fromBinaryString(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
 
 const ROSTER_KEYS = new Set(['members', 'formerMembers', 'graduatedMembers', 'releasedMembers', 'rosterPool', 'unsignedMembers', 'rosterHistory', 'memberHistory', 'injuryHistory', 'relationships', 'memberRelationships', 'mentorships', 'dramas', 'dramaHistory', 'auditionCandidates', 'auditionPool', 'memberIncarnations', 'traineeProgress', 'chemistry', 'mentorshipHistory', 'promotions', 'graduations', 'departures', 'graduationTargets', 'seitansaiObligations', 'auditions', 'auditionCampaign']);
 const OPERATION_KEYS = new Set(['schedule', 'scheduleTemplates', 'trainingPlans', 'trainingTemplates', 'campaigns', 'activeCampaigns', 'singleProductions', 'singles', 'mvs', 'concerts', 'fanEvents', 'opportunities', 'theater', 'theaterShows', 'setlists', 'pendingYearEndSettlement', 'audition', 'auditionState', 'graduationPlans', 'yearEndMeetGreets', 'fanEventPlans', 'nextCampaignConfig', 'pendingOpportunity', 'concertVenueOffers', 'loans', 'loanOffers', 'ledger', 'renovations']);
@@ -31,20 +54,16 @@ export async function checksum(value) {
 export function encryptText(value) {
   const payload = JSON.stringify({ d: value, c: legacyChecksum(value) });
   const payloadBytes = new TextEncoder().encode(payload);
-  const keyBytes = new TextEncoder().encode(SAVE_KEY);
   const encrypted = new Uint8Array(payloadBytes.length);
-  for (let index = 0; index < payloadBytes.length; index += 1) encrypted[index] = payloadBytes[index] ^ keyBytes[index % keyBytes.length];
-  let binary = ''; for (const byte of encrypted) binary += String.fromCharCode(byte);
-  return btoa(binary);
+  for (let index = 0; index < payloadBytes.length; index += 1) encrypted[index] = payloadBytes[index] ^ SAVE_KEY_BYTES[index % SAVE_KEY_BYTES.length];
+  return btoa(toBinaryString(encrypted));
 }
 
 export function decryptText(value) {
   try {
-    const binary = atob(String(value));
-    const encrypted = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const keyBytes = new TextEncoder().encode(SAVE_KEY);
+    const encrypted = fromBinaryString(String(value));
     const payloadBytes = new Uint8Array(encrypted.length);
-    for (let index = 0; index < encrypted.length; index += 1) payloadBytes[index] = encrypted[index] ^ keyBytes[index % keyBytes.length];
+    for (let index = 0; index < encrypted.length; index += 1) payloadBytes[index] = encrypted[index] ^ SAVE_KEY_BYTES[index % SAVE_KEY_BYTES.length];
     const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
     if (typeof payload.d !== 'string' || legacyChecksum(payload.d) !== payload.c) throw new Error('Checksum verification failed.');
     return payload.d;
@@ -74,8 +93,8 @@ export function reconstructSnapshot(sections) {
   return { ...(core.topLevel ?? {}), activeRun, metaProfile: sections?.profile?.metaProfile ?? null };
 }
 
-function toBase64(bytes) { let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary); }
-function fromBase64(value) { const binary = atob(value); return Uint8Array.from(binary, (character) => character.charCodeAt(0)); }
+function toBase64(bytes) { return btoa(toBinaryString(bytes)); }
+function fromBase64(value) { return fromBinaryString(value); }
 
 async function encodeSection(value) {
   const plain = canonicalJson(value);

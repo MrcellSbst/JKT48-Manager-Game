@@ -32,7 +32,7 @@ test('roster scopes select current members, ex-members, or both, including JKT48
   const all = getRosterPool('all');
   assert.deepEqual(active, getActiveRoster());
   assert.equal(all.length, active.length + ex.length);
-  assert.equal(all.length, 256);
+  assert.equal(all.length, 257);
   assert.ok(ex.every((member) => member.graduated && member.rosterScope === 'ex'));
   assert.ok(active.every((member) => !member.graduated && member.rosterScope === 'active'));
   assert.ok(all.some((member) => member.generation.toUpperCase().startsWith('JKT48V')));

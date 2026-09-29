@@ -11,6 +11,27 @@ export const CORE_PERMISSION_FIELDS = Object.freeze([
 
 const CODE_PATTERN = /^[A-Z0-9_-]{3,64}$/;
 const SAVE_KEY = 'JKT48ManagerSaveKey48';
+const SAVE_KEY_BYTES = new TextEncoder().encode(SAVE_KEY);
+
+// Legacy save blobs are whole snapshots, so base64 conversion is a multi-
+// megabyte string build. Chunked conversion avoids reallocating the string on
+// every character the way per-byte concatenation does.
+const BINARY_CHUNK = 8192;
+
+function toBinaryString(bytes) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += BINARY_CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + BINARY_CHUNK));
+  }
+  return binary;
+}
+
+function fromBinaryString(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
 
 export function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -277,11 +298,9 @@ export function applyMemberVoucherAdjustment(member, stat, adjustment) {
 
 export function decryptSnapshot(saveData) {
   try {
-    const binary = atob(saveData);
-    const encrypted = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const keyBytes = new TextEncoder().encode(SAVE_KEY);
+    const encrypted = fromBinaryString(saveData);
     const payloadBytes = new Uint8Array(encrypted.length);
-    for (let index = 0; index < encrypted.length; index += 1) payloadBytes[index] = encrypted[index] ^ keyBytes[index % keyBytes.length];
+    for (let index = 0; index < encrypted.length; index += 1) payloadBytes[index] = encrypted[index] ^ SAVE_KEY_BYTES[index % SAVE_KEY_BYTES.length];
     const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
     if (typeof payload.d !== 'string' || checksum(payload.d) !== payload.c) throw new Error('Invalid save checksum.');
     return JSON.parse(payload.d);
@@ -294,12 +313,9 @@ export function encryptSnapshot(snapshot) {
   const data = JSON.stringify(snapshot);
   const payload = JSON.stringify({ d: data, c: checksum(data) });
   const payloadBytes = new TextEncoder().encode(payload);
-  const keyBytes = new TextEncoder().encode(SAVE_KEY);
   const encrypted = new Uint8Array(payloadBytes.length);
-  for (let index = 0; index < payloadBytes.length; index += 1) encrypted[index] = payloadBytes[index] ^ keyBytes[index % keyBytes.length];
-  let binary = '';
-  for (const byte of encrypted) binary += String.fromCharCode(byte);
-  return btoa(binary);
+  for (let index = 0; index < payloadBytes.length; index += 1) encrypted[index] = payloadBytes[index] ^ SAVE_KEY_BYTES[index % SAVE_KEY_BYTES.length];
+  return btoa(toBinaryString(encrypted));
 }
 
 function checksum(value) {

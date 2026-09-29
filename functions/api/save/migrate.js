@@ -26,7 +26,9 @@ export async function onRequestPost({ request, env }) {
     const sections = await decodeV2Sections(body.sections ?? body);
     const migratedSnapshot = reconstructSnapshot(sections);
     if (!snapshotsEquivalent(sourceSnapshot, migratedSnapshot)) return json({ error: 'Migration verification failed: the converted save does not match the legacy save.', code: 'migration_mismatch' }, 409);
-    const result = await writeV2({ env, user, body, deleteLegacy: true });
+    // One-way conversion of the only remaining recovery copy, so this is the one
+    // path that still pays for a full-snapshot re-derivation before writing.
+    const result = await writeV2({ env, user, body, deleteLegacy: true, verifyFullChecksum: true });
     return json({ ...result, migrated: true, legacyDeleted: true, verified: true });
   } catch (error) {
     return json({ error: error.message || 'Migration verification failed.', code: 'migration_failed' }, 409);
