@@ -1,4 +1,4 @@
-import { applyMemberVoucherAdjustment, capMemberVoucherAdjustment, createId, EDITABLE_MEMBER_STATS, encryptSnapshot, errorResponse, getMemberVoucherState, loadSnapshot, parseJson, requireUser, VoucherError } from '../_voucher.js';
+import { applyMemberVoucherAdjustment, capMemberVoucherAdjustment, createId, EDITABLE_MEMBER_STATS, errorResponse, getMemberVoucherState, loadSnapshot, parseJson, requireUser, VoucherError } from '../_voucher.js';
 import { buildV2Payload } from '../_saveFormat.js';
 
 function normalizeEdits(body) {
@@ -78,30 +78,20 @@ export async function onRequestPost({ request, env }) {
     const newPointsUsed = pointsUsed + pointsCost;
     const newStatus = newPointsUsed >= Number(row.points_total) ? 'depleted' : 'active';
     const timestamp = new Date().toISOString();
-    let statements;
-    if (loadedSave.format === 2) {
-      const expectedRevision = Number(saveRow.revision ?? 0);
-      const nextRevision = expectedRevision + 1;
-      const payload = await buildV2Payload(nextSnapshot, { revision: nextRevision, updatedAt: Date.now() });
-      statements = [
-        env.DB.prepare(`UPDATE voucher_redemptions SET points_used = ?, status = ?, updated_at = ? WHERE redemption_id = ? AND user_id = ? AND points_used = ? AND status = 'active' AND EXISTS (SELECT 1 FROM jkt48_manager_data_v2 WHERE user_id = ? AND revision = ?)`)
-          .bind(newPointsUsed, newStatus, timestamp, redemptionId, user.user_id, pointsUsed, user.user_id, expectedRevision),
-        env.DB.prepare(`UPDATE jkt48_manager_data_v2 SET manifest = ?, roster = ?, revision = ?, updated_at = datetime('now') WHERE user_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM voucher_redemptions WHERE redemption_id = ? AND user_id = ? AND points_used = ?)`)
-          .bind(JSON.stringify(payload.manifest), payload.sections.roster, nextRevision, user.user_id, expectedRevision, redemptionId, user.user_id, newPointsUsed),
-        ...editRecords.map((record) => env.DB.prepare(`INSERT INTO voucher_edit_log (edit_id, redemption_id, voucher_id, user_id, member_id, stat, base_value_at_edit, voucher_adjustment_before, voucher_adjustment_after, display_value_before, display_value_after, delta, points_used, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM jkt48_manager_data_v2 WHERE user_id = ? AND revision = ?)`)
-          .bind(record.editId, redemptionId, row.voucher_id, user.user_id, memberId, record.stat, record.current.baseValue, record.current.adjustment, record.nextAdjustment, record.current.displayValue, record.nextDisplay, record.delta, record.pointsCost, timestamp, user.user_id, nextRevision)),
-      ];
-    } else {
-      const encrypted = encryptSnapshot({ ...nextSnapshot, savedAt: Date.now() });
-      statements = [
-        env.DB.prepare(`UPDATE voucher_redemptions SET points_used = ?, status = ?, updated_at = ? WHERE redemption_id = ? AND user_id = ? AND points_used = ? AND status = 'active' AND EXISTS (SELECT 1 FROM jkt48_manager_data WHERE user_id = ? AND save_data = ?)`)
-          .bind(newPointsUsed, newStatus, timestamp, redemptionId, user.user_id, pointsUsed, user.user_id, saveRow.save_data),
-        env.DB.prepare(`UPDATE jkt48_manager_data SET save_data = ?, updated_at = datetime('now') WHERE user_id = ? AND save_data = ? AND EXISTS (SELECT 1 FROM voucher_redemptions WHERE redemption_id = ? AND user_id = ? AND points_used = ?)`)
-          .bind(encrypted, user.user_id, saveRow.save_data, redemptionId, user.user_id, newPointsUsed),
-        ...editRecords.map((record) => env.DB.prepare(`INSERT INTO voucher_edit_log (edit_id, redemption_id, voucher_id, user_id, member_id, stat, base_value_at_edit, voucher_adjustment_before, voucher_adjustment_after, display_value_before, display_value_after, delta, points_used, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM jkt48_manager_data WHERE user_id = ? AND save_data = ?)`)
-          .bind(record.editId, redemptionId, row.voucher_id, user.user_id, memberId, record.stat, record.current.baseValue, record.current.adjustment, record.nextAdjustment, record.current.displayValue, record.nextDisplay, record.delta, record.pointsCost, timestamp, user.user_id, encrypted)),
-      ];
-    }
+    const expectedRevision = Number(saveRow.revision ?? 0);
+    const nextRevision = expectedRevision + 1;
+    const payload = await buildV2Payload(nextSnapshot, { revision: nextRevision, updatedAt: Date.now() });
+    // Insert this operation's unique edit IDs while both original revisions
+    // still match. The following writes require that marker, so a concurrent
+    // save cannot leave a log entry for an edit that was rejected.
+    const statements = [
+      ...editRecords.map((record) => env.DB.prepare(`INSERT INTO voucher_edit_log (edit_id, redemption_id, voucher_id, user_id, member_id, stat, base_value_at_edit, voucher_adjustment_before, voucher_adjustment_after, display_value_before, display_value_after, delta, points_used, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM jkt48_manager_data_v2 WHERE user_id = ? AND revision = ?) AND EXISTS (SELECT 1 FROM voucher_redemptions WHERE redemption_id = ? AND user_id = ? AND points_used = ? AND status = 'active')`)
+        .bind(record.editId, redemptionId, row.voucher_id, user.user_id, memberId, record.stat, record.current.baseValue, record.current.adjustment, record.nextAdjustment, record.current.displayValue, record.nextDisplay, record.delta, record.pointsCost, timestamp, user.user_id, expectedRevision, redemptionId, user.user_id, pointsUsed)),
+      env.DB.prepare(`UPDATE voucher_redemptions SET points_used = ?, status = ?, updated_at = ? WHERE redemption_id = ? AND user_id = ? AND points_used = ? AND status = 'active' AND EXISTS (SELECT 1 FROM voucher_edit_log WHERE edit_id = ?)`)
+        .bind(newPointsUsed, newStatus, timestamp, redemptionId, user.user_id, pointsUsed, editRecords[0].editId),
+      env.DB.prepare(`UPDATE jkt48_manager_data_v2 SET manifest = ?, roster = ?, revision = ?, updated_at = datetime('now') WHERE user_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM voucher_edit_log WHERE edit_id = ?) AND EXISTS (SELECT 1 FROM voucher_redemptions WHERE redemption_id = ? AND user_id = ? AND points_used = ?)`)
+        .bind(JSON.stringify(payload.manifest), payload.sections.roster, nextRevision, user.user_id, expectedRevision, editRecords[0].editId, redemptionId, user.user_id, newPointsUsed),
+    ];
     const batch = await env.DB.batch(statements);
     if (batch.some((result) => (result?.meta?.changes ?? 0) !== 1)) throw new VoucherError('The save changed while this edit was being applied. Reload and try again.', 409, 'edit_conflict');
     const appliedEdits = editRecords.map((record) => ({ editId: record.editId, stat: record.stat, requestedDelta: record.delta, appliedDelta: record.appliedDelta }));

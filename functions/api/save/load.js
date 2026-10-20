@@ -8,12 +8,7 @@ export async function onRequestGet({ request, env }) {
   if (!user) return json({ error: 'Not authenticated.' }, 401);
   const wantsV2 = new URL(request.url).searchParams.get('format') === '2';
 
-  let v2 = null;
-  try {
-    v2 = await env.DB.prepare(`SELECT ${V2_COLUMNS.join(', ')} FROM jkt48_manager_data_v2 WHERE user_id = ?`).bind(user.user_id).first();
-  } catch {
-    // Existing deployments may not have run the v2 migration yet.
-  }
+  const v2 = await env.DB.prepare(`SELECT ${V2_COLUMNS.join(', ')} FROM jkt48_manager_data_v2 WHERE user_id = ?`).bind(user.user_id).first();
   if (v2?.manifest) {
     if (!wantsV2) {
       const snapshot = reconstructSnapshot(await decodeV2Sections(v2));
@@ -29,9 +24,8 @@ export async function onRequestGet({ request, env }) {
     });
   }
 
-  const legacy = await env.DB.prepare('SELECT save_data, updated_at FROM jkt48_manager_data WHERE user_id = ?').bind(user.user_id).first();
-  if (!legacy?.save_data) return json({ exists: false }, 404);
-  return json(wantsV2 ? { exists: true, migrationRequired: true, format: 1, data: legacy } : { exists: true, data: legacy });
+  if (v2) throw new Error('Cloud save manifest is missing.');
+  return json({ exists: false }, 404);
 }
 
 function parseJson(value, fallback) {

@@ -10,7 +10,6 @@
     "localization:audit": "node scripts/localization-audit.mjs",
     "db:migrate:local": "wrangler d1 migrations apply gacha-jkt48 --local",
     "db:migrate:remote": "wrangler d1 migrations apply gacha-jkt48 --remote",
-    "db:migrate:saves": "node scripts/migrate-cloud-saves.mjs",
     "preview": "vite preview",
     "pages:dev": "npm run build && wrangler pages dev",
     "pages:deploy": "npm run build && wrangler pages deploy"

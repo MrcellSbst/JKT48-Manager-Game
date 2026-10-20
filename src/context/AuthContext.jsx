@@ -3,7 +3,6 @@ import { clearLocalDatabase, getLegacyRecoveryData, getLocalSnapshot, getV2Recov
 import { canonicalJson, decodeSnapshot, encodeSnapshot } from '../state/saveFormat.js';
 import { compareSaveFreshness } from '../state/saveFreshness.js';
 import { normalizeSnapshot } from '../state/gameStateMigration.js';
-import { simpleDecrypt } from '../utils/crypto.js';
 
 const AuthContext = createContext(null);
 const IDLE_MIGRATION = { status: 'idle', stage: '', progress: null, completed: 0, total: 5, error: '', canDownloadRecovery: false };
@@ -130,35 +129,7 @@ export function AuthProvider({ children }) {
       }
       return { snapshot, updatedAt: result.updated_at ?? null };
     }
-    const legacyData = result.data?.save_data;
-    if (!result.migrationRequired || !legacyData) throw new Error('Cloud save format is not supported.');
-    const migrate = async (onProgress) => {
-      onProgress({ stage: 'reading', progress: 0.05 });
-      const legacySnapshot = JSON.parse(simpleDecrypt(legacyData));
-      onProgress({ stage: 'normalizing', progress: 0.12 });
-      const snapshot = normalizeSnapshot(legacySnapshot);
-      // First convert the untouched legacy snapshot so the server can prove
-      // semantic equivalence before deleting its only legacy recovery copy.
-      const encoded = await encodeSnapshot(legacySnapshot, { onProgress: (event) => onProgress({ ...event, progress: 0.12 + (event.progress ?? 0) * 0.38 }) });
-      onProgress({ stage: 'writing', progress: 0.72 });
-      const migrated = await request('/api/save/migrate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 2, manifest: encoded.manifest, sections: encoded.sections }) });
-      if (!migrated.alreadyMigrated && (!migrated.verified || !migrated.legacyDeleted)) throw new Error('Cloud migration did not confirm verification and cleanup.');
-      onProgress({ stage: 'reading-back', progress: 0.84 });
-      let stored = await request('/api/save/load?format=2');
-      const rebuiltLegacy = await decodeSnapshot({ manifest: stored.manifest, sections: stored.sections });
-      if (canonicalJson(rebuiltLegacy) !== canonicalJson(legacySnapshot)) throw new Error('Cloud save read-back did not match the legacy save.');
-      // Persist the normalized game schema as a second revision. If this step
-      // is interrupted, the already verified v2 legacy snapshot remains safe.
-      const normalizedEncoded = await encodeSnapshot(snapshot, { onProgress: (event) => onProgress({ ...event, progress: 0.84 + (event.progress ?? 0) * 0.08 }) });
-      await request('/api/save/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format: 2, manifest: normalizedEncoded.manifest, sections: normalizedEncoded.sections, expectedRevision: stored.revision }) });
-      stored = await request('/api/save/load?format=2');
-      const rebuilt = normalizeSnapshot(await decodeSnapshot({ manifest: stored.manifest, sections: stored.sections, onProgress: (event) => onProgress({ ...event, progress: 0.92 + (event.progress ?? 0) * 0.06 }) }));
-      if (canonicalJson(rebuilt) !== canonicalJson(snapshot)) throw new Error('Cloud save read-back did not match the normalized save.');
-      onProgress({ stage: 'removing', progress: 1 });
-      cloudRevisionRef.current = Number(stored.revision ?? migrated.revision ?? 1);
-      return { snapshot: rebuilt, updatedAt: stored.updated_at ?? migrated.updated_at ?? null };
-    };
-    return runMigration(migrate, { recoveryData: legacyData, onRetryComplete });
+    throw new Error('Cloud save format is not supported.');
   }, [runMigration]);
 
   const uploadLocalSnapshot = useCallback(() => {

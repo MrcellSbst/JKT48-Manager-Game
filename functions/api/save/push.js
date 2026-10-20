@@ -1,5 +1,5 @@
 import { getSessionUser } from '../_session.js';
-import { buildV2Payload, canonicalJson, checksum, decodeV2Sections, decryptText, normalizeV2Sections, parseEncryptedSnapshot, reconstructSnapshot, SAVE_FORMAT_CODEC, SAVE_FORMAT_VERSION, SAVE_SECTION_NAMES, snapshotsEquivalent } from '../_saveFormat.js';
+import { buildV2Payload, decodeV2Sections, decryptText, normalizeV2Sections, parseEncryptedSnapshot, reconstructSnapshot, SAVE_FORMAT_CODEC, SAVE_FORMAT_VERSION, SAVE_SECTION_NAMES, snapshotsEquivalent } from '../_saveFormat.js';
 
 const MAX_SAVE_LENGTH = 8_000_000;
 
@@ -9,40 +9,41 @@ export async function onRequestPost({ request, env }) {
 
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid request body.' }, 400); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Invalid request body.' }, 400);
 
   if (Number(body.format) === SAVE_FORMAT_VERSION || body.sections) {
     try {
       const result = await writeV2({ env, user, body });
       return json(result);
     } catch (error) {
-      if (error?.code) return json({ error: error.message, code: error.code }, error.status);
+      if (error?.code && error.status) return json({ error: error.message, code: error.code }, error.status);
       return json({ error: error.message || 'Save data could not be stored.' }, /too large/i.test(error.message) ? 413 : 400);
     }
   }
 
   // Cached pre-v2 clients still send one encrypted blob. Convert it directly
-  // into v2; never recreate the legacy row after that account has migrated.
+  // into v2 without reading or recreating the retired cloud table.
   if (typeof body.save_data !== 'string' || body.save_data.length === 0) return json({ error: 'Encrypted save data is required.' }, 400);
   if (body.save_data.length > MAX_SAVE_LENGTH) return json({ error: 'Save data is too large.' }, 413);
   try {
     const snapshot = parseEncryptedSnapshot(body.save_data);
     const payload = await buildV2Payload(snapshot, { revision: 1 });
-    const result = await writeV2({ env, user, body: { ...body, ...payload, format: 2 } });
+    const result = await writeV2({ env, user, body: { ...body, ...payload, format: 2, revision: undefined } });
     const stored = await env.DB.prepare('SELECT core, roster, operations, history, profile FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(user.user_id).first();
     if (!snapshotsEquivalent(snapshot, reconstructSnapshot(await decodeV2Sections(stored)))) throw new Error('Legacy save conversion verification failed.');
-    await env.DB.prepare('DELETE FROM jkt48_manager_data WHERE user_id = ?').bind(user.user_id).run();
-    return json({ ...result, migrated: true, legacyDeleted: true, verified: true });
+    return json({ ...result, migrated: true, verified: true });
   } catch (error) {
-    return json({ error: error.message || 'Legacy save migration failed.' }, 400);
+    if (error?.code && error.status) return json({ error: error.message, code: error.code }, error.status);
+    return json({ error: error.message || 'Legacy save conversion failed.' }, /too large/i.test(error.message) ? 413 : 400);
   }
 }
 
-export async function writeV2({ env, user, body, deleteLegacy = false, verifyFullChecksum = false }) {
+export async function writeV2({ env, user, body }) {
   const source = body.sections && typeof body.sections === 'object' ? body.sections : {};
   const sections = normalizeV2Sections(source);
   const tooLarge = Object.values(sections).some((value) => value.length > MAX_SAVE_LENGTH);
   if (tooLarge) throw new Error('Save data is too large.');
-  const existing = await env.DB.prepare('SELECT revision FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(user.user_id).first().catch(() => null);
+  const existing = await env.DB.prepare('SELECT revision FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(user.user_id).first();
   const currentRevision = Number(existing?.revision ?? 0);
   const expected = body.expectedRevision ?? body.expected_revision;
   if (expected !== undefined && Number(expected) !== currentRevision) {
@@ -63,13 +64,6 @@ export async function writeV2({ env, user, body, deleteLegacy = false, verifyFul
     const expectedChecksum = manifest.sections?.[name]?.checksum;
     if (expectedChecksum && encodedPayload.checksum !== expectedChecksum) throw new Error(`Save section checksum failed: ${name}.`);
   }
-  // The full-snapshot checksum is a cross-section aggregate: it re-derives the
-  // same bytes to catch a client that mislabels its sections consistently. Only
-  // worth paying for on the rare one-way migration paths, which opt in.
-  if (verifyFullChecksum && manifest.fullChecksum) {
-    const rebuiltChecksum = await checksum(canonicalJson(reconstructSnapshot(await decodeV2Sections(sections))));
-    if (rebuiltChecksum !== manifest.fullChecksum) throw new Error('Save checksum verification failed.');
-  }
   const values = [user.user_id, user.username, JSON.stringify(manifest), sections.core, sections.roster, sections.operations, sections.history, sections.profile, SAVE_FORMAT_VERSION, revision];
   const statements = [env.DB.prepare(`INSERT INTO jkt48_manager_data_v2
       (user_id, username, manifest, core, roster, operations, history, profile, format_version, revision, updated_at)
@@ -79,16 +73,6 @@ export async function writeV2({ env, user, body, deleteLegacy = false, verifyFul
       profile = excluded.profile, format_version = excluded.format_version, revision = excluded.revision,
       updated_at = datetime('now')`).bind(...values)];
   await env.DB.batch(statements);
-  if (deleteLegacy) {
-    const legacy = await env.DB.prepare('SELECT save_data FROM jkt48_manager_data WHERE user_id = ?').bind(user.user_id).first();
-    if (!legacy?.save_data) throw new Error('Legacy save disappeared before migration cleanup.');
-    // Read-back and reconstruct the newly written sections before deleting the
-    // only legacy recovery copy.
-    const row = await env.DB.prepare('SELECT core, roster, operations, history, profile FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(user.user_id).first();
-    const rebuilt = reconstructSnapshot(await decodeV2Sections(row));
-    if (!snapshotsEquivalent(parseEncryptedSnapshot(legacy.save_data), rebuilt)) throw new Error('Migration verification failed.');
-    await env.DB.prepare('DELETE FROM jkt48_manager_data WHERE user_id = ?').bind(user.user_id).run();
-  }
   return { ok: true, format: SAVE_FORMAT_VERSION, revision, updated_at: new Date().toISOString() };
 }
 

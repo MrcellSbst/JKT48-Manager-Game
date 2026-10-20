@@ -10,28 +10,6 @@ export const CORE_PERMISSION_FIELDS = Object.freeze([
 ]);
 
 const CODE_PATTERN = /^[A-Z0-9_-]{3,64}$/;
-const SAVE_KEY = 'JKT48ManagerSaveKey48';
-const SAVE_KEY_BYTES = new TextEncoder().encode(SAVE_KEY);
-
-// Legacy save blobs are whole snapshots, so base64 conversion is a multi-
-// megabyte string build. Chunked conversion avoids reallocating the string on
-// every character the way per-byte concatenation does.
-const BINARY_CHUNK = 8192;
-
-function toBinaryString(bytes) {
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += BINARY_CHUNK) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(offset, offset + BINARY_CHUNK));
-  }
-  return binary;
-}
-
-function fromBinaryString(value) {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
 
 export function json(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -296,40 +274,11 @@ export function applyMemberVoucherAdjustment(member, stat, adjustment) {
   return { ...member, [stat]: Math.round((current.baseValue + cappedAdjustment) * 10) / 10, voucherAdjustments, voucherBaseStats };
 }
 
-export function decryptSnapshot(saveData) {
-  try {
-    const encrypted = fromBinaryString(saveData);
-    const payloadBytes = new Uint8Array(encrypted.length);
-    for (let index = 0; index < encrypted.length; index += 1) payloadBytes[index] = encrypted[index] ^ SAVE_KEY_BYTES[index % SAVE_KEY_BYTES.length];
-    const payload = JSON.parse(new TextDecoder().decode(payloadBytes));
-    if (typeof payload.d !== 'string' || checksum(payload.d) !== payload.c) throw new Error('Invalid save checksum.');
-    return JSON.parse(payload.d);
-  } catch {
-    throw new VoucherError('The account save could not be updated. Load the game once and try again.', 409, 'save_unavailable');
-  }
-}
-
-export function encryptSnapshot(snapshot) {
-  const data = JSON.stringify(snapshot);
-  const payload = JSON.stringify({ d: data, c: checksum(data) });
-  const payloadBytes = new TextEncoder().encode(payload);
-  const encrypted = new Uint8Array(payloadBytes.length);
-  for (let index = 0; index < payloadBytes.length; index += 1) encrypted[index] = payloadBytes[index] ^ SAVE_KEY_BYTES[index % SAVE_KEY_BYTES.length];
-  return btoa(toBinaryString(encrypted));
-}
-
-function checksum(value) {
-  let total = 0;
-  for (let index = 0; index < value.length; index += 1) total = (total + value.charCodeAt(index) * (index + 1)) % 1_000_000;
-  return total;
-}
-
 export async function loadSnapshot(env, userId) {
-  const v2 = await env.DB.prepare('SELECT manifest, core, roster, operations, history, profile, revision, updated_at FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(userId).first().catch(() => null);
-  if (v2?.manifest) return { row: v2, snapshot: reconstructSnapshot(await decodeV2Sections(v2)), format: 2 };
-  const row = await env.DB.prepare('SELECT save_data, updated_at FROM jkt48_manager_data WHERE user_id = ?').bind(userId).first();
-  if (!row?.save_data) throw new VoucherError('No account save exists yet. Start or save a run before using a voucher.', 409, 'save_unavailable');
-  return { row, snapshot: decryptSnapshot(row.save_data), format: 1 };
+  const row = await env.DB.prepare('SELECT manifest, core, roster, operations, history, profile, revision, updated_at FROM jkt48_manager_data_v2 WHERE user_id = ?').bind(userId).first();
+  if (!row) throw new VoucherError('No account save exists yet. Start or save a run before using a voucher.', 409, 'save_unavailable');
+  if (!row.manifest) throw new VoucherError('The account save could not be updated. Load the game once and try again.', 409, 'save_unavailable');
+  return { row, snapshot: reconstructSnapshot(await decodeV2Sections(row)), format: 2 };
 }
 
 export function buildVoucherInsert(voucher, userId, now = new Date().toISOString()) {

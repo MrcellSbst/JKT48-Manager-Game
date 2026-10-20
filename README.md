@@ -69,7 +69,9 @@ npm test
 
 The repository includes `wrangler.jsonc`, uses `dist` as the Pages build output directory, and shares the existing `gacha-jkt48` D1 binding for `user_h` authentication.
 
-Create the Manager save and voucher tables before deployment (the script is idempotent):
+`schema.sql` defines the current Manager and voucher tables. Its cloud-save schema creates only `jkt48_manager_data_v2`.
+
+For a new database, create the tables before deployment:
 
 ```bash
 npx wrangler d1 execute gacha-jkt48 --remote --file schema.sql
@@ -99,7 +101,7 @@ Administration dashboards have no player-facing navigation links. Open `/admin/v
 
 ## Save Data
 
-Guest saves remain in browser IndexedDB. Account saves use the same data locally and upload independently compressed and encrypted `core`, `roster`, `operations`, `history`, and `profile` sections to `jkt48_manager_data_v2`. The legacy `jkt48_manager_data` table is read only for verified migration and its rows are deleted after conversion.
+Guest saves remain in browser IndexedDB. Account saves use the same data locally and upload independently compressed and encrypted `core`, `roster`, `operations`, `history`, and `profile` sections to `jkt48_manager_data_v2`. Local IndexedDB saves from the earlier format still migrate at startup and retain retry and downloadable recovery support. Cloud saves use v2; the legacy `jkt48_manager_data` table is being retired, and legacy-only cloud rows are discarded when the retirement migration runs.
 
 - Only one run can be active at a time.
 - Local progress saves after founding setup and each resolved week.
@@ -109,22 +111,11 @@ Guest saves remain in browser IndexedDB. Account saves use the same data locally
 - Logout waits for successful cloud save and session deletion, then clears all Manager data from local IndexedDB.
 - Clearing browser site data removes guest progress that has not been uploaded.
 
-Before deploying the v2 application, apply the D1 schema with `npm run db:migrate:remote`. Existing accounts migrate lazily when loaded. To inspect or migrate dormant accounts in resumable batches, sign in as `user_id = 1`, set `MANAGER_API_URL` and `MANAGER_SESSION_TOKEN`, then run `npm run db:migrate:saves` for a dry run or `npm run db:migrate:saves -- --commit` to migrate and delete verified legacy rows.
+For the legacy cloud-save retirement rollout, deploy the updated Pages/API code first, then run `npm run db:migrate:remote`. This applies migration `0003`, which drops `jkt48_manager_data` and discards any rows that exist only in that table. It preserves `jkt48_manager_data_v2` and the shared account, session, voucher, and patchnote tables. Do not apply the drop migration before the updated API is deployed.
 
-### Admin save recovery
+The retired `/api/save/migrate` and `/api/admin/save-migration` endpoints return HTTP 410 and require a page refresh. Previously cached clients that send legacy push or load wire formats continue to have those requests converted to v2 by the backend.
 
-For a valid legacy save, ask the user to sign in once and leave the blocking “Updating your save data” screen open. The client decrypts and normalizes the save, submits it to `/api/save/migrate`, verifies the v2 read-back, and deletes the legacy row only after verification.
-
-For dormant accounts, the admin batch runner is dry-run by default:
-
-```powershell
-$env:MANAGER_API_URL = 'https://jkt48-manager.foureality.my.id'
-$env:MANAGER_SESSION_TOKEN = '<session_token_cookie_for_user_id_1>'
-$env:MIGRATION_BATCH_SIZE = '25'
-npm.cmd run db:migrate:saves
-```
-
-Review the failures, then repeat with `npm.cmd run db:migrate:saves -- --commit`. Commit mode deletes a legacy row only after conversion and v2 read-back verification. The runner is resumable; set `MIGRATION_CURSOR` to continue from a reported cursor if needed. It does not repair corrupted encrypted payloads or corrupted v2 sections: those rows are retained. For those cases, obtain the user's downloaded recovery copy or a known-good local/cloud snapshot before any manual database action; do not delete the only remaining row.
+Local save recovery remains available in the browser: if IndexedDB migration or v2 verification fails, the app blocks startup, allows a retry, and offers a recovery download when it can read the save data. Cloud legacy saves are not migrated; users who still have an older cached page should refresh to load the current client.
 
 ## Project Structure
 
