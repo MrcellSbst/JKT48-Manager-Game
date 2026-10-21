@@ -81,6 +81,12 @@ const isAllNinetySeed = (seed) => String(seed ?? '').trim().toUpperCase() === AL
 const toAbsoluteWeek = (year, week) => (year - 1) * BALANCE.weeksPerYear + week;
 const fromAbsoluteWeek = (absoluteWeek) => ({ year: Math.floor((absoluteWeek - 1) / BALANCE.weeksPerYear) + 1, week: ((absoluteWeek - 1) % BALANCE.weeksPerYear) + 1 });
 
+// Derive setup reminders from the save, even after the announcement is dismissed.
+export function getPendingGraduationSetups(state) {
+  const rosterIds = new Set((state?.members ?? []).filter((member) => member.status !== 'graduated').map((member) => member.id));
+  return (state?.graduations ?? []).filter((graduation) => graduation.announced && !graduation.completed && !graduation.preparation && rosterIds.has(graduation.memberId));
+}
+
 // Surface announced graduations only during their final four-week countdown.
 // Keeping this calculation in the engine keeps every UI surface consistent,
 // including countdowns that cross a year boundary.

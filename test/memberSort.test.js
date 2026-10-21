@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getMemberOverall, getMemberSelectionScore, rankMembersForSelection, sortMembers, SQUAD_SORT_OPTIONS } from '../src/engine/memberSort.js';
+import { getMemberOverall, getMemberSelectionScore, rankMembersForSelection, sortMembers, ROSTER_SORT_OPTIONS, SQUAD_SORT_OPTIONS } from '../src/engine/memberSort.js';
 
 const members = [
   { id: '10', name: 'Zeta', status: 'active', generation: 'Gen 10', team: 'Team B', birthMonth: 2, birthYear: 1998, vocal: 80, dance: 80, performance: 80, mc: 80, variety: 80, stamina: 60, ego: 20 },
@@ -9,6 +9,7 @@ const members = [
 ];
 
 test('member sorting supports stable name, generation, birthday, and team directions', () => {
+  const originalMembers = [...members];
   assert.deepEqual(sortMembers(members, { sortKey: 'name', direction: 'asc' }).map((member) => member.name), ['Alpha', 'Beta', 'Zeta']);
   assert.deepEqual(sortMembers(members, { sortKey: 'name', direction: 'desc' }).map((member) => member.name), ['Zeta', 'Beta', 'Alpha']);
   assert.deepEqual(sortMembers(members, { sortKey: 'generation', direction: 'asc' }).map((member) => member.name), ['Alpha', 'Beta', 'Zeta']);
@@ -16,6 +17,34 @@ test('member sorting supports stable name, generation, birthday, and team direct
   assert.deepEqual(sortMembers(members, { sortKey: 'birthday', direction: 'asc' }).map((member) => member.name), ['Beta', 'Alpha', 'Zeta']);
   assert.deepEqual(sortMembers(members, { sortKey: 'team', direction: 'asc' }).map((member) => member.name), ['Alpha', 'Beta', 'Zeta']);
   assert.deepEqual(sortMembers(members, { sortKey: 'team', direction: 'desc' }).map((member) => member.name), ['Zeta', 'Alpha', 'Beta']);
+  assert.deepEqual(members, originalMembers);
+});
+
+test('roster age sorting follows displayed age, keeps month ties deterministic, and leaves unknown ages last', () => {
+  assert.ok(ROSTER_SORT_OPTIONS.includes('age'));
+  const ageMembers = [
+    { id: 'oldest', name: 'Oldest', birthYear: 1998, birthMonth: 12 },
+    { id: 'zeta', name: 'Zeta', birthYear: 2001, birthMonth: 1 },
+    { id: 'alpha-b', name: 'Alpha', birthYear: 2001, birthMonth: 12 },
+    { id: 'youngest', name: 'Youngest', birthYear: 2004, birthMonth: 3 },
+    { id: 'alpha-a', name: 'Alpha', birthYear: 2001, birthMonth: 1 },
+    { id: 'missing', name: 'Missing' },
+    { id: 'null', name: 'Null', birthYear: null },
+    { id: 'invalid', name: 'Invalid', birthYear: 'n/a' },
+    { id: 'numeric-string', name: 'Numeric string', birthYear: '2005' },
+    { id: 'nan', name: 'NaN', birthYear: Number.NaN },
+    { id: 'infinite', name: 'Infinite', birthYear: Number.POSITIVE_INFINITY },
+  ];
+  const originalMembers = [...ageMembers];
+  const ascending = sortMembers(ageMembers, { sortKey: 'age', direction: 'asc' }).map((member) => member.id);
+  const descending = sortMembers(ageMembers, { sortKey: 'age', direction: 'desc' }).map((member) => member.id);
+
+  assert.deepEqual(ascending.slice(0, 5), ['youngest', 'alpha-a', 'alpha-b', 'zeta', 'oldest']);
+  assert.deepEqual(descending.slice(0, 5), ['oldest', 'alpha-a', 'alpha-b', 'zeta', 'youngest']);
+  assert.deepEqual(ascending.slice(5).sort(), ['missing', 'null', 'invalid', 'numeric-string', 'nan', 'infinite'].sort());
+  assert.deepEqual(descending.slice(5).sort(), ['missing', 'null', 'invalid', 'numeric-string', 'nan', 'infinite'].sort());
+  assert.deepEqual(sortMembers(ageMembers, { sortKey: 'age', direction: 'asc', year: 3 }).map((member) => member.id), ascending);
+  assert.deepEqual(ageMembers, originalMembers);
 });
 
 test('visible-stat sorting uses the shared Overall calculation and does not mutate input', () => {

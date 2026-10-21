@@ -1,4 +1,4 @@
-export const ROSTER_SORT_OPTIONS = Object.freeze(['name', 'birthday', 'generation', 'team']);
+export const ROSTER_SORT_OPTIONS = Object.freeze(['name', 'age', 'birthday', 'generation', 'team']);
 export const SQUAD_SORT_OPTIONS = Object.freeze(['visible-stat', 'popularity', 'status', 'name', 'generation', 'birthday']);
 export const SORT_DIRECTIONS = Object.freeze(['asc', 'desc']);
 
@@ -54,6 +54,9 @@ const compareNumber = (first, second) => first - second;
 
 const primaryValue = (member, sortKey, visibleStat = 'overall') => {
   if (sortKey === 'name') return textValue(member?.name ?? member?.nickname);
+  // Every member's displayed age changes by the same amount each game year,
+  // so inverse birth year gives the same order without importing gameEngine.
+  if (sortKey === 'age') return Number.isFinite(member?.birthYear) ? -member.birthYear : 0;
   if (sortKey === 'birthday') return birthdayValue(member);
   if (sortKey === 'generation') return generationValue(member);
   if (sortKey === 'team') return textValue(member?.team);
@@ -76,6 +79,13 @@ const comparePrimary = (first, second, sortKey, visibleStat) => {
 };
 
 export const compareMembers = (first, second, { sortKey = 'name', direction = 'asc', visibleStat = 'overall' } = {}) => {
+  // Keep unknown ages last regardless of direction, matching getMemberAge's
+  // finite-number requirement.
+  if (sortKey === 'age') {
+    const firstHasAge = Number.isFinite(first?.birthYear);
+    const secondHasAge = Number.isFinite(second?.birthYear);
+    if (firstHasAge !== secondHasAge) return firstHasAge ? -1 : 1;
+  }
   const primary = comparePrimary(first, second, sortKey, visibleStat);
   if (primary !== 0) return direction === 'desc' ? -primary : primary;
   const name = compareText(first?.name ?? first?.nickname, second?.name ?? second?.nickname);
